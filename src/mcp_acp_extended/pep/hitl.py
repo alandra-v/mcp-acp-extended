@@ -1,0 +1,358 @@
+"""Human-in-the-Loop (HITL) approval handler.
+
+Prompts user for approval on sensitive operations via native OS dialogs.
+macOS uses osascript for native dialogs that work without terminal access.
+
+On non-macOS platforms, HITL requests are auto-denied with a warning.
+
+Security Note:
+    The subprocess call in _show_macos_dialog intentionally uses synchronous
+    subprocess.run() rather than async subprocess. This is a deliberate security
+    choice: HITL approval MUST block the request pipeline to prevent any
+    possibility of the operation proceeding before user consent is obtained.
+    Using async patterns could introduce race conditions where operations
+    execute before approval completes.
+"""
+
+from __future__ import annotations
+
+import subprocess
+import sys
+import threading
+import time
+from dataclasses import dataclass
+from enum import Enum
+from typing import TYPE_CHECKING
+
+from mcp_acp_extended.pep.applescript import (
+    escape_applescript_string,
+    parse_applescript_record as _parse_applescript_record,
+)
+from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
+
+if TYPE_CHECKING:
+    from mcp_acp_extended.context import DecisionContext
+    from mcp_acp_extended.pdp.policy import HITLConfig
+
+__all__ = [
+    "HITLOutcome",
+    "HITLResult",
+    "HITLHandler",
+    "escape_applescript_string",
+]
+
+
+class HITLOutcome(Enum):
+    """Outcome of HITL approval request."""
+
+    USER_ALLOWED = "user_allowed"
+    USER_DENIED = "user_denied"
+    TIMEOUT = "timeout"
+
+
+@dataclass
+class HITLResult:
+    """Result of HITL approval request.
+
+    Attributes:
+        outcome: The user's decision or timeout.
+        response_time_ms: How long the user took to respond.
+    """
+
+    outcome: HITLOutcome
+    response_time_ms: float
+
+
+class HITLHandler:
+    """Handler for Human-in-the-Loop approval requests.
+
+    Uses native OS dialogs to prompt user for approval.
+    Currently only supports macOS via osascript.
+
+    On non-macOS platforms, all HITL requests are auto-denied.
+
+    Attributes:
+        config: HITL configuration (timeout, defaults).
+        is_supported: Whether HITL dialogs are supported on this platform.
+    """
+
+    def __init__(self, config: "HITLConfig") -> None:
+        """Initialize HITL handler.
+
+        Logs a warning on non-macOS platforms since HITL dialogs
+        will be auto-denied.
+
+        Args:
+            config: HITL configuration.
+        """
+        self.config = config
+        self._system_logger = get_system_logger()
+        self.is_supported = sys.platform == "darwin"
+
+        # Track pending approval requests for queue indicator.
+        # NOTE: This queuing logic is currently ineffective with the macOS
+        # osascript implementation because _show_macos_dialog uses synchronous
+        # subprocess.run(), which blocks the async event loop. This means only
+        # one dialog can ever be "in flight" at a time, so queue_position is
+        # always 1. The logic is preserved for future HITL backends that may
+        # be async (web UI, notification systems, non-blocking platform APIs).
+        # To enable concurrent dialogs, _show_macos_dialog would need to run
+        # in a thread executor: await loop.run_in_executor(None, self._show_macos_dialog, ...)
+        self._pending_count = 0
+        self._pending_lock = threading.Lock()
+
+        if not self.is_supported:
+            self._system_logger.warning(
+                {
+                    "event": "hitl_platform_unsupported",
+                    "message": f"HITL dialogs not supported on {sys.platform}. "
+                    "All HITL requests will be auto-denied.",
+                    "platform": sys.platform,
+                }
+            )
+
+    async def request_approval(
+        self,
+        context: "DecisionContext",
+        matched_rule: str | None = None,
+    ) -> HITLResult:
+        """Request user approval for an operation.
+
+        Shows a native dialog and waits for user response.
+        On unsupported platforms, immediately returns USER_DENIED.
+
+        Args:
+            context: Decision context with operation details.
+            matched_rule: The rule ID that triggered HITL (for user context).
+
+        Returns:
+            HITLResult with user's decision and response time.
+        """
+        # Short-circuit on unsupported platforms
+        if not self.is_supported:
+            return HITLResult(
+                outcome=HITLOutcome.USER_DENIED,
+                response_time_ms=0.0,
+            )
+
+        # Track pending approvals for queue indicator
+        with self._pending_lock:
+            self._pending_count += 1
+            queue_position = self._pending_count
+
+        try:
+            return await self._do_request_approval(context, matched_rule, queue_position)
+        finally:
+            with self._pending_lock:
+                self._pending_count -= 1
+
+    async def _do_request_approval(
+        self,
+        context: "DecisionContext",
+        matched_rule: str | None,
+        queue_position: int,
+    ) -> HITLResult:
+        """Internal method to perform the actual approval request."""
+        start_time = time.perf_counter()
+
+        # Build dialog content
+        tool_name = context.resource.tool.name if context.resource.tool else "unknown"
+        tool = context.resource.tool
+        path = context.resource.resource.path if context.resource.resource else None
+        subject_id = context.subject.id
+        request_id = context.environment.request_id
+
+        # Build structured message
+        message_parts: list[str] = []
+        timeout_seconds = self.config.timeout_seconds
+
+        # Header: What operation
+        message_parts.append(f"Tool: {tool_name}")
+
+        # Target path if present
+        if path:
+            # Truncate long paths for readability
+            display_path = path if len(path) <= 60 else "..." + path[-57:]
+            message_parts.append(f"Path: {display_path}")
+
+        # Why HITL was triggered
+        if matched_rule:
+            message_parts.append(f"Rule: {matched_rule}")
+
+        # Side effects (security-relevant info)
+        if tool and tool.side_effects:
+            effects = ", ".join(effect.value for effect in tool.side_effects)
+            message_parts.append(f"Effects: {effects}")
+
+        # User making the request
+        message_parts.append(f"User: {subject_id}")
+
+        # Queue indicator (only show if there are multiple pending)
+        if queue_position > 1:
+            message_parts.append(f"Queue: #{queue_position} pending")
+
+        # Timeout warning and keyboard hints
+        message_parts.append("")  # Empty line for spacing
+        message_parts.append(f"Auto-deny in {timeout_seconds}s")
+        message_parts.append("[Return] Allow  •  [Esc] Deny")
+
+        # Escape each part individually, then join with AppleScript return syntax
+        # This ensures user input is escaped but the return keyword works
+        escaped_parts = [escape_applescript_string(part) for part in message_parts]
+        safe_message = '" & return & "'.join(escaped_parts)
+
+        # Show dialog and get response
+        outcome = self._show_macos_dialog(safe_message, request_id, queue_position)
+
+        response_time_ms = (time.perf_counter() - start_time) * 1000
+
+        return HITLResult(outcome=outcome, response_time_ms=response_time_ms)
+
+    def _show_macos_dialog(
+        self,
+        message: str,
+        request_id: str | None,
+        queue_position: int,
+    ) -> HITLOutcome:
+        """Show macOS approval dialog via osascript.
+
+        Args:
+            message: Message to display in dialog (parts pre-escaped, joined with return).
+            request_id: Request correlation ID for logging.
+            queue_position: Position in approval queue (1 = first, plays sound).
+
+        Returns:
+            HITLOutcome based on user response or timeout.
+        """
+        timeout_seconds = self.config.timeout_seconds
+
+        # Build osascript command
+        # Play Funk sound only for first request (queue_position == 1)
+        # No sound for queued requests since user is already engaged
+        # Buttons are listed right-to-left in the dialog, so "Allow" appears on the right
+        # default button "Allow" = Return/Enter activates Allow
+        # cancel button "Deny" = Escape activates Deny (returns exit code 1, "User canceled")
+        # The message uses AppleScript string concatenation with return for newlines
+        sound_cmd = (
+            'do shell script "afplay /System/Library/Sounds/Funk.aiff &"' if queue_position == 1 else ""
+        )
+        script = f"""
+            {sound_cmd}
+            display dialog ("{message}") \
+                with title "MCP-ACP: Approval Required" \
+                buttons {{"Deny", "Allow"}} \
+                default button "Allow" \
+                cancel button "Deny" \
+                with icon caution \
+                giving up after {timeout_seconds}
+        """
+
+        try:
+            result = subprocess.run(
+                ["osascript", "-e", script],
+                capture_output=True,
+                text=True,
+                timeout=timeout_seconds + 5,  # Extra buffer for subprocess overhead
+            )
+
+            # Check returncode first - non-zero means error or user cancelled
+            if result.returncode != 0:
+                # returncode 1 with "User canceled" means Escape was pressed (Deny)
+                # This is the expected path when user presses Escape due to cancel button "Deny"
+                if result.returncode == 1 and "User canceled" in result.stderr:
+                    # Normal path - user pressed Escape to deny, no need to log
+                    return HITLOutcome.USER_DENIED
+
+                # Other error
+                self._system_logger.warning(
+                    {
+                        "event": "hitl_osascript_error",
+                        "message": "osascript returned non-zero exit code",
+                        "returncode": result.returncode,
+                        "stderr": result.stderr.strip() if result.stderr else None,
+                        "request_id": request_id,
+                    }
+                )
+                return HITLOutcome.USER_DENIED
+
+            output = result.stdout.strip()
+
+            # Parse AppleScript output - defensive handling
+            try:
+                parsed = _parse_applescript_record(output)
+            except Exception as e:
+                # If parsing fails for any reason, default to deny
+                self._system_logger.warning(
+                    {
+                        "event": "hitl_parse_error",
+                        "message": f"Failed to parse osascript output: {e}",
+                        "output": output,
+                        "error_type": type(e).__name__,
+                        "request_id": request_id,
+                    }
+                )
+                return HITLOutcome.USER_DENIED
+
+            # Check for timeout (dialog gave up)
+            if parsed.get("gave up") == "true":
+                self._system_logger.warning(
+                    {
+                        "event": "hitl_timeout",
+                        "message": f"HITL dialog timed out after {timeout_seconds}s",
+                        "timeout_seconds": timeout_seconds,
+                        "request_id": request_id,
+                    }
+                )
+                return HITLOutcome.TIMEOUT
+
+            # Check button pressed
+            button = parsed.get("button returned")
+            if button == "Allow":
+                return HITLOutcome.USER_ALLOWED
+            elif button == "Deny":
+                return HITLOutcome.USER_DENIED
+            else:
+                # Unexpected output, treat as deny
+                self._system_logger.warning(
+                    {
+                        "event": "hitl_unexpected_response",
+                        "message": "Unexpected osascript output, defaulting to deny",
+                        "output": output,
+                        "parsed": parsed,
+                        "request_id": request_id,
+                    }
+                )
+                return HITLOutcome.USER_DENIED
+
+        except subprocess.TimeoutExpired:
+            self._system_logger.warning(
+                {
+                    "event": "hitl_subprocess_timeout",
+                    "message": "osascript subprocess timed out",
+                    "timeout_seconds": timeout_seconds,
+                    "request_id": request_id,
+                }
+            )
+            return HITLOutcome.TIMEOUT
+
+        except FileNotFoundError:
+            # osascript not available (not macOS)
+            self._system_logger.error(
+                {
+                    "event": "hitl_osascript_not_found",
+                    "message": "osascript not found - HITL requires macOS",
+                    "request_id": request_id,
+                }
+            )
+            return HITLOutcome.USER_DENIED
+
+        except subprocess.SubprocessError as e:
+            self._system_logger.error(
+                {
+                    "event": "hitl_subprocess_error",
+                    "message": f"osascript failed: {e}",
+                    "error_type": type(e).__name__,
+                    "request_id": request_id,
+                }
+            )
+            return HITLOutcome.USER_DENIED

@@ -1,0 +1,1114 @@
+"""Unit tests for policy system (PDP).
+
+Tests the policy models, loader, matcher, and engine.
+"""
+
+from datetime import datetime, timezone
+
+import pytest
+from pydantic import ValidationError
+
+from mcp_acp_extended.context import (
+    Action,
+    ActionCategory,
+    ActionProvenance,
+    DecisionContext,
+    Environment,
+    Provenance,
+    Resource,
+    ResourceInfo,
+    ResourceType,
+    ServerInfo,
+    Subject,
+    SubjectProvenance,
+    ToolInfo,
+)
+from mcp_acp_extended.pdp import (
+    Decision,
+    HITLConfig,
+    PolicyConfig,
+    PolicyEngine,
+    PolicyRule,
+    RuleConditions,
+    create_default_policy,
+)
+from mcp_acp_extended.utils.policy import (
+    create_default_policy_file,
+    load_policy,
+    policy_exists,
+    save_policy,
+)
+from mcp_acp_extended.pdp.matcher import (
+    _match_operations,
+    infer_operation,
+    match_path_pattern,
+    match_tool_name,
+)
+
+
+# ============================================================================
+# Fixtures
+# ============================================================================
+
+
+@pytest.fixture
+def temp_policy_dir(tmp_path):
+    """Create a temporary directory for policy files."""
+    return tmp_path
+
+
+@pytest.fixture
+def sample_policy():
+    """Create a sample policy with typical rules for testing."""
+    return PolicyConfig(
+        version="1",
+        default_action="deny",
+        rules=[
+            PolicyRule(
+                id="allow-project-read",
+                effect="allow",
+                conditions=RuleConditions(
+                    path_pattern="/project/**",
+                    operations=["read"],
+                ),
+            ),
+            PolicyRule(
+                id="hitl-project-write",
+                effect="hitl",
+                conditions=RuleConditions(
+                    path_pattern="/project/**",
+                    operations=["write"],
+                ),
+            ),
+            PolicyRule(
+                id="deny-bash",
+                effect="deny",
+                conditions=RuleConditions(tool_name="bash"),
+            ),
+            PolicyRule(
+                id="deny-secrets",
+                effect="deny",
+                conditions=RuleConditions(path_pattern="**/secrets/**"),
+            ),
+        ],
+        hitl=HITLConfig(timeout_seconds=30),
+    )
+
+
+@pytest.fixture
+def make_context():
+    """Factory fixture to create DecisionContext for testing.
+
+    Returns a function that builds minimal contexts for policy evaluation tests.
+    """
+
+    def _make(
+        method: str = "tools/call",
+        tool_name: str | None = "test_tool",
+        path: str | None = None,
+        category: ActionCategory = ActionCategory.ACTION,
+    ) -> DecisionContext:
+        tool = ToolInfo(name=tool_name, provenance=Provenance.MCP_REQUEST) if tool_name else None
+        resource_info = ResourceInfo(path=path, provenance=Provenance.MCP_REQUEST) if path else None
+
+        return DecisionContext(
+            subject=Subject(
+                id="testuser",
+                provenance=SubjectProvenance(id=Provenance.DERIVED),
+            ),
+            action=Action(
+                mcp_method=method,
+                name=method.replace("/", "."),
+                intent=None,
+                is_mutating=True,
+                category=category,
+                provenance=ActionProvenance(
+                    intent=None,
+                    is_mutating=Provenance.DERIVED,
+                ),
+            ),
+            resource=Resource(
+                type=ResourceType.TOOL,
+                server=ServerInfo(id="test-server", provenance=Provenance.PROXY_CONFIG),
+                tool=tool,
+                resource=resource_info,
+            ),
+            environment=Environment(
+                timestamp=datetime.now(timezone.utc),
+                request_id="req-123",
+                session_id="sess-456",
+            ),
+        )
+
+    return _make
+
+
+@pytest.fixture
+def deny_bash_policy():
+    """Policy that denies bash but allows everything else."""
+    return PolicyConfig(
+        rules=[
+            PolicyRule(effect="deny", conditions=RuleConditions(tool_name="bash")),
+            PolicyRule(effect="allow", conditions=RuleConditions(tool_name="*")),
+        ]
+    )
+
+
+@pytest.fixture
+def path_based_policy():
+    """Policy with path-based rules."""
+    return PolicyConfig(
+        rules=[
+            PolicyRule(effect="deny", conditions=RuleConditions(path_pattern="**/secrets/**")),
+            PolicyRule(effect="allow", conditions=RuleConditions(path_pattern="/project/**")),
+        ]
+    )
+
+
+# ============================================================================
+# Tests: PolicyConfig Model
+# ============================================================================
+
+
+class TestPolicyConfigModel:
+    """Tests for PolicyConfig model validation."""
+
+    def test_default_version(self):
+        """Given no version, defaults to '1'."""
+        # Act
+        policy = PolicyConfig()
+
+        # Assert
+        assert policy.version == "1"
+
+    def test_default_action_is_deny(self):
+        """Given no default_action, defaults to 'deny'."""
+        # Act
+        policy = PolicyConfig()
+
+        # Assert
+        assert policy.default_action == "deny"
+
+    def test_default_rules_is_empty_list(self):
+        """Given no rules, defaults to empty list."""
+        # Act
+        policy = PolicyConfig()
+
+        # Assert
+        assert policy.rules == []
+
+    def test_default_hitl_timeout(self):
+        """Given no hitl config, defaults to 30 second timeout."""
+        # Act
+        policy = PolicyConfig()
+
+        # Assert
+        assert policy.hitl.timeout_seconds == 30
+
+    def test_is_immutable(self):
+        """Given a PolicyConfig, it cannot be modified after creation."""
+        # Arrange
+        policy = PolicyConfig()
+
+        # Act & Assert
+        with pytest.raises(ValidationError):
+            policy.version = "2"
+
+
+# ============================================================================
+# Tests: PolicyRule Model
+# ============================================================================
+
+
+class TestPolicyRuleModel:
+    """Tests for PolicyRule model validation."""
+
+    def test_requires_effect_field(self):
+        """Given no effect, raises ValidationError."""
+        # Act & Assert
+        with pytest.raises(ValidationError):
+            PolicyRule()
+
+    @pytest.mark.parametrize(
+        "effect",
+        ["allow", "deny", "hitl"],
+        ids=["allow", "deny", "hitl"],
+    )
+    def test_accepts_valid_effect(self, effect):
+        """Given valid effect value, creates rule successfully."""
+        # Act
+        rule = PolicyRule(effect=effect, conditions=RuleConditions(tool_name="*"))
+
+        # Assert
+        assert rule.effect == effect
+
+    def test_rejects_invalid_effect(self):
+        """Given invalid effect value, raises ValidationError."""
+        # Act & Assert
+        with pytest.raises(ValidationError):
+            PolicyRule(effect="block", conditions=RuleConditions(tool_name="*"))
+
+
+# ============================================================================
+# Tests: HITLConfig Model
+# ============================================================================
+
+
+class TestHITLConfigModel:
+    """Tests for HITLConfig model validation."""
+
+    @pytest.mark.parametrize(
+        "timeout",
+        [5, 30, 300],
+        ids=["minimum", "default", "maximum"],
+    )
+    def test_accepts_valid_timeout(self, timeout):
+        """Given timeout in valid range, creates config successfully."""
+        # Act
+        config = HITLConfig(timeout_seconds=timeout)
+
+        # Assert
+        assert config.timeout_seconds == timeout
+
+    def test_rejects_timeout_below_minimum(self):
+        """Given timeout below 5s, raises ValidationError."""
+        # Act & Assert
+        with pytest.raises(ValidationError):
+            HITLConfig(timeout_seconds=4)
+
+    def test_rejects_timeout_above_maximum(self):
+        """Given timeout above 300s, raises ValidationError."""
+        # Act & Assert
+        with pytest.raises(ValidationError):
+            HITLConfig(timeout_seconds=301)
+
+
+# ============================================================================
+# Tests: RuleConditions Model
+# ============================================================================
+
+
+class TestRuleConditionsModel:
+    """Tests for RuleConditions model validation."""
+
+    def test_requires_at_least_one_condition(self):
+        """Given no conditions, raises ValidationError (security risk)."""
+        # Act & Assert
+        with pytest.raises(ValidationError, match="At least one condition"):
+            RuleConditions()
+
+    def test_accepts_single_tool_name_condition(self):
+        """Given only tool_name, creates conditions successfully."""
+        # Act
+        conditions = RuleConditions(tool_name="bash")
+
+        # Assert
+        assert conditions.tool_name == "bash"
+        assert conditions.path_pattern is None
+
+    def test_accepts_single_path_pattern_condition(self):
+        """Given only path_pattern, creates conditions successfully."""
+        # Act
+        conditions = RuleConditions(path_pattern="/project/**")
+
+        # Assert
+        assert conditions.path_pattern == "/project/**"
+        assert conditions.tool_name is None
+
+    @pytest.mark.parametrize(
+        "operations",
+        [["read"], ["write"], ["delete"], ["read", "write", "delete"]],
+        ids=["read-only", "write-only", "delete-only", "all-operations"],
+    )
+    def test_accepts_valid_operations(self, operations):
+        """Given valid operation values, creates conditions successfully."""
+        # Act
+        conditions = RuleConditions(operations=operations)
+
+        # Assert
+        assert conditions.operations == operations
+
+    def test_rejects_invalid_operation(self):
+        """Given invalid operation value, raises ValidationError."""
+        # Act & Assert
+        with pytest.raises(ValidationError):
+            RuleConditions(operations=["execute"])
+
+
+# ============================================================================
+# Tests: create_default_policy
+# ============================================================================
+
+
+class TestCreateDefaultPolicy:
+    """Tests for create_default_policy function."""
+
+    def test_returns_policy_with_deny_default(self):
+        """Given no args, returns policy with deny default action."""
+        # Act
+        policy = create_default_policy()
+
+        # Assert
+        assert policy.default_action == "deny"
+
+    def test_returns_policy_with_empty_rules(self):
+        """Given no args, returns policy with no rules."""
+        # Act
+        policy = create_default_policy()
+
+        # Assert
+        assert policy.rules == []
+
+
+# ============================================================================
+# Tests: Policy Loader - Save and Load
+# ============================================================================
+
+
+class TestPolicySaveLoad:
+    """Tests for policy save and load operations."""
+
+    def test_roundtrip_preserves_version(self, temp_policy_dir, sample_policy):
+        """Given saved policy, loading preserves version."""
+        # Arrange
+        path = temp_policy_dir / "policy.json"
+
+        # Act
+        save_policy(sample_policy, path)
+        loaded = load_policy(path)
+
+        # Assert
+        assert loaded.version == sample_policy.version
+
+    def test_roundtrip_preserves_rule_count(self, temp_policy_dir, sample_policy):
+        """Given saved policy, loading preserves rule count."""
+        # Arrange
+        path = temp_policy_dir / "policy.json"
+
+        # Act
+        save_policy(sample_policy, path)
+        loaded = load_policy(path)
+
+        # Assert
+        assert len(loaded.rules) == len(sample_policy.rules)
+
+    def test_roundtrip_preserves_rule_ids(self, temp_policy_dir, sample_policy):
+        """Given saved policy, loading preserves rule IDs."""
+        # Arrange
+        path = temp_policy_dir / "policy.json"
+
+        # Act
+        save_policy(sample_policy, path)
+        loaded = load_policy(path)
+
+        # Assert
+        assert loaded.rules[0].id == "allow-project-read"
+
+    def test_save_creates_parent_directories(self, temp_policy_dir):
+        """Given nested path, save creates parent directories."""
+        # Arrange
+        path = temp_policy_dir / "nested" / "dir" / "policy.json"
+        policy = create_default_policy()
+
+        # Act
+        save_policy(policy, path)
+
+        # Assert
+        assert path.exists()
+
+
+# ============================================================================
+# Tests: Policy Loader - Error Cases
+# ============================================================================
+
+
+class TestPolicyLoaderErrors:
+    """Tests for policy loading error cases."""
+
+    def test_load_missing_file_raises(self, temp_policy_dir):
+        """Given nonexistent file, raises FileNotFoundError."""
+        # Arrange
+        path = temp_policy_dir / "nonexistent.json"
+
+        # Act & Assert
+        with pytest.raises(FileNotFoundError):
+            load_policy(path)
+
+    def test_load_invalid_json_raises(self, temp_policy_dir):
+        """Given malformed JSON, raises ValueError."""
+        # Arrange
+        path = temp_policy_dir / "invalid.json"
+        path.write_text("{ invalid json }")
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="Invalid JSON"):
+            load_policy(path)
+
+    def test_load_invalid_schema_raises(self, temp_policy_dir):
+        """Given invalid schema, raises ValueError."""
+        # Arrange
+        path = temp_policy_dir / "bad_schema.json"
+        path.write_text('{"rules": [{"effect": "invalid"}]}')
+
+        # Act & Assert
+        with pytest.raises(ValueError, match="Invalid policy configuration"):
+            load_policy(path)
+
+
+# ============================================================================
+# Tests: policy_exists and create_default_policy_file
+# ============================================================================
+
+
+class TestPolicyFileHelpers:
+    """Tests for policy file helper functions."""
+
+    def test_policy_exists_returns_false_for_missing(self, temp_policy_dir):
+        """Given nonexistent file, returns False."""
+        # Arrange
+        path = temp_policy_dir / "policy.json"
+
+        # Act & Assert
+        assert not policy_exists(path)
+
+    def test_policy_exists_returns_true_for_existing(self, temp_policy_dir, sample_policy):
+        """Given existing file, returns True."""
+        # Arrange
+        path = temp_policy_dir / "policy.json"
+        save_policy(sample_policy, path)
+
+        # Act & Assert
+        assert policy_exists(path)
+
+    def test_create_default_policy_file_creates_file(self, temp_policy_dir):
+        """Given valid path, creates file on disk."""
+        # Arrange
+        path = temp_policy_dir / "policy.json"
+
+        # Act
+        create_default_policy_file(path)
+
+        # Assert
+        assert path.exists()
+
+    def test_create_default_policy_file_returns_policy(self, temp_policy_dir):
+        """Given valid path, returns created policy."""
+        # Arrange
+        path = temp_policy_dir / "policy.json"
+
+        # Act
+        policy = create_default_policy_file(path)
+
+        # Assert
+        assert policy.version == "1"
+        assert policy.default_action == "deny"
+
+    def test_create_default_policy_file_raises_if_exists(self, temp_policy_dir, sample_policy):
+        """Given existing file, raises FileExistsError."""
+        # Arrange
+        path = temp_policy_dir / "policy.json"
+        save_policy(sample_policy, path)
+
+        # Act & Assert
+        with pytest.raises(FileExistsError):
+            create_default_policy_file(path)
+
+
+# ============================================================================
+# Tests: Pattern Matcher - Path Patterns
+# ============================================================================
+
+
+class TestMatchPathPattern:
+    """Tests for path pattern matching."""
+
+    @pytest.mark.parametrize(
+        ("pattern", "path", "expected"),
+        [
+            # ** matches anything including /
+            ("/project/**", "/project/src/main.py", True),
+            ("/project/**", "/project/deep/nested/file.txt", True),
+            ("/project/**", "/other/file.txt", False),
+            # * matches anything except /
+            ("/project/*", "/project/file.txt", True),
+            ("/project/*", "/project/src/file.txt", False),
+            # Specific patterns
+            ("**/*.key", "/home/user/secrets.key", True),
+            ("**/*.key", "/secrets.key", True),
+            ("**/*.key", "/home/user/secrets.txt", False),
+            ("**/secrets/**", "/app/secrets/token.txt", True),
+            ("**/secrets/**", "/secrets/key", True),
+            ("**/secrets/**", "/app/config/token.txt", False),
+            # ? matches single character
+            ("/tmp/file?.txt", "/tmp/file1.txt", True),
+            ("/tmp/file?.txt", "/tmp/file12.txt", False),
+            # Exact match
+            ("/etc/passwd", "/etc/passwd", True),
+            ("/etc/passwd", "/etc/shadow", False),
+            # Edge cases
+            ("**", "/any/path/at/all", True),
+            ("*", "file.txt", True),
+            ("*", "path/file.txt", False),
+        ],
+        ids=[
+            "double-star-deep",
+            "double-star-deeper",
+            "double-star-no-match",
+            "single-star-match",
+            "single-star-no-nested",
+            "extension-deep",
+            "extension-root",
+            "extension-no-match",
+            "secrets-nested",
+            "secrets-shallow",
+            "secrets-no-match",
+            "question-single",
+            "question-multiple",
+            "exact-match",
+            "exact-no-match",
+            "double-star-only",
+            "star-no-slash",
+            "star-with-slash",
+        ],
+    )
+    def test_pattern_matching(self, pattern, path, expected):
+        """Given pattern and path, returns expected match result."""
+        # Act & Assert
+        assert match_path_pattern(pattern, path) == expected
+
+    def test_none_path_never_matches(self):
+        """Given None path, returns False regardless of pattern."""
+        # Act & Assert
+        assert match_path_pattern("/project/**", None) is False
+
+
+# ============================================================================
+# Tests: Pattern Matcher - Tool Names
+# ============================================================================
+
+
+class TestMatchToolName:
+    """Tests for tool name pattern matching."""
+
+    @pytest.mark.parametrize(
+        ("pattern", "name", "expected"),
+        [
+            ("bash", "bash", True),
+            ("bash", "zsh", False),
+            ("*_file", "read_file", True),
+            ("*_file", "write_file", True),
+            ("*_file", "execute", False),
+            ("read_*", "read_file", True),
+            ("read_*", "write_file", False),
+            ("execute_*", "execute_command", True),
+        ],
+        ids=[
+            "exact-match",
+            "exact-no-match",
+            "suffix-read",
+            "suffix-write",
+            "suffix-no-match",
+            "prefix-read",
+            "prefix-no-match",
+            "prefix-execute",
+        ],
+    )
+    def test_pattern_matching(self, pattern, name, expected):
+        """Given pattern and tool name, returns expected match result."""
+        # Act & Assert
+        assert match_tool_name(pattern, name) == expected
+
+    def test_none_name_never_matches(self):
+        """Given None name, returns False regardless of pattern."""
+        # Act & Assert
+        assert match_tool_name("bash", None) is False
+
+
+# ============================================================================
+# Tests: Pattern Matcher - Operation Inference
+# ============================================================================
+
+
+class TestInferOperation:
+    """Tests for operation inference from tool names."""
+
+    @pytest.mark.parametrize(
+        ("tool_name", "expected"),
+        [
+            ("read_file", "read"),
+            ("get_user", "read"),
+            ("list_files", "read"),
+            ("fetch_data", "read"),
+            ("search_logs", "read"),
+        ],
+        ids=["read", "get", "list", "fetch", "search"],
+    )
+    def test_infers_read_operation(self, tool_name, expected):
+        """Given read-like tool name, infers 'read' operation."""
+        # Act & Assert
+        assert infer_operation(tool_name) == expected
+
+    @pytest.mark.parametrize(
+        ("tool_name", "expected"),
+        [
+            ("write_file", "write"),
+            ("create_user", "write"),
+            ("edit_config", "write"),
+            ("update_record", "write"),
+            ("save_document", "write"),
+        ],
+        ids=["write", "create", "edit", "update", "save"],
+    )
+    def test_infers_write_operation(self, tool_name, expected):
+        """Given write-like tool name, infers 'write' operation."""
+        # Act & Assert
+        assert infer_operation(tool_name) == expected
+
+    @pytest.mark.parametrize(
+        ("tool_name", "expected"),
+        [
+            ("delete_file", "delete"),
+            ("remove_user", "delete"),
+            ("drop_table", "delete"),
+            ("clear_cache", "delete"),
+        ],
+        ids=["delete", "remove", "drop", "clear"],
+    )
+    def test_infers_delete_operation(self, tool_name, expected):
+        """Given delete-like tool name, infers 'delete' operation."""
+        # Act & Assert
+        assert infer_operation(tool_name) == expected
+
+    @pytest.mark.parametrize(
+        "tool_name",
+        ["bash", "execute_command", "process_data"],
+        ids=["bash", "execute", "process"],
+    )
+    def test_returns_none_for_unknown(self, tool_name):
+        """Given ambiguous tool name, returns None (unknown operation)."""
+        # Act & Assert
+        assert infer_operation(tool_name) is None
+
+
+# ============================================================================
+# Tests: Pattern Matcher - Operation Matching
+# ============================================================================
+
+
+class TestMatchOperations:
+    """Tests for operation constraint matching."""
+
+    def test_none_constraint_matches_any_operation(self):
+        """Given no constraint, matches any operation."""
+        # Act & Assert
+        assert _match_operations(None, "read") is True
+        assert _match_operations(None, "write") is True
+        assert _match_operations(None, None) is True
+
+    @pytest.mark.parametrize(
+        ("constraint", "operation", "expected"),
+        [
+            (["read"], "read", True),
+            (["read"], "write", False),
+            (["read", "write"], "write", True),
+            (["read", "write", "delete"], "delete", True),
+        ],
+        ids=["single-match", "single-no-match", "multi-match", "all-operations"],
+    )
+    def test_constraint_matching(self, constraint, operation, expected):
+        """Given operation constraint, returns expected match result."""
+        # Act & Assert
+        assert _match_operations(constraint, operation) == expected
+
+    def test_unknown_operation_fails_specific_constraint(self):
+        """Given specific constraint and unknown operation, returns False."""
+        # Act & Assert
+        assert _match_operations(["read"], None) is False
+
+
+# ============================================================================
+# Tests: Policy Engine - Discovery Methods
+# ============================================================================
+
+
+class TestPolicyEngineDiscovery:
+    """Tests for discovery method handling."""
+
+    def test_discovery_methods_bypass_policy(self, sample_policy, make_context):
+        """Given discovery method, returns ALLOW without checking rules."""
+        # Arrange
+        engine = PolicyEngine(sample_policy)
+        ctx = make_context(method="tools/list", category=ActionCategory.DISCOVERY)
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.ALLOW
+
+
+# ============================================================================
+# Tests: Policy Engine - Default Action
+# ============================================================================
+
+
+class TestPolicyEngineDefaultAction:
+    """Tests for default action when no rules match."""
+
+    def test_denies_when_no_match(self, make_context):
+        """Given no matching rules, returns default DENY."""
+        # Arrange
+        policy = PolicyConfig(
+            default_action="deny",
+            rules=[
+                PolicyRule(effect="allow", conditions=RuleConditions(tool_name="allowed_tool")),
+            ],
+        )
+        engine = PolicyEngine(policy)
+        ctx = make_context(tool_name="other_tool")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.DENY
+
+
+# ============================================================================
+# Tests: Policy Engine - Tool Name Matching
+# ============================================================================
+
+
+class TestPolicyEngineToolMatching:
+    """Tests for tool name-based policy evaluation."""
+
+    def test_denies_matching_tool(self, deny_bash_policy, make_context):
+        """Given tool matching deny rule, returns DENY."""
+        # Arrange
+        engine = PolicyEngine(deny_bash_policy)
+        ctx = make_context(tool_name="bash")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.DENY
+
+    def test_allows_non_matching_tool(self, deny_bash_policy, make_context):
+        """Given tool not matching deny rule, returns ALLOW."""
+        # Arrange
+        engine = PolicyEngine(deny_bash_policy)
+        ctx = make_context(tool_name="safe_tool")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.ALLOW
+
+
+# ============================================================================
+# Tests: Policy Engine - Path Pattern Matching
+# ============================================================================
+
+
+class TestPolicyEnginePathMatching:
+    """Tests for path pattern-based policy evaluation."""
+
+    def test_denies_matching_path(self, path_based_policy, make_context):
+        """Given path matching deny rule, returns DENY."""
+        # Arrange
+        engine = PolicyEngine(path_based_policy)
+        ctx = make_context(path="/app/secrets/key.txt")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.DENY
+
+    def test_allows_matching_path(self, path_based_policy, make_context):
+        """Given path matching allow rule, returns ALLOW."""
+        # Arrange
+        engine = PolicyEngine(path_based_policy)
+        ctx = make_context(path="/project/src/main.py")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.ALLOW
+
+    def test_denies_unmatched_path(self, path_based_policy, make_context):
+        """Given path matching no rule, returns default DENY."""
+        # Arrange
+        engine = PolicyEngine(path_based_policy)
+        ctx = make_context(path="/other/file.txt")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.DENY
+
+
+# ============================================================================
+# Tests: Policy Engine - Combined Conditions (AND logic)
+# ============================================================================
+
+
+class TestPolicyEngineCombinedConditions:
+    """Tests for AND logic in rule conditions."""
+
+    @pytest.fixture
+    def combined_conditions_policy(self):
+        """Policy with combined tool + path conditions."""
+        return PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(
+                        tool_name="read_file",
+                        path_pattern="/project/**",
+                    ),
+                ),
+            ]
+        )
+
+    def test_allows_when_both_match(self, combined_conditions_policy, make_context):
+        """Given both conditions match, returns ALLOW."""
+        # Arrange
+        engine = PolicyEngine(combined_conditions_policy)
+        ctx = make_context(tool_name="read_file", path="/project/file.txt")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.ALLOW
+
+    def test_denies_when_tool_matches_but_path_fails(self, combined_conditions_policy, make_context):
+        """Given tool matches but path doesn't, returns DENY."""
+        # Arrange
+        engine = PolicyEngine(combined_conditions_policy)
+        ctx = make_context(tool_name="read_file", path="/other/file.txt")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.DENY
+
+    def test_denies_when_path_matches_but_tool_fails(self, combined_conditions_policy, make_context):
+        """Given path matches but tool doesn't, returns DENY."""
+        # Arrange
+        engine = PolicyEngine(combined_conditions_policy)
+        ctx = make_context(tool_name="write_file", path="/project/file.txt")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.DENY
+
+
+# ============================================================================
+# Tests: Policy Engine - Operation Inference
+# ============================================================================
+
+
+class TestPolicyEngineOperationInference:
+    """Tests for operation-based policy evaluation."""
+
+    @pytest.fixture
+    def operation_policy(self):
+        """Policy with operation-based rules."""
+        return PolicyConfig(
+            rules=[
+                PolicyRule(effect="allow", conditions=RuleConditions(operations=["read"])),
+                PolicyRule(effect="hitl", conditions=RuleConditions(operations=["write"])),
+            ]
+        )
+
+    def test_allows_read_operation(self, operation_policy, make_context):
+        """Given read-like tool, returns ALLOW."""
+        # Arrange
+        engine = PolicyEngine(operation_policy)
+        ctx = make_context(tool_name="read_file")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.ALLOW
+
+    def test_hitl_for_write_operation(self, operation_policy, make_context):
+        """Given write-like tool, returns HITL."""
+        # Arrange
+        engine = PolicyEngine(operation_policy)
+        ctx = make_context(tool_name="write_file")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.HITL
+
+    def test_denies_unknown_operation(self, operation_policy, make_context):
+        """Given tool with unknown operation, returns DENY."""
+        # Arrange
+        engine = PolicyEngine(operation_policy)
+        ctx = make_context(tool_name="unknown_tool")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.DENY
+
+
+# ============================================================================
+# Tests: Policy Engine - Wildcard Matching
+# ============================================================================
+
+
+class TestPolicyEngineWildcard:
+    """Tests for wildcard condition matching."""
+
+    def test_wildcard_matches_all_tools(self, make_context):
+        """Given wildcard tool_name, matches any tool."""
+        # Arrange
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(effect="allow", conditions=RuleConditions(tool_name="*")),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Act & Assert
+        assert engine.evaluate(make_context(tool_name="anything")) == Decision.ALLOW
+        assert engine.evaluate(make_context(tool_name="other_thing")) == Decision.ALLOW
+
+
+# ============================================================================
+# Tests: Policy Engine - Combining Algorithm (HITL > DENY > ALLOW)
+# ============================================================================
+
+
+class TestPolicyEngineCombiningAlgorithm:
+    """Tests for decision combining algorithm: HITL > DENY > ALLOW."""
+
+    def test_deny_overrides_allow(self, make_context):
+        """Given matching ALLOW and DENY rules, DENY wins."""
+        # Arrange
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(effect="allow", conditions=RuleConditions(tool_name="bash")),
+                PolicyRule(effect="deny", conditions=RuleConditions(tool_name="bash")),
+            ]
+        )
+        engine = PolicyEngine(policy)
+        ctx = make_context(tool_name="bash")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.DENY
+
+    def test_hitl_overrides_deny(self, make_context):
+        """Given matching DENY and HITL rules, HITL wins."""
+        # Arrange
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(effect="deny", conditions=RuleConditions(tool_name="bash")),
+                PolicyRule(effect="hitl", conditions=RuleConditions(tool_name="bash")),
+            ]
+        )
+        engine = PolicyEngine(policy)
+        ctx = make_context(tool_name="bash")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.HITL
+
+    def test_hitl_overrides_allow(self, make_context):
+        """Given matching ALLOW and HITL rules, HITL wins."""
+        # Arrange
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(effect="allow", conditions=RuleConditions(tool_name="bash")),
+                PolicyRule(effect="hitl", conditions=RuleConditions(tool_name="bash")),
+            ]
+        )
+        engine = PolicyEngine(policy)
+        ctx = make_context(tool_name="bash")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.HITL
+
+
+# ============================================================================
+# Tests: Policy Engine - HITL Decision
+# ============================================================================
+
+
+class TestPolicyEngineHITL:
+    """Tests for HITL decision handling."""
+
+    def test_hitl_rule_returns_hitl_decision(self, sample_policy, make_context):
+        """Given matching HITL rule, returns HITL decision."""
+        # Arrange
+        engine = PolicyEngine(sample_policy)
+        ctx = make_context(tool_name="write_file", path="/project/config.yaml")
+
+        # Act
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.HITL
+
+
+# ============================================================================
+# Tests: Integration - Full Policy Workflow
+# ============================================================================
+
+
+class TestPolicyIntegration:
+    """Integration tests for the full policy workflow."""
+
+    def test_create_save_load_evaluate(self, temp_policy_dir, make_context):
+        """Given complete workflow, policy correctly evaluates after save/load."""
+        # Arrange - Create policy
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    id="deny-dangerous",
+                    effect="deny",
+                    conditions=RuleConditions(tool_name="bash"),
+                ),
+                PolicyRule(
+                    id="allow-reads",
+                    effect="allow",
+                    conditions=RuleConditions(operations=["read"]),
+                ),
+            ]
+        )
+
+        # Act - Save and load
+        path = temp_policy_dir / "policy.json"
+        save_policy(policy, path)
+        loaded = load_policy(path)
+
+        # Act - Evaluate
+        engine = PolicyEngine(loaded)
+        ctx = make_context(tool_name="bash")
+        decision = engine.evaluate(ctx)
+
+        # Assert
+        assert decision == Decision.DENY

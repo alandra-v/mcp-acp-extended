@@ -1,0 +1,205 @@
+{
+  "additionalProperties": false,
+  "description": "One policy decision log entry (audit/decisions.jsonl).\n\nRecords the outcome of a single ABAC policy evaluation for one MCP request.\nIncludes rule-level attribution, summarized resource context, timing data,\nand optional human-in-the-loop (HITL) information.",
+  "properties": {
+    "time": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "ISO 8601 timestamp, added by formatter during serialization",
+      "title": "Time"
+    },
+    "event": {
+      "const": "policy_decision",
+      "default": "policy_decision",
+      "title": "Event",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "allow",
+        "deny",
+        "hitl"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "matched_rules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Matched Rules",
+      "type": "array"
+    },
+    "final_rule": {
+      "title": "Final Rule",
+      "type": "string"
+    },
+    "mcp_method": {
+      "title": "Mcp Method",
+      "type": "string"
+    },
+    "tool_name": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Tool Name"
+    },
+    "path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Path"
+    },
+    "uri": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Uri"
+    },
+    "scheme": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Scheme"
+    },
+    "subject_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Subject Id"
+    },
+    "backend_id": {
+      "title": "Server Id",
+      "type": "string"
+    },
+    "is_mutating": {
+      "default": false,
+      "title": "Is Mutating",
+      "type": "boolean"
+    },
+    "side_effects": {
+      "anyOf": [
+        {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Side Effects"
+    },
+    "policy_version": {
+      "title": "Policy Version",
+      "type": "string"
+    },
+    "policy_eval_ms": {
+      "title": "Policy Eval Ms",
+      "description": "Policy rule evaluation time in milliseconds",
+      "type": "number"
+    },
+    "policy_hitl_ms": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Hitl Ms",
+      "description": "HITL wait time in milliseconds (only when decision == hitl)"
+    },
+    "policy_total_ms": {
+      "title": "Policy Total Ms",
+      "description": "Total evaluation time in milliseconds (eval + HITL, excludes context)",
+      "type": "number"
+    },
+    "request_id": {
+      "title": "Request Id",
+      "type": "string"
+    },
+    "session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Session Id"
+    },
+    "hitl_outcome": {
+      "anyOf": [
+        {
+          "enum": [
+            "user_allowed",
+            "user_denied",
+            "timeout"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Hitl Outcome"
+    }
+  },
+  "required": [
+    "decision",
+    "final_rule",
+    "mcp_method",
+    "backend_id",
+    "policy_version",
+    "policy_eval_ms",
+    "policy_total_ms",
+    "request_id"
+  ],
+  "title": "DecisionEvent",
+  "type": "object"
+}

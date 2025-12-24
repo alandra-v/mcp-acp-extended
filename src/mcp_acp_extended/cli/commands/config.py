@@ -1,0 +1,243 @@
+"""Config command group for mcp-acp-extended CLI.
+
+Provides configuration management subcommands.
+"""
+
+import json
+import os
+import shutil
+import sys
+
+import click
+
+from mcp_acp_extended.config import AppConfig
+from mcp_acp_extended.utils.config import (
+    get_audit_log_path,
+    get_backend_log_path,
+    get_client_log_path,
+    get_config_history_path,
+    get_config_path,
+    get_system_log_path,
+)
+from mcp_acp_extended.utils.history_logging import log_config_updated
+
+
+@click.group()
+def config() -> None:
+    """Configuration management commands.
+
+    \b
+    Editor selection for 'config edit' (in order):
+      1. $EDITOR environment variable
+      2. $VISUAL environment variable
+      3. Falls back to 'notepad' (Windows) or 'vi' (macOS/Linux)
+
+    \b
+    Common editor commands:
+      vim/vi:  Esc (normal mode), :wq (save+exit), :q! (exit no save)
+      nano:    Ctrl+O Enter (save), Ctrl+X (exit)
+      VS Code: Cmd/Ctrl+S (save), close tab to finish
+    """
+    pass
+
+
+@config.command("show")
+def config_show() -> None:
+    """Display current configuration.
+
+    Loads configuration from the OS-appropriate location.
+    """
+    config_file_path = get_config_path()
+
+    try:
+        loaded_config = AppConfig.load_from_files(config_file_path)
+
+        # Display formatted configuration
+        click.echo("\nmcp-acp-extended configuration:\n")
+
+        click.echo("Logging:")
+        click.echo(f"  log_dir: {loaded_config.logging.log_dir}")
+        click.echo(f"  log_level: {loaded_config.logging.log_level}")
+        click.echo(f"  include_payloads: {loaded_config.logging.include_payloads}")
+        click.echo()
+        click.echo("  Log files (computed from log_dir):")
+        click.echo(f"    audit: {get_audit_log_path(loaded_config)}")
+        click.echo(f"    client_wire: {get_client_log_path(loaded_config)}")
+        click.echo(f"    backend_wire: {get_backend_log_path(loaded_config)}")
+        click.echo(f"    system: {get_system_log_path(loaded_config)}")
+        click.echo(f"    config_history: {get_config_history_path(loaded_config)}")
+        click.echo()
+
+        click.echo("Backend:")
+        click.echo(f"  server_name: {loaded_config.backend.server_name}")
+        if loaded_config.backend.transport:
+            click.echo(f"  transport: {loaded_config.backend.transport}")
+        else:
+            click.echo("  transport: auto-detect (prefers HTTP when reachable)")
+
+        if loaded_config.backend.stdio:
+            click.echo("  stdio:")
+            click.echo(f"    command: {loaded_config.backend.stdio.command}")
+            click.echo(f"    args: {loaded_config.backend.stdio.args}")
+        else:
+            click.echo("  stdio: (not configured)")
+
+        if loaded_config.backend.http:
+            click.echo("  http:")
+            click.echo(f"    url: {loaded_config.backend.http.url}")
+            click.echo(f"    timeout: {loaded_config.backend.http.timeout}")
+        else:
+            click.echo("  http: (not configured)")
+        click.echo()
+
+        click.echo("Proxy:")
+        click.echo(f"  name: {loaded_config.proxy.name}")
+        click.echo()
+
+        click.echo(f"Config file: {config_file_path}")
+
+    except (FileNotFoundError, ValueError) as e:
+        click.echo(f"\nError: {e}", err=True)
+        sys.exit(1)
+
+
+@config.command("path")
+def config_path_cmd() -> None:
+    """Show config file path.
+
+    Displays the OS-appropriate config file location:
+    - macOS: ~/Library/Application Support/mcp-acp-extended/
+    - Linux: ~/.config/mcp-acp-extended/
+    - Windows: C:\\Users\\<user>\\AppData\\Roaming\\mcp-acp-extended/
+    """
+    path = get_config_path()
+    click.echo(str(path))
+
+    if not path.exists():
+        click.echo("(file does not exist - run 'mcp-acp-extended init' to create)", err=True)
+
+
+@config.command("edit")
+def config_edit() -> None:
+    """Edit configuration in $EDITOR.
+
+    Opens the config file in your default editor (vim, nano, etc.).
+    After editing, validates the configuration with Pydantic.
+    If validation fails, offers to re-edit until valid or aborted.
+
+    Uses $EDITOR environment variable, falls back to $VISUAL,
+    then 'notepad' on Windows or 'vi' on macOS/Linux.
+
+    \b
+    Common editor commands:
+    vim/vi:  Esc (normal mode), :wq (save+exit), :q! (exit no save)
+    nano:    Ctrl+O Enter (save), Ctrl+X (exit)
+    VS Code: Cmd/Ctrl+S (save), close tab to finish
+    """
+    config_path = get_config_path()
+
+    # Check config exists
+    if not config_path.exists():
+        click.echo(f"Error: Config file not found at {config_path}", err=True)
+        click.echo("Run 'mcp-acp-extended init' to create configuration.", err=True)
+        sys.exit(1)
+
+    # Load and store original config for change detection
+    try:
+        original_config = AppConfig.load_from_files(config_path)
+        original_dict = original_config.model_dump()
+    except (FileNotFoundError, ValueError) as e:
+        click.echo(f"Error loading config: {e}", err=True)
+        sys.exit(1)
+
+    # Get current content as formatted JSON
+    current_content = json.dumps(original_dict, indent=2)
+
+    # Determine editor and show hint
+    # Use platform-appropriate default editor
+    if sys.platform == "win32":
+        default_editor = "notepad"
+    else:
+        default_editor = "vi"
+    editor = os.environ.get("EDITOR") or os.environ.get("VISUAL") or default_editor
+    click.echo(f"Opening config in {editor}...")
+
+    # Show save/exit hints for common editors
+    editor_name = os.path.basename(editor).split()[0]  # Handle "code --wait" etc.
+    if editor_name in ("vim", "vi", "nvim"):
+        click.echo("  Esc = normal mode | :wq = save+exit | :q! = exit no save")
+    elif editor_name == "nano":
+        click.echo("  Ctrl+O Enter = save | Ctrl+X = exit")
+    elif editor_name in ("emacs", "emacsclient"):
+        click.echo("  Ctrl+X Ctrl+S = save | Ctrl+X Ctrl+C = exit")
+    elif editor_name in ("code", "subl", "atom"):
+        click.echo("  Cmd/Ctrl+S = save | close tab to finish")
+
+    click.pause("Press Enter to open editor...")
+
+    # Edit loop - re-edit on validation failure
+    while True:
+        # Open in editor
+        edited_content = click.edit(current_content, extension=".json")
+
+        # User quit without saving
+        if edited_content is None:
+            click.echo("Edit cancelled.")
+            sys.exit(0)
+
+        # Check if content changed
+        if edited_content.strip() == current_content.strip():
+            click.echo("No changes made.")
+            sys.exit(0)
+
+        # Try to parse and validate
+        try:
+            new_dict = json.loads(edited_content)
+            new_config = AppConfig.model_validate(new_dict)
+            break  # Validation passed, exit loop
+        except json.JSONDecodeError as e:
+            click.echo(f"\nError: Invalid JSON: {e}", err=True)
+        except ValueError as e:
+            click.echo(f"\nError: Invalid configuration: {e}", err=True)
+
+        # Offer to re-edit
+        if not click.confirm("Re-edit configuration?", default=True):
+            click.echo("Edit cancelled.")
+            sys.exit(1)
+
+        # Keep the edited (invalid) content for re-editing
+        current_content = edited_content
+
+    # Backup original before saving
+    backup_path = config_path.with_suffix(".json.bak")
+    shutil.copy(config_path, backup_path)
+
+    try:
+        # Write user's edited content directly (preserves their formatting/key order)
+        with open(config_path, "w", encoding="utf-8") as f:
+            f.write(edited_content)
+            if not edited_content.endswith("\n"):
+                f.write("\n")
+
+        # Success - remove backup
+        backup_path.unlink()
+
+    except OSError as e:
+        click.echo(f"\nError saving config: {e}", err=True)
+        click.echo(f"Original backed up at: {backup_path}", err=True)
+        sys.exit(1)
+
+    # Log config update
+    new_version = log_config_updated(
+        get_config_history_path(new_config),
+        config_path,
+        original_dict,
+        new_dict,  # Use parsed dict to match what was saved
+        source="cli_config_edit",
+    )
+
+    if new_version:
+        click.echo(f"\nConfiguration updated (version {new_version}).")
+    else:
+        click.echo("\nConfiguration saved (no changes detected).")
+    click.echo(f"Saved to: {config_path}")
