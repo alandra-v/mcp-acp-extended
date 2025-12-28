@@ -17,21 +17,29 @@ from mcp_acp_extended.exceptions import (
     PolicyEnforcementFailure,
 )
 from mcp_acp_extended.security.auth import (
+    DeviceCodeResponse,
+    DeviceFlow,
+    DeviceFlowDeniedError,
+    DeviceFlowError,
+    DeviceFlowExpiredError,
+    DeviceFlowResult,
     EncryptedFileStorage,
     JWTValidator,
     KeychainStorage,
     StoredToken,
+    TokenRefreshError,
+    TokenRefreshExpiredError,
     TokenStorage,
     ValidatedToken,
     create_token_storage,
     get_token_storage_info,
+    refresh_tokens,
+    run_device_flow,
 )
-from mcp_acp_extended.security.device import (
+from mcp_acp_extended.security.posture import (
+    DeviceHealthMonitor,
     DeviceHealthReport,
     check_device_health,
-)
-from mcp_acp_extended.security.device_monitor import (
-    DeviceHealthMonitor,
 )
 from mcp_acp_extended.security.identity import (
     IdentityProvider,
@@ -60,6 +68,16 @@ __all__ = [
     "get_token_storage_info",
     "JWTValidator",
     "ValidatedToken",
+    "DeviceFlow",
+    "DeviceCodeResponse",
+    "DeviceFlowResult",
+    "DeviceFlowError",
+    "DeviceFlowExpiredError",
+    "DeviceFlowDeniedError",
+    "run_device_flow",
+    "refresh_tokens",
+    "TokenRefreshError",
+    "TokenRefreshExpiredError",
     # Identity
     "IdentityProvider",
     "LocalIdentityProvider",

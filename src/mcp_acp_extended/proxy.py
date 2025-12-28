@@ -34,8 +34,7 @@ from mcp_acp_extended.constants import (
 from mcp_acp_extended.exceptions import AuditFailure, DeviceHealthError
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware
 from mcp_acp_extended.security import create_identity_provider
-from mcp_acp_extended.security.device import check_device_health
-from mcp_acp_extended.security.device_monitor import DeviceHealthMonitor
+from mcp_acp_extended.security.posture import DeviceHealthMonitor, check_device_health
 from mcp_acp_extended.security.integrity.audit_handler import verify_audit_writable
 from mcp_acp_extended.security.integrity.audit_monitor import AuditHealthMonitor
 from mcp_acp_extended.security.shutdown import ShutdownCoordinator, sync_emergency_shutdown

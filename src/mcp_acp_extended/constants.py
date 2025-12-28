@@ -70,6 +70,18 @@ AUDIT_HEALTH_CHECK_INTERVAL_SECONDS: float = 30.0
 DEVICE_HEALTH_CHECK_INTERVAL_SECONDS: float = 300.0
 
 # ============================================================================
+# OAuth Device Flow (RFC 8628)
+# ============================================================================
+
+# Default polling interval for device flow (seconds)
+# Auth0 typically returns 5 in the device code response
+DEVICE_FLOW_POLL_INTERVAL_SECONDS: int = 5
+
+# Maximum time to wait for user to complete device flow authentication (seconds)
+# 5 minutes is standard for device flows
+DEVICE_FLOW_TIMEOUT_SECONDS: int = 300
+
+# ============================================================================
 # Backend Transport Error Detection
 # ============================================================================
 

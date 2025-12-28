@@ -22,7 +22,8 @@ from typing import TYPE_CHECKING
 
 from mcp_acp_extended.constants import DEVICE_HEALTH_CHECK_INTERVAL_SECONDS
 from mcp_acp_extended.exceptions import DeviceHealthError
-from mcp_acp_extended.security.device import DeviceHealthReport, check_device_health
+from mcp_acp_extended.security.posture.device import DeviceHealthReport, check_device_health
+from mcp_acp_extended.telemetry.models.audit import DeviceHealthChecks
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 
 if TYPE_CHECKING:
@@ -59,7 +60,7 @@ class DeviceHealthMonitor:
             shutdown_coordinator: Coordinator to call on failure.
             auth_logger: Optional logger for auth.jsonl audit trail.
             check_interval_seconds: How often to check (default 5 min).
-            failure_threshold: Consecutive failures before shutdown (default 2).
+            failure_threshold: Consecutive failures before shutdown (default 1).
         """
         self.shutdown_coordinator = shutdown_coordinator
         self.auth_logger = auth_logger
@@ -151,9 +152,13 @@ class DeviceHealthMonitor:
                 "report": report.to_dict(),
             }
         )
-        # TODO: Log to auth_logger when implemented
-        # if self.auth_logger:
-        #     self.auth_logger.log_device_health_passed(...)
+        if self.auth_logger:
+            self.auth_logger.log_device_health_passed(
+                device_checks=DeviceHealthChecks(
+                    disk_encryption=report.disk_encryption,
+                    device_integrity=report.device_integrity,
+                ),
+            )
 
     def _log_check_failed(self, report: DeviceHealthReport) -> None:
         """Log failed health check."""
@@ -165,9 +170,14 @@ class DeviceHealthMonitor:
                 "threshold": self.failure_threshold,
             }
         )
-        # TODO: Log to auth_logger when implemented
-        # if self.auth_logger:
-        #     self.auth_logger.log_device_health_failed(...)
+        if self.auth_logger:
+            self.auth_logger.log_device_health_failed(
+                device_checks=DeviceHealthChecks(
+                    disk_encryption=report.disk_encryption,
+                    device_integrity=report.device_integrity,
+                ),
+                error_message="; ".join(report.errors) if report.errors else None,
+            )
 
     async def _trigger_shutdown(self, report: DeviceHealthReport) -> None:
         """Trigger proxy shutdown due to device health failure."""
