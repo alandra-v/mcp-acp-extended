@@ -17,6 +17,7 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from mcp_acp_extended.constants import AUDIT_HEALTH_CHECK_INTERVAL_SECONDS
 from mcp_acp_extended.exceptions import AuditFailure
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 
@@ -43,14 +44,14 @@ class AuditHealthMonitor:
         self,
         audit_paths: list[Path],
         shutdown_coordinator: "ShutdownCoordinator",
-        check_interval_seconds: float = 30.0,
+        check_interval_seconds: float = AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
     ) -> None:
         """Initialize the health monitor.
 
         Args:
             audit_paths: Paths to audit log files to monitor
             shutdown_coordinator: Coordinator to call on failure
-            check_interval_seconds: How often to check (default 30s)
+            check_interval_seconds: How often to check (default from constants)
         """
         self.audit_paths = audit_paths
         self.shutdown_coordinator = shutdown_coordinator

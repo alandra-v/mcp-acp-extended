@@ -155,13 +155,20 @@ Currently tracked but not used for policy decisions. Infrastructure for future t
 - `audit/operations.jsonl` - what was requested and outcome
 - `audit/decisions.jsonl` - policy evaluation details and HITL outcomes
 
-**Fail-Closed Integrity Monitoring**: The audit handler verifies file integrity before every write:
+**Fail-Closed Integrity Monitoring**: Two layers of protection ensure audit log integrity:
 
-1. At startup: records file's device ID and inode
-2. Before each write: stats file and compares device/inode
-3. On mismatch: triggers emergency shutdown
+**1. Per-Write Checks (FailClosedAuditHandler)**: Verifies file integrity before every write:
+- At startup: records file's device ID and inode
+- Before each write: stats file and compares device/inode
+- On mismatch: triggers emergency shutdown
 
-This detects:
+**2. Background Monitoring (AuditHealthMonitor)**: Periodic checks during idle periods:
+- Runs every 30 seconds as a background task
+- Verifies both `operations.jsonl` and `decisions.jsonl`
+- Detects tampering even when no requests are being processed
+- Defense in depth: catches issues the per-write handler might miss during idle periods
+
+Together, these detect:
 - File deletion (even while file descriptor is open - "ghost inode" on Unix)
 - File replacement (different inode)
 - File moved and recreated

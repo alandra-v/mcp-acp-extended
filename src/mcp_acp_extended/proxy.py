@@ -20,14 +20,17 @@ from __future__ import annotations
 
 import asyncio
 import os
+from contextlib import asynccontextmanager
+from typing import AsyncIterator
 
 from fastmcp import FastMCP
 
 from mcp_acp_extended.config import AppConfig
-from mcp_acp_extended.constants import PROTECTED_CONFIG_DIR
+from mcp_acp_extended.constants import AUDIT_HEALTH_CHECK_INTERVAL_SECONDS, PROTECTED_CONFIG_DIR
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware
 from mcp_acp_extended.security import create_identity_provider
 from mcp_acp_extended.security.integrity.audit_handler import verify_audit_writable
+from mcp_acp_extended.security.integrity.audit_monitor import AuditHealthMonitor
 from mcp_acp_extended.exceptions import AuditFailure
 from mcp_acp_extended.security.shutdown import ShutdownCoordinator, sync_emergency_shutdown
 from mcp_acp_extended.telemetry.audit import create_audit_logging_middleware
@@ -84,6 +87,13 @@ def create_proxy(
     - Client logging: Wire-level debugging
     - Enforcement: Policy evaluation and blocking (innermost)
 
+    Security - Audit Health Monitor:
+    - Background task that runs every 30 seconds to verify audit log integrity
+    - Checks that audit log files still exist and haven't been replaced
+    - Triggers fail-closed shutdown if any integrity check fails
+    - Started automatically when proxy starts via lifespan context manager
+    - Defense in depth: catches issues during idle periods between requests
+
     Args:
         config: Application configuration loaded from mcp_acp_extended_config.json.
         config_version: Current config version from config history (e.g., "v1").
@@ -116,6 +126,14 @@ def create_proxy(
     log_dir = get_log_dir(config)
     system_logger = get_system_logger()
     shutdown_coordinator = ShutdownCoordinator(log_dir, system_logger)
+
+    # Create AuditHealthMonitor for background integrity checking
+    # This runs periodic checks even during idle periods (defense in depth)
+    audit_monitor = AuditHealthMonitor(
+        audit_paths=[audit_path, decisions_path],
+        shutdown_coordinator=shutdown_coordinator,
+        check_interval_seconds=AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
+    )
 
     # Create shutdown callback with hybrid approach:
     # Try async coordinator if event loop is running, fall back to sync
@@ -156,6 +174,45 @@ def create_proxy(
         logging_backend_client,
         name=config.proxy.name,
     )
+
+    # Create lifespan context manager for audit health monitor
+    # This starts the monitor when the proxy starts and stops it on shutdown
+    @asynccontextmanager
+    async def proxy_lifespan(app: FastMCP) -> AsyncIterator[None]:
+        """Manage proxy lifecycle: start/stop audit health monitor."""
+        # Note: app parameter required by FastMCP's _lifespan_manager
+        try:
+            await audit_monitor.start()
+        except Exception as e:
+            # Log failure and re-raise - Zero Trust requires monitoring
+            system_logger.error(
+                {
+                    "event": "audit_health_monitor_start_failed",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "monitored_paths": [str(p) for p in audit_monitor.audit_paths],
+                }
+            )
+            raise
+        try:
+            yield
+        finally:
+            await audit_monitor.stop()
+            # Check if monitor crashed - if so, it's a fatal error
+            # (The monitor itself triggers shutdown on crash via ShutdownCoordinator)
+            if audit_monitor._crashed:
+                system_logger.error(
+                    {
+                        "event": "audit_health_monitor_crash_detected",
+                        "message": "Monitor crashed during shutdown check",
+                    }
+                )
+
+    # Set the lifespan on the proxy (replaces default_lifespan)
+    # NOTE: _lifespan is a private API. FastMCP may change this in future versions.
+    # If FastMCP adds a public lifespan parameter to as_proxy() or Settings, migrate to that.
+    # Tested with FastMCP 2.x - verify after upgrades.
+    proxy._lifespan = proxy_lifespan
 
     # Create identity provider (Stage 1: local user via getpass.getuser())
     identity_provider = create_identity_provider()

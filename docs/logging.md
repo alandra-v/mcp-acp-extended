@@ -242,7 +242,11 @@ The logging design is SIEM-ready:
 
 **Payload redaction**: Arguments are never logged in full - only SHA256 hash and byte length. Full payloads only in debug logs.
 
-**Audit log integrity**: Log files are monitored for tampering (deletion, replacement). On integrity failure, the proxy shuts down. See [Security](security.md) for details.
+**Audit log integrity**: Log files are protected by two layers of monitoring:
+1. **Per-write checks**: Before every write, file identity (device ID + inode) is verified
+2. **Background monitoring**: AuditHealthMonitor checks every 30 seconds, even during idle periods
+
+On integrity failure, the proxy shuts down. See [Security](security.md) for details.
 
 **Atomic writes**: Config and policy history use atomic writes to prevent corruption. See [Configuration](configuration.md).
 

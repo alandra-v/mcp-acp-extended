@@ -57,6 +57,14 @@ MAX_HTTP_TIMEOUT_SECONDS: int = 300  # 5 minutes
 HEALTH_CHECK_TIMEOUT_SECONDS: float = 10.0
 
 # ============================================================================
+# Audit Log Integrity Monitoring
+# ============================================================================
+
+# How often the background AuditHealthMonitor checks audit log integrity (seconds)
+# This catches tampering during idle periods between requests (defense in depth)
+AUDIT_HEALTH_CHECK_INTERVAL_SECONDS: float = 30.0
+
+# ============================================================================
 # Backend Transport Error Detection
 # ============================================================================
 

@@ -9,17 +9,18 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
 
 ## Phase 1: Logging Infrastructure & Auth Audit
 
-- [ ] **1. Add startup validation for audit logs**
-  - Check write permissions before proxy starts
-  - Verify directory structure exists (create if needed)
-  - Validate file integrity for existing logs
-  - Fail fast if audit logging cannot be guaranteed
+- [x] **1. Add startup validation for audit logs** *(existing)*
+  - Check write permissions before proxy starts ✓
+  - Verify directory structure exists (create if needed) ✓
+  - ~~Validate file integrity for existing logs~~ *(skipped - only validates writability)*
+  - Fail fast if audit logging cannot be guaranteed ✓
 
-- [ ] **2. Integrate AuditHealthMonitor properly**
-  - Start monitor as background task on proxy startup
-  - Register all audit log paths (operations, decisions, auth)
-  - Clean shutdown: cancel task, await completion
-  - Handle monitor crash → trigger fail-closed shutdown
+- [x] **2. Integrate AuditHealthMonitor properly**
+  - Start monitor as background task on proxy startup ✓ (via FastMCP lifespan)
+  - Register audit log paths (operations, decisions) ✓ *(auth.jsonl in Task #3)*
+  - Clean shutdown: cancel task, await completion ✓
+  - Handle monitor crash → trigger fail-closed shutdown ✓
+  - Tested: file replacement detected within 30s ✓
 
 - [ ] **3. Create auth audit logger**
   - New file: `src/mcp_acp_extended/pip/auth/auth_logger.py`
