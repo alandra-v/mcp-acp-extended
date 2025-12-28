@@ -39,6 +39,13 @@ class SubjectIdentity(BaseModel):
 # ============================================================================
 
 
+class DeviceHealthChecks(BaseModel):
+    """Results of individual device health checks."""
+
+    disk_encryption: Literal["pass", "fail", "skip"]
+    firewall: Literal["pass", "fail", "skip"]
+
+
 class OIDCInfo(BaseModel):
     """
     Details about the OIDC/OAuth token and provider, for authentication logs.
@@ -73,12 +80,21 @@ class AuthEvent(BaseModel):
         None,
         description="ISO 8601 timestamp, added by formatter during serialization",
     )
-    session_id: str
+    session_id: str | None = None  # May not exist during startup validation
 
     # For per-request auth checks, this is the MCP JSON-RPC id; may be omitted for pure session events.
     request_id: str | None = None
 
-    event_type: Literal["token_validated", "token_invalid", "session_started", "session_ended"]
+    event_type: Literal[
+        "token_validated",
+        "token_invalid",
+        "token_refreshed",
+        "token_refresh_failed",
+        "session_started",
+        "session_ended",
+        "device_health_passed",
+        "device_health_failed",
+    ]
     status: Literal["Success", "Failure"]
     message: str | None = None
 
@@ -91,6 +107,12 @@ class AuthEvent(BaseModel):
 
     # --- OIDC/OAuth details ---
     oidc: OIDCInfo | None = None
+
+    # --- device health (for device_health_passed/failed events) ---
+    device_checks: DeviceHealthChecks | None = None
+
+    # --- session end details ---
+    end_reason: Literal["normal", "timeout", "error", "auth_expired"] | None = None
 
     # --- errors / extra details ---
     error_type: str | None = None  # e.g. "TokenExpiredError"

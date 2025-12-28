@@ -95,7 +95,8 @@ def load_policy(path: Path | None = None) -> PolicyConfig:
 
     if not policy_path.exists():
         raise FileNotFoundError(
-            f"Policy file not found at {policy_path}.\n" "Run 'mcp-acp-extended init' to create a policy file."
+            f"Policy file not found at {policy_path}.\n"
+            "Run 'mcp-acp-extended init' to create a policy file."
         )
 
     try:

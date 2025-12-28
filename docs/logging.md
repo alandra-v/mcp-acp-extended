@@ -16,6 +16,10 @@ Logging supports the Zero Trust security model with three primary goals:
 
 ```
 ~/.mcp-acp-extended/mcp_acp_extended_logs/
+├── audit/           # Security audit logs (ALWAYS enabled)
+│   ├── operations.jsonl    # MCP operation audit trail
+│   ├── decisions.jsonl     # Policy evaluation decisions + HITL outcomes
+│   └── auth.jsonl          # Authentication events (token validation, sessions)
 ├── debug/           # Wire-level debug logs (DEBUG level only)
 │   ├── client_wire.jsonl   # Client<->Proxy communication
 │   └── backend_wire.jsonl  # Proxy<->Backend communication
@@ -23,9 +27,6 @@ Logging supports the Zero Trust security model with three primary goals:
 │   ├── system.jsonl        # Operational logs, errors, backend disconnections
 │   ├── config_history.jsonl # Configuration changes (versioned)
 │   └── policy_history.jsonl # Policy changes (versioned)
-├── audit/           # Security audit logs (ALWAYS enabled)
-│   ├── operations.jsonl    # MCP operation audit trail
-│   └── decisions.jsonl     # Policy evaluation decisions + HITL outcomes
 └── metrics/         # Performance metrics (future)
 
 # Bootstrap log (in config directory, not log directory)
@@ -92,6 +93,25 @@ Every policy evaluation decision, including HITL outcomes.
 | `duration_ms` | Policy evaluation time |
 | `hitl_outcome` | `user_allowed`, `user_denied`, `timeout` (if HITL) |
 | `hitl_response_time_ms` | User response time (if HITL) |
+
+### auth.jsonl
+
+Authentication events for Zero Trust compliance. Based on OCSF Authentication (3002) and Authorize Session (3003) classes.
+
+| Field | Description |
+|-------|-------------|
+| `time` | ISO 8601 timestamp |
+| `event_type` | `token_validated`, `token_invalid`, `token_refreshed`, `token_refresh_failed`, `session_started`, `session_ended`, `device_health_passed`, `device_health_failed` |
+| `status` | `Success` or `Failure` |
+| `session_id` | MCP session ID (optional, may not exist during startup) |
+| `request_id` | JSON-RPC request ID (for per-request validation) |
+| `subject` | User identity (`subject_id`, `subject_claims`) |
+| `oidc` | OIDC token details (`issuer`, `provider`, `audience`, `scopes`, `token_exp`, `token_expired`) |
+| `device_checks` | Device health results (`disk_encryption`, `firewall`: `pass`/`fail`/`skip`) |
+| `end_reason` | Session end reason: `normal`, `timeout`, `error`, `auth_expired` |
+| `method` | MCP method (for per-request token validation) |
+| `error_type`, `error_message` | Error details (for failure events) |
+| `message` | Human-readable status message |
 
 ---
 
@@ -210,7 +230,7 @@ Log schemas are inspired by [OCSF (Open Cybersecurity Schema Framework)](https:/
 | `system.jsonl` | OCSF Process Activity class (1007) and Application Error class (6008) - System Activity Category and Application Activity Category |
 | `config_history.jsonl` | OWASP, NIST SP 800-92/800-128, CIS Control 8 |
 | `policy_history.jsonl` | OWASP, NIST SP 800-92/800-128, CIS Control 8 |
-| `auth.jsonl` (future) | OCSF Authentication class (3002) and Authorize Session class (3003) - Identity & Access Management Category |
+| `auth.jsonl` | OCSF Authentication class (3002) and Authorize Session class (3003) - Identity & Access Management Category |
 
 
 See `docs/logging_specs/` for Pydantic models, JSON schemas, and detailed documentation.

@@ -136,6 +136,18 @@ def get_decisions_log_path(config: "AppConfig") -> Path:
     return get_log_dir(config) / "audit" / "decisions.jsonl"
 
 
+def get_auth_log_path(config: "AppConfig") -> Path:
+    """Get full path to authentication audit log file.
+
+    Args:
+        config: Application configuration.
+
+    Returns:
+        Path: Full path to logs/audit/auth.jsonl.
+    """
+    return get_log_dir(config) / "audit" / "auth.jsonl"
+
+
 def compute_config_checksum(config_path: Path) -> str:
     """Compute SHA256 checksum of config file content.
 

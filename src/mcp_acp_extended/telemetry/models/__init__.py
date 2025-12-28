@@ -2,6 +2,7 @@
 
 from mcp_acp_extended.telemetry.models.audit import (
     AuthEvent,
+    DeviceHealthChecks,
     OperationEvent,
     SubjectIdentity,
 )
@@ -18,6 +19,7 @@ from mcp_acp_extended.telemetry.models.wire import (
 __all__ = [
     # Audit models
     "AuthEvent",
+    "DeviceHealthChecks",
     "OperationEvent",
     "SubjectIdentity",
     # System models

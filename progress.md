@@ -22,11 +22,14 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
   - Handle monitor crash → trigger fail-closed shutdown ✓
   - Tested: file replacement detected within 30s ✓
 
-- [ ] **3. Create auth audit logger**
-  - New file: `src/mcp_acp_extended/pip/auth/auth_logger.py`
-  - Log to `audit/auth.jsonl` with fail-closed handler
-  - Events: `token_validated`, `token_invalid`, `session_started`, `session_ended`, `device_health_passed/failed`
-  - Add `get_auth_log_path()` to config helpers
+- [x] **3. Create auth audit logger**
+  - New file: `src/mcp_acp_extended/telemetry/audit/auth_logger.py` ✓
+  - Log to `audit/auth.jsonl` with fail-closed handler ✓
+  - Events: `token_validated`, `token_invalid`, `token_refreshed`, `token_refresh_failed`, `session_started`, `session_ended`, `device_health_passed`, `device_health_failed` ✓
+  - Add `get_auth_log_path()` to config helpers ✓
+  - Updated `AuthEvent` model with `DeviceHealthChecks` and `end_reason` ✓
+  - Set up `pips/auth/` directory for future auth implementation ✓
+  - Deferred: Register auth.jsonl with AuditHealthMonitor (when auth is implemented)
 
 ---
 
@@ -45,13 +48,13 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
 ## Phase 3: Token Storage & JWT Validation
 
 - [ ] **6. Implement token storage**
-  - New file: `src/mcp_acp_extended/pip/auth/token_storage.py`
+  - New file: `src/mcp_acp_extended/pips/auth/token_storage.py`
   - `KeychainStorage` (primary) using `keyring` library
   - `EncryptedFileStorage` (fallback) using Fernet
   - `StoredToken` model with access_token, refresh_token, expires_at
 
 - [ ] **7. Implement JWT validator**
-  - New file: `src/mcp_acp_extended/pip/auth/jwt_validator.py`
+  - New file: `src/mcp_acp_extended/pips/auth/jwt_validator.py`
   - Validate JWT signature using JWKS from Auth0
   - Verify issuer, audience, expiration
   - Cache JWKS for performance
@@ -61,7 +64,7 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
 ## Phase 4: Device Authorization Flow
 
 - [ ] **8. Implement OAuth Device Flow (RFC 8628)**
-  - New file: `src/mcp_acp_extended/pip/auth/device_flow.py`
+  - New file: `src/mcp_acp_extended/pips/auth/device_flow.py`
   - Request device code from Auth0
   - Display user_code and verification_uri
   - Poll token endpoint until user completes authentication
@@ -72,7 +75,7 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
 ## Phase 5: OIDC Identity Provider
 
 - [ ] **9. Implement OIDCIdentityProvider**
-  - New file: `src/mcp_acp_extended/pip/auth/oidc_provider.py`
+  - New file: `src/mcp_acp_extended/pips/auth/oidc_provider.py`
   - Implements `IdentityProvider` protocol
   - Load token from Keychain, validate per-request (60s cache)
   - Auto-refresh expired tokens
@@ -86,7 +89,7 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
 ## Phase 6: Device Health Checks
 
 - [ ] **11. Implement device health checker**
-  - New file: `src/mcp_acp_extended/pip/device/health.py`
+  - New file: `src/mcp_acp_extended/pips/device/health.py`
   - Check disk encryption: FileVault (macOS), BitLocker (Windows), LUKS (Linux)
   - Check firewall: macOS Application Firewall, Windows Firewall
   - Platform-aware implementation using subprocess
@@ -96,7 +99,7 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
 ## Phase 7: Session Management
 
 - [ ] **12. Implement session binding**
-  - New file: `src/mcp_acp_extended/pip/auth/session.py`
+  - New file: `src/mcp_acp_extended/pips/auth/session.py`
   - Cryptographically secure session IDs (`secrets.token_urlsafe(32)`)
   - Sessions bound to subject_id per MCP spec
   - Session format: `{user_id}:{session_id}`
@@ -138,11 +141,11 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
 ## Phase 10: Testing & Documentation
 
 - [ ] **18. Add unit tests**
-  - `tests/pip/auth/test_device_flow.py`
-  - `tests/pip/auth/test_jwt_validator.py`
-  - `tests/pip/auth/test_token_storage.py`
-  - `tests/pip/auth/test_oidc_provider.py`
-  - `tests/pip/device/test_health.py`
+  - `tests/pips/auth/test_device_flow.py`
+  - `tests/pips/auth/test_jwt_validator.py`
+  - `tests/pips/auth/test_token_storage.py`
+  - `tests/pips/auth/test_oidc_provider.py`
+  - `tests/pips/device/test_health.py`
 
 - [ ] **19. Update documentation**
   - New `docs/authentication.md` - Complete auth setup guide

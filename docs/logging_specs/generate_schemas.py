@@ -39,8 +39,10 @@ def main() -> None:
     audit_dir = base_dir / "audit"
     operations = load_module_from_path("operations", audit_dir / "operations.py")
     decisions = load_module_from_path("decisions", audit_dir / "decisions.py")
+    auth = load_module_from_path("auth", audit_dir / "auth.py")
     generate_schema(operations.OperationEvent, audit_dir / "operations.schema.json")
     generate_schema(decisions.DecisionEvent, audit_dir / "decisions.schema.json")
+    generate_schema(auth.AuthEvent, audit_dir / "auth.schema.json")
 
     # Load and generate system schemas
     system_dir = base_dir / "system"
