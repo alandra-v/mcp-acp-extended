@@ -33,10 +33,19 @@ class OIDCInfo(BaseModel):
 class DeviceHealthChecks(BaseModel):
     """
     Results of individual device health checks.
+
+    Both checks are hard gates - failure blocks proxy startup.
+    - disk_encryption: FileVault (macOS) - reduces impact of device theft/loss
+    - device_integrity: SIP enabled (macOS) - ensures system not compromised
+
+    Result meanings:
+    - pass: Check succeeded, device is compliant
+    - fail: Check succeeded, device is NOT compliant
+    - unknown: Could not determine status (treated as unhealthy for Zero Trust)
     """
 
-    disk_encryption: Literal["pass", "fail", "skip"]
-    firewall: Literal["pass", "fail", "skip"]
+    disk_encryption: Literal["pass", "fail", "unknown"]
+    device_integrity: Literal["pass", "fail", "unknown"]
 
 
 class AuthEvent(BaseModel):

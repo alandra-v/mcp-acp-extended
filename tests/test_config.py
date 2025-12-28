@@ -8,9 +8,11 @@ from pydantic import ValidationError
 
 from mcp_acp_extended.config import (
     AppConfig,
+    AuthConfig,
     BackendConfig,
     HttpTransportConfig,
     LoggingConfig,
+    OIDCConfig,
     StdioTransportConfig,
 )
 
@@ -18,6 +20,22 @@ from mcp_acp_extended.config import (
 # ============================================================================
 # Fixtures
 # ============================================================================
+
+
+@pytest.fixture
+def valid_oidc_config() -> OIDCConfig:
+    """Valid OIDC configuration for tests."""
+    return OIDCConfig(
+        issuer="https://test.auth0.com",
+        client_id="test-client-id",
+        audience="https://test-api.example.com",
+    )
+
+
+@pytest.fixture
+def valid_auth_config(valid_oidc_config: OIDCConfig) -> AuthConfig:
+    """Valid auth configuration for tests."""
+    return AuthConfig(oidc=valid_oidc_config)
 
 
 @pytest.fixture
@@ -29,6 +47,13 @@ def valid_config_dict() -> dict:
             "server_name": "test-server",
             "transport": "stdio",
             "stdio": {"command": "echo"},
+        },
+        "auth": {
+            "oidc": {
+                "issuer": "https://test.auth0.com",
+                "client_id": "test-client-id",
+                "audience": "https://test-api.example.com",
+            }
         },
     }
 
@@ -204,7 +229,7 @@ class TestAppConfig:
         # Assert
         assert config.backend.server_name == "test-server"
 
-    def test_requires_logging_section(self):
+    def test_requires_logging_section(self, valid_auth_config: AuthConfig):
         # Act & Assert
         with pytest.raises(ValidationError):
             AppConfig(
@@ -212,15 +237,31 @@ class TestAppConfig:
                     server_name="test",
                     transport="stdio",
                     stdio=StdioTransportConfig(command="echo"),
-                )
+                ),
+                auth=valid_auth_config,
             )
 
-    def test_requires_backend_section(self):
+    def test_requires_backend_section(self, valid_auth_config: AuthConfig):
         # Act & Assert
         with pytest.raises(ValidationError):
-            AppConfig(logging=LoggingConfig(log_dir="/tmp"))
+            AppConfig(
+                logging=LoggingConfig(log_dir="/tmp"),
+                auth=valid_auth_config,
+            )
 
-    def test_defaults_proxy_name(self):
+    def test_requires_auth_section(self):
+        # Act & Assert
+        with pytest.raises(ValidationError):
+            AppConfig(
+                logging=LoggingConfig(log_dir="/tmp"),
+                backend=BackendConfig(
+                    server_name="test",
+                    transport="stdio",
+                    stdio=StdioTransportConfig(command="echo"),
+                ),
+            )
+
+    def test_defaults_proxy_name(self, valid_auth_config: AuthConfig):
         # Act
         config = AppConfig(
             logging=LoggingConfig(log_dir="/tmp"),
@@ -229,6 +270,7 @@ class TestAppConfig:
                 transport="stdio",
                 stdio=StdioTransportConfig(command="echo"),
             ),
+            auth=valid_auth_config,
         )
 
         # Assert

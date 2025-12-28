@@ -210,3 +210,35 @@ class IdentityVerificationFailure(CriticalSecurityFailure):
 
     exit_code = 12
     failure_type = "identity_failure"
+
+
+class AuthenticationError(CriticalSecurityFailure):
+    """Authentication failed - cannot verify user identity.
+
+    Raised when:
+    - No token found in keychain (user not logged in)
+    - Token is invalid or expired and cannot be refreshed
+    - Token signature verification fails
+    - OIDC issuer/audience validation fails
+
+    The proxy cannot start without authenticated user.
+    Exit code 13 indicates authentication failure.
+    """
+
+    exit_code = 13
+    failure_type = "authentication_failure"
+
+
+class DeviceHealthError(CriticalSecurityFailure):
+    """Device health check failed - device does not meet security requirements.
+
+    Raised when:
+    - Disk encryption is required but not enabled (FileVault/BitLocker/LUKS)
+    - Firewall is required but not enabled
+
+    The proxy cannot start on a device that fails health checks.
+    Exit code 14 indicates device health failure.
+    """
+
+    exit_code = 14
+    failure_type = "device_health_failure"

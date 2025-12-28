@@ -30,8 +30,13 @@ oidc.token_expired — optional boolean, whether token was expired at validation
 
 ## Device health (for device_health_passed/failed events)
 device_checks — optional DeviceHealthChecks object
-device_checks.disk_encryption — "pass" | "fail" | "skip"
-device_checks.firewall — "pass" | "fail" | "skip"
+device_checks.disk_encryption — "pass" | "fail" | "unknown" (FileVault on macOS)
+device_checks.device_integrity — "pass" | "fail" | "unknown" (SIP enabled on macOS)
+
+Result meanings:
+- pass: Check succeeded, device is compliant
+- fail: Check succeeded, device is NOT compliant
+- unknown: Could not determine status (treated as unhealthy for Zero Trust)
 
 ## Context
 method — optional MCP method (for per-request validation)

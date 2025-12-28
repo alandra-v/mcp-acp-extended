@@ -11,9 +11,12 @@ import click
 
 from mcp_acp_extended.config import (
     AppConfig,
+    AuthConfig,
     BackendConfig,
     HttpTransportConfig,
     LoggingConfig,
+    MTLSConfig,
+    OIDCConfig,
     StdioTransportConfig,
 )
 from mcp_acp_extended.constants import (
@@ -64,6 +67,7 @@ def _create_and_save_config(
     connection_type: str,
     stdio_config: StdioTransportConfig | None,
     http_config: HttpTransportConfig | None,
+    auth_config: AuthConfig,
 ) -> None:
     """Create and save configuration and policy files.
 
@@ -75,6 +79,7 @@ def _create_and_save_config(
         connection_type: Connection type (stdio, http, or both).
         stdio_config: STDIO transport config (if applicable).
         http_config: HTTP transport config (if applicable).
+        auth_config: Authentication configuration.
 
     Raises:
         OSError: If files cannot be saved.
@@ -97,6 +102,7 @@ def _create_and_save_config(
         raise ValueError(f"Invalid connection_type: {connection_type}")
 
     config = AppConfig(
+        auth=auth_config,
         logging=LoggingConfig(
             log_dir=log_dir,
             log_level=log_level_literal,
@@ -135,11 +141,57 @@ def _create_and_save_config(
     click.echo("\nRun 'mcp-acp-extended start' to test the proxy manually.")
 
 
+def _prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
+    """Prompt for authentication configuration.
+
+    Args:
+        http_config: HTTP config if using HTTP transport.
+
+    Returns:
+        AuthConfig with user-provided values.
+    """
+    click.echo("\n--- Authentication (Zero Trust) ---")
+    click.echo("Configure Auth0/OIDC for user authentication.\n")
+
+    # OIDC settings
+    issuer = prompt_with_retry("OIDC issuer URL (e.g., https://your-tenant.auth0.com)")
+    client_id = prompt_with_retry("Auth0 client ID")
+    audience = prompt_with_retry("API audience (e.g., https://your-api.example.com)")
+
+    oidc_config = OIDCConfig(
+        issuer=issuer,
+        client_id=client_id,
+        audience=audience,
+    )
+
+    # mTLS settings (only for HTTPS backends)
+    mtls_config: MTLSConfig | None = None
+    if http_config and http_config.url.startswith("https://"):
+        click.echo("\n--- mTLS (Mutual TLS) ---")
+        click.echo("HTTPS backend detected. Configure client certificates.\n")
+        if click.confirm("Configure mTLS?", default=True):
+            client_cert = prompt_with_retry("Client certificate path (PEM)")
+            client_key = prompt_with_retry("Client private key path (PEM)")
+            ca_bundle = prompt_with_retry("CA bundle path (PEM)")
+            mtls_config = MTLSConfig(
+                client_cert_path=client_cert,
+                client_key_path=client_key,
+                ca_bundle_path=ca_bundle,
+            )
+
+    click.echo("\nNote: Device health (disk encryption, firewall) is checked at startup.")
+
+    return AuthConfig(
+        oidc=oidc_config,
+        mtls=mtls_config,
+    )
+
+
 def _run_interactive_init(
     log_dir: str | None,
     log_level: str,
     server_name: str | None,
-) -> tuple[str, str, str, str, StdioTransportConfig | None, HttpTransportConfig | None]:
+) -> tuple[str, str, str, str, StdioTransportConfig | None, HttpTransportConfig | None, AuthConfig]:
     """Run interactive configuration wizard.
 
     Args:
@@ -148,7 +200,7 @@ def _run_interactive_init(
         server_name: Pre-provided server name or None.
 
     Returns:
-        Tuple of (log_dir, log_level, server_name, connection_type, stdio_config, http_config).
+        Tuple of (log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config).
 
     Raises:
         click.Abort: If user aborts during HTTP configuration.
@@ -191,7 +243,10 @@ def _run_interactive_init(
         stdio_config = prompt_stdio_config()
         http_config = prompt_http_config()
 
-    return log_dir, log_level, server_name, connection_type, stdio_config, http_config
+    # Authentication settings
+    auth_config = _prompt_auth_config(http_config)
+
+    return log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config
 
 
 def _run_non_interactive_init(
@@ -203,7 +258,14 @@ def _run_non_interactive_init(
     args: str | None,
     url: str | None,
     timeout: int,
-) -> tuple[str, str, str, str, StdioTransportConfig | None, HttpTransportConfig | None]:
+    # Auth options
+    oidc_issuer: str | None,
+    oidc_client_id: str | None,
+    oidc_audience: str | None,
+    mtls_cert: str | None,
+    mtls_key: str | None,
+    mtls_ca: str | None,
+) -> tuple[str, str, str, str, StdioTransportConfig | None, HttpTransportConfig | None, AuthConfig]:
     """Run non-interactive configuration setup.
 
     Args:
@@ -215,9 +277,15 @@ def _run_non_interactive_init(
         args: STDIO arguments (comma-separated).
         url: HTTP URL.
         timeout: HTTP timeout.
+        oidc_issuer: OIDC issuer URL.
+        oidc_client_id: Auth0 client ID.
+        oidc_audience: API audience.
+        mtls_cert: mTLS client certificate path.
+        mtls_key: mTLS client key path.
+        mtls_ca: mTLS CA bundle path.
 
     Returns:
-        Tuple of (log_dir, log_level, server_name, connection_type, stdio_config, http_config).
+        Tuple of (log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config).
 
     Raises:
         SystemExit: If required flags are missing.
@@ -231,6 +299,11 @@ def _run_non_interactive_init(
         sys.exit(1)
     if not connection_type:
         click.echo("Error: --connection-type is required", err=True)
+        sys.exit(1)
+
+    # Validate auth flags
+    if not oidc_issuer or not oidc_client_id or not oidc_audience:
+        click.echo("Error: --oidc-issuer, --oidc-client-id, and --oidc-audience are required", err=True)
         sys.exit(1)
 
     stdio_config: StdioTransportConfig | None = None
@@ -259,7 +332,27 @@ def _run_non_interactive_init(
             click.echo(f"Health check failed: could not reach {url}", err=True)
             click.echo("Config will be saved anyway. Server may be offline.", err=True)
 
-    return log_dir, log_level, server_name, connection_type, stdio_config, http_config
+    # Build auth config
+    oidc_config = OIDCConfig(
+        issuer=oidc_issuer,
+        client_id=oidc_client_id,
+        audience=oidc_audience,
+    )
+
+    mtls_config: MTLSConfig | None = None
+    if mtls_cert and mtls_key and mtls_ca:
+        mtls_config = MTLSConfig(
+            client_cert_path=mtls_cert,
+            client_key_path=mtls_key,
+            ca_bundle_path=mtls_ca,
+        )
+
+    auth_config = AuthConfig(
+        oidc=oidc_config,
+        mtls=mtls_config,
+    )
+
+    return log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config
 
 
 @click.command()
@@ -293,6 +386,13 @@ def _run_non_interactive_init(
     default=DEFAULT_HTTP_TIMEOUT_SECONDS,
     help=f"Connection timeout for HTTP (default: {DEFAULT_HTTP_TIMEOUT_SECONDS})",
 )
+# Auth options
+@click.option("--oidc-issuer", help="OIDC issuer URL (e.g., https://your-tenant.auth0.com)")
+@click.option("--oidc-client-id", help="Auth0 client ID")
+@click.option("--oidc-audience", help="API audience for token validation")
+@click.option("--mtls-cert", help="mTLS client certificate path (PEM)")
+@click.option("--mtls-key", help="mTLS client private key path (PEM)")
+@click.option("--mtls-ca", help="mTLS CA bundle path (PEM)")
 @click.option("--force", is_flag=True, help="Overwrite existing config without prompting")
 def init(
     non_interactive: bool,
@@ -304,6 +404,12 @@ def init(
     args: str | None,
     url: str | None,
     timeout: int,
+    oidc_issuer: str | None,
+    oidc_client_id: str | None,
+    oidc_audience: str | None,
+    mtls_cert: str | None,
+    mtls_key: str | None,
+    mtls_ca: str | None,
     force: bool,
 ) -> None:
     """Initialize proxy configuration.
@@ -358,13 +464,26 @@ def init(
     # Gather configuration values
     try:
         if non_interactive:
-            log_dir, log_level, server_name, connection_type, stdio_config, http_config = (
+            log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config = (
                 _run_non_interactive_init(
-                    log_dir, log_level, server_name, connection_type, command, args, url, timeout
+                    log_dir,
+                    log_level,
+                    server_name,
+                    connection_type,
+                    command,
+                    args,
+                    url,
+                    timeout,
+                    oidc_issuer,
+                    oidc_client_id,
+                    oidc_audience,
+                    mtls_cert,
+                    mtls_key,
+                    mtls_ca,
                 )
             )
         else:
-            log_dir, log_level, server_name, connection_type, stdio_config, http_config = (
+            log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config = (
                 _run_interactive_init(log_dir, log_level, server_name)
             )
     except click.Abort:
@@ -386,6 +505,7 @@ def init(
             connection_type,
             stdio_config,
             http_config,
+            auth_config,
         )
     except OSError as e:
         click.echo(f"Error: Failed to save configuration: {e}", err=True)

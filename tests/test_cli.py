@@ -29,6 +29,13 @@ def valid_config() -> dict:
             "server_name": "test-server",
             "stdio": {"command": "echo", "args": ["test"]},
         },
+        "auth": {
+            "oidc": {
+                "issuer": "https://test.auth0.com",
+                "client_id": "test-client-id",
+                "audience": "https://test-api.example.com",
+            }
+        },
     }
 
 
@@ -214,16 +221,12 @@ class TestConfigEdit:
     def test_edit_invalid_field_shows_error(
         self,
         runner: CliRunner,
+        valid_config: dict,
         invalid_value: dict,
         expected_error: str,
     ):
         """Given valid JSON with invalid field values, shows validation error."""
-        # Arrange
-        valid_config = {
-            "logging": {"log_dir": "/tmp", "log_level": "INFO"},
-            "backend": {"server_name": "test"},
-        }
-
+        # Arrange - use valid_config fixture which includes auth
         with runner.isolated_filesystem() as tmpdir:
             config_path = Path(tmpdir) / "config.json"
             config_path.write_text(json.dumps(valid_config, indent=2))
@@ -518,6 +521,13 @@ class TestInitCommand:
                             "stdio",
                             "--args",
                             "test",
+                            # OIDC flags (required for Zero Trust)
+                            "--oidc-issuer",
+                            "https://test.auth0.com",
+                            "--oidc-client-id",
+                            "test-client",
+                            "--oidc-audience",
+                            "https://api.example.com",
                         ],
                     )
 
@@ -553,6 +563,13 @@ class TestInitCommand:
                             "test",
                             "--connection-type",
                             "http",
+                            # OIDC flags (required for Zero Trust)
+                            "--oidc-issuer",
+                            "https://test.auth0.com",
+                            "--oidc-client-id",
+                            "test-client",
+                            "--oidc-audience",
+                            "https://api.example.com",
                         ],
                     )
 
@@ -592,6 +609,13 @@ class TestInitCommand:
                             "echo",
                             "--args",
                             "arg1,arg2",
+                            # OIDC flags (required for Zero Trust)
+                            "--oidc-issuer",
+                            "https://test.auth0.com",
+                            "--oidc-client-id",
+                            "test-client",
+                            "--oidc-audience",
+                            "https://api.example.com",
                         ],
                     )
 
@@ -607,6 +631,7 @@ class TestInitCommand:
             assert config["backend"]["server_name"] == "test-server"
             assert config["backend"]["stdio"]["command"] == "echo"
             assert config["backend"]["stdio"]["args"] == ["arg1", "arg2"]
+            assert config["auth"]["oidc"]["issuer"] == "https://test.auth0.com"
 
     def test_init_non_interactive_http_creates_config(self, runner: CliRunner):
         """Given valid http flags, creates config file."""
@@ -644,6 +669,13 @@ class TestInitCommand:
                                 "http://localhost:3000/mcp",
                                 "--timeout",
                                 "60",
+                                # OIDC flags (required for Zero Trust)
+                                "--oidc-issuer",
+                                "https://test.auth0.com",
+                                "--oidc-client-id",
+                                "test-client",
+                                "--oidc-audience",
+                                "https://api.example.com",
                             ],
                         )
 
@@ -658,6 +690,7 @@ class TestInitCommand:
             assert config["backend"]["server_name"] == "test-server"
             assert config["backend"]["http"]["url"] == "http://localhost:3000/mcp"
             assert config["backend"]["http"]["timeout"] == 60
+            assert config["auth"]["oidc"]["issuer"] == "https://test.auth0.com"
 
     def test_init_existing_files_without_force_fails(self, runner: CliRunner):
         """Given existing files without --force in non-interactive mode, fails."""
@@ -690,6 +723,13 @@ class TestInitCommand:
                             "echo",
                             "--args",
                             "test",
+                            # OIDC flags (required for Zero Trust)
+                            "--oidc-issuer",
+                            "https://test.auth0.com",
+                            "--oidc-client-id",
+                            "test-client",
+                            "--oidc-audience",
+                            "https://api.example.com",
                         ],
                     )
 
@@ -733,6 +773,13 @@ class TestInitCommand:
                             "echo",
                             "--args",
                             "test",
+                            # OIDC flags (required for Zero Trust)
+                            "--oidc-issuer",
+                            "https://test.auth0.com",
+                            "--oidc-client-id",
+                            "test-client",
+                            "--oidc-audience",
+                            "https://api.example.com",
                         ],
                     )
 
@@ -743,6 +790,7 @@ class TestInitCommand:
 
             config = json.loads(config_path.read_text())
             assert config["backend"]["server_name"] == "new-server"
+            assert config["auth"]["oidc"]["issuer"] == "https://test.auth0.com"
 
 
 class TestConfigShow:

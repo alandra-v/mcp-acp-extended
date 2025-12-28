@@ -35,13 +35,15 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
 
 ## Phase 2: Configuration Schema
 
-- [ ] **4. Add auth configuration models**
-  - New models in `config.py`: `OIDCConfig`, `MTLSConfig`, `DeviceHealthConfig`, `AuthConfig`
-  - NO disable options - all Zero Trust features mandatory
-  - Add `AuthenticationError`, `DeviceHealthError` to exceptions.py
+- [x] **4. Add auth configuration models**
+  - New models in `config.py`: `OIDCConfig`, `MTLSConfig`, `AuthConfig` ✓
+  - `auth: AuthConfig` is required on `AppConfig` (Zero Trust) ✓
+  - Device health is a runtime check, not configuration ✓
+  - Add `AuthenticationError`, `DeviceHealthError` to exceptions.py ✓
+  - Updated `cli/commands/init.py` with auth prompts and CLI flags ✓
 
-- [ ] **5. Add new dependencies**
-  - `pyproject.toml`: Add `PyJWT>=2.8.0`, `cryptography>=41.0.0`, `keyring>=24.0.0`
+- [x] **5. Add new dependencies**
+  - `pyproject.toml`: Add `PyJWT>=2.8.0`, `cryptography>=41.0.0`, `keyring>=24.0.0` ✓
 
 ---
 
@@ -81,18 +83,47 @@ Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanc
   - Auto-refresh expired tokens
   - Extract claims → populate Subject with TOKEN provenance
 
-- [ ] **10. Update identity provider factory**
-  - Modify `security/identity.py`: `create_identity_provider()` returns OIDC provider when auth configured
+- [ ] **10. Migrate from LocalIdentityProvider to OIDC**
+  - Modify `security/identity.py`:
+    - Update `create_identity_provider(config)` to return OIDC provider when `config.auth` is set
+    - Keep `LocalIdentityProvider` only for development/testing (not for production)
+  - Modify `context/context.py` `build_decision_context()`:
+    - Populate full `Subject` fields from OIDC claims (issuer, audience, scopes, token_age_s, auth_time)
+    - Change provenance from `DERIVED` to `TOKEN` when using OIDC
+  - Update `proxy.py`:
+    - Pass config to `create_identity_provider(config)`
+    - Handle `AuthenticationError` at startup (show osascript popup)
+  - Update tests:
+    - Add OIDC identity provider tests
+    - Update existing tests to mock OIDC provider where needed
 
 ---
 
 ## Phase 6: Device Health Checks
 
-- [ ] **11. Implement device health checker**
-  - New file: `src/mcp_acp_extended/pips/device/health.py`
-  - Check disk encryption: FileVault (macOS), BitLocker (Windows), LUKS (Linux)
-  - Check firewall: macOS Application Firewall, Windows Firewall
-  - Platform-aware implementation using subprocess
+- [x] **11. Implement device health checker**
+  - New file: `src/mcp_acp_extended/security/device.py` ✓
+  - Check disk encryption: `fdesetup status` (FileVault on macOS) - hard gate ✓
+  - Check device integrity: `csrutil status` (SIP on macOS) - hard gate ✓
+  - Simple implementation (~145 lines) - avoided over-engineering ✓
+  - Exported via `security/__init__.py` ✓
+  - **Dropped:** Firewall (low signal, many false positives)
+  - **Dropped:** Retry logic (periodic monitoring handles transient failures better)
+  - **Deferred:** OS patch recency (too complex for MVP)
+
+- [x] **11b. Implement periodic device health monitor**
+  - New file: `src/mcp_acp_extended/security/device_monitor.py` ✓
+  - Background async task checks every 5 minutes ✓
+  - Uses `asyncio.to_thread()` for non-blocking subprocess calls ✓
+  - Zero Trust: fails on first check failure (threshold=1) ✓
+  - Triggers shutdown via `ShutdownCoordinator` if device becomes unhealthy ✓
+  - Follows same pattern as `AuditHealthMonitor` ✓
+  - Interval configurable via `DEVICE_HEALTH_CHECK_INTERVAL_SECONDS` in constants.py ✓
+
+- [x] **11c. Integrate device health into proxy**
+  - Hard gate at startup: proxy won't start if device unhealthy ✓
+  - Added `DeviceHealthMonitor` to proxy lifespan (starts/stops with proxy) ✓
+  - Modified `proxy.py`: added startup check + background monitor ✓
 
 ---
 
@@ -260,7 +291,7 @@ These phases remain unchanged from original plan - see below.
 - [ ] AuditHealthMonitor integrated with proxy lifecycle
 - [ ] Zero Trust authentication working with Auth0 (Device Flow)
 - [ ] mTLS for HTTP backend connections
-- [ ] Device health checks (disk encryption, firewall)
+- [ ] Device health checks (disk encryption, device integrity/SIP)
 - [ ] Per-request token validation with caching
 - [ ] Session binding to user identity
 - [ ] Auth event audit logging (auth.jsonl)

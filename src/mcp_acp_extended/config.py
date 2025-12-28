@@ -25,6 +25,72 @@ from mcp_acp_extended.constants import (
 )
 
 
+# =============================================================================
+# Authentication Configuration (Zero Trust - all features mandatory)
+# =============================================================================
+
+
+class OIDCConfig(BaseModel):
+    """Auth0/OIDC configuration for user authentication.
+
+    All fields are required - Zero Trust requires authenticated users.
+
+    Attributes:
+        issuer: OIDC issuer URL (e.g., "https://your-tenant.auth0.com").
+        client_id: Auth0 application client ID.
+        audience: API audience for token validation.
+        scopes: OAuth scopes to request (default includes offline_access for refresh).
+    """
+
+    issuer: str
+    client_id: str
+    audience: str
+    scopes: list[str] = Field(
+        default=["openid", "profile", "email", "offline_access"],
+        description="OAuth scopes to request",
+    )
+
+
+class MTLSConfig(BaseModel):
+    """mTLS configuration for secure backend connections.
+
+    Required when backend uses HTTPS. Provides mutual authentication
+    between proxy and backend server.
+
+    Attributes:
+        client_cert_path: Path to client certificate (PEM format).
+        client_key_path: Path to client private key (PEM format).
+        ca_bundle_path: Path to CA bundle for server verification (PEM format).
+    """
+
+    client_cert_path: str
+    client_key_path: str
+    ca_bundle_path: str
+
+
+class AuthConfig(BaseModel):
+    """Authentication configuration for Zero Trust.
+
+    All authentication is mandatory - there is no option to disable auth.
+    This ensures Zero Trust compliance: every request has a verified identity.
+
+    Note: Device health (disk encryption, firewall) is checked at runtime,
+    not configured here. If checks fail, proxy won't start.
+
+    Attributes:
+        oidc: OIDC/Auth0 configuration for user authentication.
+        mtls: mTLS configuration (required for HTTPS backends).
+    """
+
+    oidc: OIDCConfig
+    mtls: MTLSConfig | None = None  # Required only for HTTPS backends
+
+
+# =============================================================================
+# Logging Configuration
+# =============================================================================
+
+
 class LoggingConfig(BaseModel):
     """Logging configuration settings.
 
@@ -117,16 +183,18 @@ class ProxyConfig(BaseModel):
 class AppConfig(BaseModel):
     """Main application configuration for mcp-acp-extended.
 
-    Contains all configuration sections including logging, backend server,
-    and proxy settings. All configuration is required - user must run
-    `mcp-acp-extended init` to create the config file.
+    Contains all configuration sections including authentication, logging,
+    backend server, and proxy settings. All configuration is required -
+    user must run `mcp-acp-extended init` to create the config file.
 
     Attributes:
+        auth: Authentication configuration (OIDC, mTLS, device health).
         logging: Logging configuration (log level, paths, payload settings).
         backend: Backend server configuration (STDIO or Streamable HTTP transport).
         proxy: Proxy server configuration (name).
     """
 
+    auth: AuthConfig
     logging: LoggingConfig
     backend: BackendConfig
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
