@@ -1,6 +1,7 @@
 """Security module for identity, authentication, and authorization.
 
 This module provides:
+- Authentication: token storage, JWT validation (security/auth/)
 - Identity providers (local, OIDC in Stage 2+)
 - Device health checks (disk encryption, SIP)
 - Audit log integrity: fail-closed handlers and health monitoring
@@ -14,6 +15,16 @@ from mcp_acp_extended.exceptions import (
     CriticalSecurityFailure,
     IdentityVerificationFailure,
     PolicyEnforcementFailure,
+)
+from mcp_acp_extended.security.auth import (
+    EncryptedFileStorage,
+    JWTValidator,
+    KeychainStorage,
+    StoredToken,
+    TokenStorage,
+    ValidatedToken,
+    create_token_storage,
+    get_token_storage_info,
 )
 from mcp_acp_extended.security.device import (
     DeviceHealthReport,
@@ -40,6 +51,15 @@ from mcp_acp_extended.security.shutdown import (
 )
 
 __all__ = [
+    # Authentication (security/auth/)
+    "StoredToken",
+    "TokenStorage",
+    "KeychainStorage",
+    "EncryptedFileStorage",
+    "create_token_storage",
+    "get_token_storage_info",
+    "JWTValidator",
+    "ValidatedToken",
     # Identity
     "IdentityProvider",
     "LocalIdentityProvider",

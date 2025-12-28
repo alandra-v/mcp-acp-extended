@@ -1,10 +1,9 @@
-"""Authentication PIP - OIDC token validation and device health.
+"""Authentication Policy Information Point.
 
-This module provides Zero Trust authentication:
-- Token validation via Auth0/OIDC
-- Token storage (Keychain)
-- Device health checks (disk encryption, firewall)
-- Session management
+This module will contain:
+- OIDCIdentityProvider: Extracts identity claims from tokens for policy decisions
 
-Note: Auth audit logging is in telemetry/audit/auth_logger.py
+Authentication primitives (token storage, JWT validation) are in security/auth/.
+Device health checks are in security/device.py.
+Auth audit logging is in telemetry/audit/auth_logger.py.
 """
