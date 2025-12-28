@@ -1,173 +1,273 @@
 # mcp-acp-extended Implementation Progress
 
-## Stage 2: OIDC Authentication & Enhanced Context
-Single user with OIDC identity, single server, enhanced context attributes, basic web UI
+## Stage 2: Zero Trust Authentication & Enhanced Context
+Full Zero Trust authentication with OIDC, mTLS, device health checks, and enhanced context attributes.
+
+**Design Document:** [docs/design/authentication_implementation.md](docs/design/authentication_implementation.md)
 
 ---
 
-## Phase 1: OIDC Authentication Setup
+## Phase 1: Logging Infrastructure & Auth Audit
 
-- [ ] **1. Configure Auth0 for development**
-  - Create Auth0 tenant and application (Regular Web Application)
-  - Configure callback URL: `http://localhost:8000/auth/callback`
-  - Set up API audience for token validation
-  - Document config_url, client_id, client_secret, audience
+- [ ] **1. Add startup validation for audit logs**
+  - Check write permissions before proxy starts
+  - Verify directory structure exists (create if needed)
+  - Validate file integrity for existing logs
+  - Fail fast if audit logging cannot be guaranteed
 
-- [ ] **2. Integrate FastMCP Auth0Provider**
-  - Use built-in `Auth0Provider` from `fastmcp.server.auth.providers.auth0`
-  - New `OIDCConfig` model in `config.py`: config_url, client_id, client_secret, audience, base_url
-  - Conditional auth setup in `proxy.py`: pass `auth=Auth0Provider(...)` to FastMCP
-  - Fallback to no auth when OIDC not configured (Stage 1 behavior)
+- [ ] **2. Integrate AuditHealthMonitor properly**
+  - Start monitor as background task on proxy startup
+  - Register all audit log paths (operations, decisions, auth)
+  - Clean shutdown: cancel task, await completion
+  - Handle monitor crash → trigger fail-closed shutdown
 
-- [ ] **3. Implement OIDCIdentityProvider**
-  - New provider in `security/auth/providers/oidc_provider.py`
-  - Implements existing `IdentityProvider` protocol
-  - Extract claims from FastMCP's validated token context: sub, iss, aud, scope, iat, groups
-  - No manual token validation needed (FastMCP handles JWKS, expiry, signature)
+- [ ] **3. Create auth audit logger**
+  - New file: `src/mcp_acp_extended/pip/auth/auth_logger.py`
+  - Log to `audit/auth.jsonl` with fail-closed handler
+  - Events: `token_validated`, `token_invalid`, `session_started`, `session_ended`, `device_health_passed/failed`
+  - Add `get_auth_log_path()` to config helpers
 
-- [ ] **4. Update Subject model for OIDC claims**
-  - Extend `Subject` in `context/subject.py`: issuer, audience, scopes, groups, token_age_s
-  - Update `build_decision_context()` to populate from `OIDCIdentityProvider`
-  - Backwards compatible (all new fields optional)
+---
 
-- [ ] **5. Update CLI init for OIDC configuration**
-  - New `--auth` flag: `none` (default) | `oidc`
-  - Interactive prompts for OIDC settings when selected
-  - Non-interactive flags: `--oidc-config-url`, `--oidc-client-id`, etc.
-  - `config show` displays OIDC configuration (secrets masked)
+## Phase 2: Configuration Schema
 
+- [ ] **4. Add auth configuration models**
+  - New models in `config.py`: `OIDCConfig`, `MTLSConfig`, `DeviceHealthConfig`, `AuthConfig`
+  - NO disable options - all Zero Trust features mandatory
+  - Add `AuthenticationError`, `DeviceHealthError` to exceptions.py
 
-## Phase 2: Context Enhancements
+- [ ] **5. Add new dependencies**
+  - `pyproject.toml`: Add `PyJWT>=2.8.0`, `cryptography>=41.0.0`, `keyring>=24.0.0`
 
-- [ ] **6. Implement approval context**
-  - Populate `Approval` model in `context/approval.py`
-  - Track HITL approvals in `HITLHandler`: timestamp, scope, approver
-  - **Stage 2 scope**: Track approvals, don't use for policy yet
-  - **Deferred**: Approval expiry, step-up auth policies
+---
 
-- [ ] **7. Implement data inspection context**
-  - Populate `DataInspection` model in `context/data.py`
-  - Simple regex-based detection for secrets and PII patterns
-  - **Stage 2 scope**: Detection and logging only, no policy blocking
-  - **Deferred**: Advanced detection libraries, policy conditions
+## Phase 3: Token Storage & JWT Validation
 
-- [ ] **8. Implement tool registry**
-  - `ToolRegistry` class in `context/tool_registry.py`
-  - Load side effects from `tool_registry.json` (user-configurable)
-  - Fallback to built-in `TOOL_SIDE_EFFECTS` if file missing
-  - Glob pattern support for tool names
+- [ ] **6. Implement token storage**
+  - New file: `src/mcp_acp_extended/pip/auth/token_storage.py`
+  - `KeychainStorage` (primary) using `keyring` library
+  - `EncryptedFileStorage` (fallback) using Fernet
+  - `StoredToken` model with access_token, refresh_token, expires_at
 
+- [ ] **7. Implement JWT validator**
+  - New file: `src/mcp_acp_extended/pip/auth/jwt_validator.py`
+  - Validate JWT signature using JWKS from Auth0
+  - Verify issuer, audience, expiration
+  - Cache JWKS for performance
 
-## Phase 3: Policy Enhancements
+---
 
-- [ ] **9. Add subject-based policy conditions**
-  - New conditions in `pdp/policy.py`: issuer, audience, scopes, groups
-  - `scopes`/`groups` use ANY logic (user has at least one)
-  - Update `PolicyEngine._matches_rule()` to evaluate subject conditions
+## Phase 4: Device Authorization Flow
 
-- [ ] **10. Implement hot reload via SIGHUP**
-  - Add `SIGHUP` handler in `proxy.py`
-  - **Policy reload**: Load, validate, atomic swap
-  - **Config reload (limited)**: Only `hitl.timeout_seconds`, `logging.log_level`
-  - **Not reloadable**: backend.*, logging.log_dir, oidc.* (log warning)
-  - Keep old config/policy on validation failure
+- [ ] **8. Implement OAuth Device Flow (RFC 8628)**
+  - New file: `src/mcp_acp_extended/pip/auth/device_flow.py`
+  - Request device code from Auth0
+  - Display user_code and verification_uri
+  - Poll token endpoint until user completes authentication
+  - Store tokens in Keychain
 
+---
 
-## Phase 4: CLI Enhancements
+## Phase 5: OIDC Identity Provider
 
-- [ ] **11. Add policy validate command**
-  - `mcp-acp-extended policy validate [--file PATH]`
-  - Validates policy.json against Pydantic schema
-  - Exit code 0 on valid, 1 on invalid
+- [ ] **9. Implement OIDCIdentityProvider**
+  - New file: `src/mcp_acp_extended/pip/auth/oidc_provider.py`
+  - Implements `IdentityProvider` protocol
+  - Load token from Keychain, validate per-request (60s cache)
+  - Auto-refresh expired tokens
+  - Extract claims → populate Subject with TOKEN provenance
 
-- [ ] **12. Add config/policy diff commands**
-  - `mcp-acp-extended config show --diff` - diff from last loaded version
-  - `mcp-acp-extended policy show --diff` - same for policy
+- [ ] **10. Update identity provider factory**
+  - Modify `security/identity.py`: `create_identity_provider()` returns OIDC provider when auth configured
 
-- [ ] **13. Add reload command**
-  - `mcp-acp-extended reload` - sends SIGHUP to running proxy
-  - Update `start` command to write pidfile
+---
 
-## Phase 5: Logging Enhancements
+## Phase 6: Device Health Checks
 
-- [ ] **14. Add OIDC claims to audit logs**
-  - Update `OperationEvent`: `subject_issuer`, `subject_groups`
-  - Update `DecisionEvent`: same fields in context_summary
-  - Add auth.jsonl for authentication events
+- [ ] **11. Implement device health checker**
+  - New file: `src/mcp_acp_extended/pip/device/health.py`
+  - Check disk encryption: FileVault (macOS), BitLocker (Windows), LUKS (Linux)
+  - Check firewall: macOS Application Firewall, Windows Firewall
+  - Platform-aware implementation using subprocess
 
-- [ ] **15. Add data inspection flags to audit logs**
-  - Update `OperationEvent`: `contains_secrets_suspected`, `contains_pii_suspected`
+---
 
-- [ ] **16. Implement log rotation awareness**
-  - Detect when log file is rotated (inode change)
-  - Graceful handling: reopen file, continue logging
-  - Distinguish rotation vs deletion (don't trigger fail-closed for rotation)
+## Phase 7: Session Management
 
-## Phase 6: Web UI (React + shadcn)
+- [ ] **12. Implement session binding**
+  - New file: `src/mcp_acp_extended/pip/auth/session.py`
+  - Cryptographically secure session IDs (`secrets.token_urlsafe(32)`)
+  - Sessions bound to subject_id per MCP spec
+  - Session format: `{user_id}:{session_id}`
 
-- [ ] **17. Set up FastAPI backend (embedded)**
-  - FastAPI app in `api/server.py`, mounted on proxy process
-  - CORS configuration for React dev server (localhost:5173)
-  - Health endpoint: `GET /api/health`
-  - Serve static files from `web/dist/` in production
-  - **Deferred**: OIDC authentication for API endpoints
+---
 
-- [ ] **18. Implement log viewer API**
-  - `GET /api/logs/operations`, `/decisions`, `/system` - paginated
-  - Query params: `limit`, `offset`, `start_time`, `end_time`
+## Phase 8: mTLS Transport
 
-- [ ] **19. Implement HITL queue API**
-  - `GET /api/hitl/pending` - list pending approval requests
-  - `POST /api/hitl/{request_id}/approve` and `/deny`
-  - WebSocket: `WS /api/hitl/stream` - real-time updates
-  - **Note**: Requires refactoring HITLHandler for web-based approval
+- [ ] **13. Add mTLS support to transport**
+  - Modify `utils/transport.py`
+  - Create SSL context with client cert, client key, CA bundle
+  - Integrate with httpx for HTTP backends
 
-- [ ] **20. Implement status API**
-  - `GET /api/status` - proxy status, uptime, backend connection
-  - `GET /api/config` - current config (secrets masked)
-  - `GET /api/policy` - current policy
+---
 
-- [ ] **21. Set up React + Vite + shadcn project**
-  - Initialize `web/` with Vite React TypeScript template
-  - Install and configure Tailwind CSS
-  - Install shadcn/ui and add base components (Button, Card, Table, Dialog)
-  - Set up Vite proxy for `/api` during development
-  - Configure production build output to `web/dist/`
+## Phase 9: Integration
 
-- [ ] **22. Implement React pages**
-  - Dashboard: Proxy status, recent activity summary
-  - Logs viewer: Filterable log table with auto-refresh
-  - HITL queue: Pending approvals with approve/deny buttons
-  - Config view: Read-only config/policy display
-  - Use React Query for API data fetching
+- [ ] **14. Integrate auth into proxy startup**
+  - Modify `proxy.py`: Load token → validate → device health → create provider
+  - Show osascript popup on auth failure (reuse HITL infrastructure)
 
-- [ ] **23. Add UI start to CLI**
-  - `mcp-acp-extended start --ui-port 8080`
-  - Default: UI enabled
-  - Serves `web/dist/` static files via FastAPI
+- [ ] **15. Add auth CLI commands**
+  - New file: `cli/commands/auth.py`
+  - `auth login` - Device Flow, store token
+  - `auth logout` - Clear stored tokens
+  - `auth status` - Show token validity, user info
 
-## Phase 7: Testing & Documentationms extraction, policy evaluation
+- [ ] **16. Update init command for auth config**
+  - Modify `cli/commands/init.py`
+  - Add prompts for Auth0 issuer, client_id, audience
+  - Add prompts for mTLS certificate paths
 
-- [ ] **24. E2E testing with Auth0**
+- [ ] **17. Update start command**
+  - Modify `cli/commands/start.py`
+  - Check auth before starting proxy
+
+---
+
+## Phase 10: Testing & Documentation
+
+- [ ] **18. Add unit tests**
+  - `tests/pip/auth/test_device_flow.py`
+  - `tests/pip/auth/test_jwt_validator.py`
+  - `tests/pip/auth/test_token_storage.py`
+  - `tests/pip/auth/test_oidc_provider.py`
+  - `tests/pip/device/test_health.py`
+
+- [ ] **19. Update documentation**
+  - New `docs/authentication.md` - Complete auth setup guide
+  - Update `docs/logging.md` - Add auth.jsonl documentation
+  - Update `docs/configuration.md` - Auth config section
+  - Update `docs/security.md` - Zero Trust authentication
+
+- [ ] **20. E2E testing with Auth0**
   - Manual testing with real Auth0 tenant
-  - Test with MCP Inspector and Claude Desktop
+  - Test full flow: init → auth login → start → use → token refresh
   - Document in `docs/manual-e2e-testing.md`
 
-- [ ] **25. Update documentation**
-  - Update `docs/configuration.md`, `docs/policies.md`, `docs/security.md`
-  - New `docs/authentication.md` for OIDC setup guide
-  - New `docs/web-ui.md` for UI usage and development
+---
+
+## Future Phases (Context Enhancements, Policy, Web UI)
+
+These phases remain unchanged from original plan - see below.
+
+---
+
+## Phase 11: Context Enhancements
+
+- [ ] **21. Implement approval context**
+  - Populate `Approval` model in `context/approval.py`
+  - Track HITL approvals: timestamp, scope, approver
+
+- [ ] **22. Implement data inspection context**
+  - Populate `DataInspection` model in `context/data.py`
+  - Simple regex-based detection for secrets and PII patterns
+
+- [ ] **23. Implement tool registry**
+  - `ToolRegistry` class in `context/tool_registry.py`
+  - Load side effects from `tool_registry.json`
+
+- [ ] **24. Add environment context conditions**
+  - Add `environment.mcp_client_name` as policy condition
+  - Add `environment.timestamp` / time windows as conditions
+  - Support time-based access restrictions
+
+- [ ] **25. Enhance provenance tracking**
+  - Add explicit `side_effects_confidence` field: `verified`, `mapped`, `guessed`, `unknown`
+    | Confidence | Meaning                                 | Source                                |
+    |------------|-----------------------------------------|---------------------------------------|
+    | verified   | Cryptographically signed by tool author | Future: tool registry with signatures |
+    | mapped     | Admin manually configured               | TOOL_SIDE_EFFECTS or registry file    |
+    | guessed    | Inferred from tool name heuristics      | infer_operation()                     |
+    | unknown    | No information available                | Tool not in any mapping               |
+  - Make provenance conditionable in policies
+
+---
+
+## Phase 12: Policy Enhancements
+
+- [ ] **26. Add list support for conditions (OR logic)**
+  - Allow arrays in condition values (any match = pass)
+  - No NOT logic (Zero Trust principle - explicit allow only)
+
+- [ ] **27. Add trace/explanation to decision logs**
+  - Log WHY a decision was made, not just which rule matched
+  - Include evaluation trace showing condition checks
+
+- [ ] **28. Add policy IDs with content hash**
+  - Auto-generate policy ID from content hash
+  - Enable policy versioning and change detection
+
+- [ ] **29. Add subject-based policy conditions**
+  - New conditions: issuer, audience, scopes, groups
+  - Update `PolicyEngine._matches_rule()`
+
+- [ ] **30. Add multiple path support for policies**
+  - Support source and destination paths in single rule
+  - Enable data flow policies (e.g., "from X to Y")
+
+- [ ] **31. Add provenance-based policy conditions**
+  - Condition on `side_effects_confidence` levels
+  - Allow stricter policies for `guessed`/`unknown` provenance
+
+- [ ] **32. Implement hot reload via SIGHUP**
+  - Policy reload: Load, validate, atomic swap
+  - Config reload (limited): hitl.timeout_seconds, logging.log_level
+
+---
+
+## Phase 13: CLI Enhancements
+
+- [ ] **33. Add policy and config validate commands**
+  - `mcp-acp-extended policy validate`
+  - `mcp-acp-extended config validate`
+
+- [ ] **34. Add config export command**
+  - `mcp-acp-extended config export --claude` - Export Claude Desktop client config snippet
+
+---
+
+## Phase 14: Web UI (React + shadcn)
+
+- [ ] **35. Set up FastAPI backend (embedded)**
+  - FastAPI app in `api/server.py`
+  - Health, logs, HITL, status endpoints
+
+- [ ] **36. Set up React + Vite + shadcn project**
+  - Dashboard, logs viewer, HITL queue, config view
+
+- [ ] **37. Add UI start to CLI**
+  - `mcp-acp-extended start --ui-port 8080`
 
 ---
 
 ## Stage 2 Completion Criteria
 
-- [ ] OIDC authentication working with Auth0
+- [ ] Startup validation for audit logs (permissions, directory, integrity)
+- [ ] AuditHealthMonitor integrated with proxy lifecycle
+- [ ] Zero Trust authentication working with Auth0 (Device Flow)
+- [ ] mTLS for HTTP backend connections
+- [ ] Device health checks (disk encryption, firewall)
+- [ ] Per-request token validation with caching
+- [ ] Session binding to user identity
+- [ ] Auth event audit logging (auth.jsonl)
 - [ ] Subject claims available in policy conditions
+- [ ] Policy conditions support OR logic (list values)
+- [ ] Decision logs include trace/explanation (WHY not just WHAT)
+- [ ] Policy IDs with content hash for versioning
+- [ ] Environment conditions (mcp_client_name, time windows)
+- [ ] Provenance-based policy conditions (side_effects_confidence)
+- [ ] Multiple path support for data flow policies
 - [ ] Hot reload for policy/config via SIGHUP
-- [ ] Approval and data inspection context tracked
-- [ ] Tool registry configurable via file
-- [ ] Policy validate CLI command
 - [ ] React web UI for logs and HITL
 - [ ] Documentation updated
-- [ ] E2E testing with Auth0 complete
+- [ ] E2E testing complete
