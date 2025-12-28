@@ -64,6 +64,11 @@ HEALTH_CHECK_TIMEOUT_SECONDS: float = 10.0
 # This catches tampering during idle periods between requests (defense in depth)
 AUDIT_HEALTH_CHECK_INTERVAL_SECONDS: float = 30.0
 
+# How often the background DeviceHealthMonitor checks device posture (seconds)
+# Device state can change during operation (e.g., user disables SIP)
+# 5 minutes balances responsiveness with minimal overhead
+DEVICE_HEALTH_CHECK_INTERVAL_SECONDS: float = 300.0
+
 # ============================================================================
 # Backend Transport Error Detection
 # ============================================================================

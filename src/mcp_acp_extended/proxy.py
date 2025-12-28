@@ -26,12 +26,18 @@ from typing import AsyncIterator
 from fastmcp import FastMCP
 
 from mcp_acp_extended.config import AppConfig
-from mcp_acp_extended.constants import AUDIT_HEALTH_CHECK_INTERVAL_SECONDS, PROTECTED_CONFIG_DIR
+from mcp_acp_extended.constants import (
+    AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
+    DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
+    PROTECTED_CONFIG_DIR,
+)
+from mcp_acp_extended.exceptions import AuditFailure, DeviceHealthError
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware
 from mcp_acp_extended.security import create_identity_provider
+from mcp_acp_extended.security.device import check_device_health
+from mcp_acp_extended.security.device_monitor import DeviceHealthMonitor
 from mcp_acp_extended.security.integrity.audit_handler import verify_audit_writable
 from mcp_acp_extended.security.integrity.audit_monitor import AuditHealthMonitor
-from mcp_acp_extended.exceptions import AuditFailure
 from mcp_acp_extended.security.shutdown import ShutdownCoordinator, sync_emergency_shutdown
 from mcp_acp_extended.telemetry.audit import create_audit_logging_middleware
 from mcp_acp_extended.telemetry.debug.client_logger import (
@@ -87,10 +93,15 @@ def create_proxy(
     - Client logging: Wire-level debugging
     - Enforcement: Policy evaluation and blocking (innermost)
 
-    Security - Audit Health Monitor:
-    - Background task that runs every 30 seconds to verify audit log integrity
-    - Checks that audit log files still exist and haven't been replaced
-    - Triggers fail-closed shutdown if any integrity check fails
+    Security - Device Health Check:
+    - Runs at startup as a hard gate - proxy won't start if device is unhealthy
+    - Checks disk encryption (FileVault) and device integrity (SIP) on macOS
+    - Zero Trust: device posture must be verified before accepting requests
+
+    Security - Health Monitors (Background):
+    - Audit Health Monitor: Runs every 30 seconds to verify audit log integrity
+    - Device Health Monitor: Runs every 5 minutes to verify device posture
+    - Both trigger fail-closed shutdown if checks fail
     - Started automatically when proxy starts via lifespan context manager
     - Defense in depth: catches issues during idle periods between requests
 
@@ -111,6 +122,7 @@ def create_proxy(
         ConnectionError: If HTTP backend is unreachable.
         RuntimeError: If backend server fails to start or initialize.
         AuditFailure: If audit logs cannot be written at startup.
+        DeviceHealthError: If device health checks fail at startup.
     """
     # Configure system logger file handler with user's log_dir
     configure_system_logger_file(get_system_log_path(config))
@@ -121,6 +133,12 @@ def create_proxy(
     decisions_path = get_decisions_log_path(config)
     verify_audit_writable(audit_path)
     verify_audit_writable(decisions_path)
+
+    # Run device health check (hard gate - proxy won't start if unhealthy)
+    # Zero Trust: device posture must be verified before accepting any requests
+    device_health = check_device_health()
+    if not device_health.is_healthy:
+        raise DeviceHealthError(str(device_health))
 
     # Create shutdown coordinator for fail-closed behavior
     log_dir = get_log_dir(config)
@@ -133,6 +151,13 @@ def create_proxy(
         audit_paths=[audit_path, decisions_path],
         shutdown_coordinator=shutdown_coordinator,
         check_interval_seconds=AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
+    )
+
+    # Create DeviceHealthMonitor for periodic device posture verification
+    # Device state can change during operation (e.g., user disables SIP)
+    device_monitor = DeviceHealthMonitor(
+        shutdown_coordinator=shutdown_coordinator,
+        check_interval_seconds=DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
     )
 
     # Create shutdown callback with hybrid approach:
@@ -175,35 +200,43 @@ def create_proxy(
         name=config.proxy.name,
     )
 
-    # Create lifespan context manager for audit health monitor
-    # This starts the monitor when the proxy starts and stops it on shutdown
+    # Create lifespan context manager for health monitors
+    # This starts monitors when the proxy starts and stops them on shutdown
     @asynccontextmanager
     async def proxy_lifespan(app: FastMCP) -> AsyncIterator[None]:
-        """Manage proxy lifecycle: start/stop audit health monitor."""
+        """Manage proxy lifecycle: start/stop health monitors."""
         # Note: app parameter required by FastMCP's _lifespan_manager
         try:
             await audit_monitor.start()
+            await device_monitor.start()
         except Exception as e:
             # Log failure and re-raise - Zero Trust requires monitoring
             system_logger.error(
                 {
-                    "event": "audit_health_monitor_start_failed",
+                    "event": "health_monitor_start_failed",
                     "error": str(e),
                     "error_type": type(e).__name__,
-                    "monitored_paths": [str(p) for p in audit_monitor.audit_paths],
                 }
             )
             raise
         try:
             yield
         finally:
+            await device_monitor.stop()
             await audit_monitor.stop()
-            # Check if monitor crashed - if so, it's a fatal error
-            # (The monitor itself triggers shutdown on crash via ShutdownCoordinator)
+            # Check if monitors crashed - if so, it's a fatal error
+            # (Monitors trigger shutdown on crash via ShutdownCoordinator)
             if audit_monitor._crashed:
                 system_logger.error(
                     {
                         "event": "audit_health_monitor_crash_detected",
+                        "message": "Monitor crashed during shutdown check",
+                    }
+                )
+            if device_monitor._crashed:
+                system_logger.error(
+                    {
+                        "event": "device_health_monitor_crash_detected",
                         "message": "Monitor crashed during shutdown check",
                     }
                 )
