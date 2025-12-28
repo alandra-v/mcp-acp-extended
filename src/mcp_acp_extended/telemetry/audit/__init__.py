@@ -1,8 +1,17 @@
-"""Audit logging for MCP operations and authentication."""
+"""Audit logging for MCP operations, decisions, and authentication.
+
+Logger patterns:
+- AuditLoggingMiddleware: Middleware that wraps request/response cycle
+- AuthLogger: Wrapper class with typed methods for discrete auth events
+- create_decision_logger: Raw logger (logic lives in PolicyEnforcementMiddleware)
+"""
 
 from mcp_acp_extended.telemetry.audit.auth_logger import (
     AuthLogger,
     create_auth_logger,
+)
+from mcp_acp_extended.telemetry.audit.decision_logger import (
+    create_decision_logger,
 )
 from mcp_acp_extended.telemetry.audit.operation_logger import (
     AuditLoggingMiddleware,
@@ -14,4 +23,5 @@ __all__ = [
     "AuditLoggingMiddleware",
     "create_auth_logger",
     "create_audit_logging_middleware",
+    "create_decision_logger",
 ]

@@ -29,7 +29,6 @@ from mcp_acp_extended.pep.hitl import HITLHandler, HITLOutcome, HITLResult
 from mcp_acp_extended.pep.middleware import (
     PolicyEnforcementMiddleware,
     create_enforcement_middleware,
-    setup_decision_logger,
 )
 
 __all__ = [
@@ -45,5 +44,4 @@ __all__ = [
     "create_context_middleware",
     "PolicyEnforcementMiddleware",
     "create_enforcement_middleware",
-    "setup_decision_logger",
 ]

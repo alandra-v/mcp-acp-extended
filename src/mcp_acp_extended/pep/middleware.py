@@ -31,7 +31,7 @@ from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallbac
 from mcp_acp_extended.utils.logging.extractors import extract_client_info
 from mcp_acp_extended.telemetry.models.decision import DecisionEvent
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
-from mcp_acp_extended.utils.logging.logger_setup import setup_failclosed_audit_logger
+from mcp_acp_extended.telemetry.audit.decision_logger import create_decision_logger
 from mcp_acp_extended.utils.logging.logging_context import get_request_id, get_session_id
 
 if TYPE_CHECKING:
@@ -429,27 +429,6 @@ class PolicyEnforcementMiddleware(Middleware):
         _assert_never(decision)
 
 
-def setup_decision_logger(
-    log_path: Path,
-    shutdown_callback: Callable[[str], None],
-) -> logging.Logger:
-    """Set up logger for decision events with fail-closed integrity checking.
-
-    Args:
-        log_path: Path to decisions.jsonl file.
-        shutdown_callback: Called if audit log integrity check fails.
-
-    Returns:
-        Configured logger instance with fail-closed handler.
-    """
-    return setup_failclosed_audit_logger(
-        "mcp-acp-extended.audit.decisions",
-        log_path,
-        shutdown_callback=shutdown_callback,
-        log_level=logging.INFO,
-    )
-
-
 def create_enforcement_middleware(
     *,
     policy: "PolicyConfig",
@@ -478,7 +457,7 @@ def create_enforcement_middleware(
     Returns:
         Configured PolicyEnforcementMiddleware.
     """
-    logger = setup_decision_logger(log_path, shutdown_callback)
+    logger = create_decision_logger(log_path, shutdown_callback)
 
     return PolicyEnforcementMiddleware(
         policy=policy,
