@@ -4,7 +4,6 @@ Design principle: We report what we KNOW, not what we guess.
 - mcp_method: Raw fact from request
 - name: Normalized form (for easier policy writing)
 - intent: Only populated when KNOWN from method semantics
-- is_mutating: Default True for tools/call (distrust by default)
 - category: DISCOVERY (metadata/listing) vs ACTION (actually does something)
 """
 
@@ -34,11 +33,9 @@ class ActionProvenance(BaseModel):
     """Provenance tracking for derived action fields.
 
     intent may be None if we don't know what the action does.
-    is_mutating always has provenance since we always set it.
     """
 
     intent: Provenance | None = None
-    is_mutating: Provenance
 
 
 class Action(BaseModel):
@@ -52,7 +49,6 @@ class Action(BaseModel):
         mcp_method: Raw MCP method name ("tools/call", "resources/read")
         name: Normalized form ("tools.call", "resources.read")
         intent: Action intent when KNOWN ("read", "write", "exec"), None otherwise
-        is_mutating: Safety assumption - True for tools/call (can't trust tool)
         category: DISCOVERY (metadata) vs ACTION (does something)
         provenance: Source tracking for derived fields
     """
@@ -65,9 +61,6 @@ class Action(BaseModel):
 
     # Intent - None if unknown (we don't guess!)
     intent: str | None
-
-    # Safety assumption - default to dangerous
-    is_mutating: bool
 
     # Category - discovery (listing/metadata) vs action (does something)
     category: ActionCategory

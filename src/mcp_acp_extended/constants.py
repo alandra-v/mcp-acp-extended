@@ -193,21 +193,6 @@ MIME_TYPE_HINTS: dict[str, str] = {
 # MCP Method Classification
 # ============================================================================
 
-# Methods known to be non-mutating (safe)
-# These don't modify state and can be treated as read-only operations
-NON_MUTATING_METHODS: frozenset[str] = frozenset(
-    {
-        "initialize",
-        "ping",
-        "resources/read",
-        "resources/list",
-        "tools/list",
-        "prompts/list",
-        "prompts/get",
-        "resources/templates/list",
-    }
-)
-
 # Discovery methods - metadata/listing operations that don't modify state
 # These are allowed by default without explicit policy rules
 # Category: DISCOVERY (vs ACTION which requires policy evaluation)

@@ -88,7 +88,7 @@ Every policy evaluation decision, including HITL outcomes.
 | `request_id`, `backend_id`, `policy_version` | Correlation and context (required) |
 | `session_id` | Session ID (optional, may not exist during `initialize`) |
 | `subject_id` | User identity (optional until auth implemented) |
-| `is_mutating`, `side_effects` | Action classification |
+| `side_effects` | Action classification |
 | `duration_ms` | Policy evaluation time |
 | `hitl_outcome` | `user_allowed`, `user_denied`, `timeout` (if HITL) |
 | `hitl_response_time_ms` | User response time (if HITL) |

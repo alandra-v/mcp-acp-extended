@@ -218,7 +218,6 @@ class PolicyEnforcementMiddleware(Middleware):
             scheme=scheme,
             subject_id=decision_context.subject.id,
             backend_id=self._backend_id,
-            is_mutating=decision_context.action.is_mutating,
             side_effects=side_effects,
             policy_version=self._policy_version or "unknown",
             policy_eval_ms=round(policy_eval_ms, 2),

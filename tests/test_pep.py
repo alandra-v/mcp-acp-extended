@@ -487,7 +487,6 @@ class TestDecisionEvent:
             scheme="file",
             subject_id="test_user",
             backend_id="test-server",
-            is_mutating=True,
             side_effects=["FS_READ"],
             policy_version="v1",
             policy_eval_ms=2.5,
@@ -500,7 +499,6 @@ class TestDecisionEvent:
 
         # Assert
         assert event.backend_id == "test-server"
-        assert event.is_mutating is True
         assert event.side_effects == ["FS_READ"]
         assert event.hitl_outcome == "user_allowed"
         assert event.policy_hitl_ms == 1500.0

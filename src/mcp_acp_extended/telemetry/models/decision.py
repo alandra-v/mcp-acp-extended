@@ -45,7 +45,6 @@ class DecisionEvent(BaseModel):
     scheme: Optional[str] = None  # URI scheme (file, https, s3, etc.)
     subject_id: Optional[str] = None  # Optional until auth is fully implemented
     backend_id: str  # Backend server ID (always known from config)
-    is_mutating: bool = False  # Whether the action is mutating
     side_effects: Optional[list[str]] = None  # Tool side effects (FS_WRITE, CODE_EXEC, etc.)
 
     # --- policy ---

@@ -22,7 +22,6 @@ from pydantic import BaseModel, ConfigDict
 from mcp_acp_extended.constants import (
     DISCOVERY_METHODS,
     METHOD_INTENTS,
-    NON_MUTATING_METHODS,
     PATH_ARGUMENT_NAMES,
     TOOL_SIDE_EFFECTS,
 )
@@ -143,9 +142,6 @@ def _build_action(method: str) -> Action:
     # Get intent if known (only for methods where it's a FACT)
     intent = METHOD_INTENTS.get(method)
 
-    # Determine if mutating - assume true for unknown methods
-    is_mutating = method not in NON_MUTATING_METHODS
-
     # Determine category - discovery (metadata) vs action (does something)
     category = ActionCategory.DISCOVERY if method in DISCOVERY_METHODS else ActionCategory.ACTION
 
@@ -156,11 +152,9 @@ def _build_action(method: str) -> Action:
         mcp_method=method,
         name=method.replace("/", "."),
         intent=intent,
-        is_mutating=is_mutating,
         category=category,
         provenance=ActionProvenance(
             intent=intent_provenance,
-            is_mutating=Provenance.DERIVED,
         ),
     )
 

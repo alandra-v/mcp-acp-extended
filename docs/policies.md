@@ -44,7 +44,7 @@ The proxy builds a `DecisionContext` with four attribute categories:
 | Category | Attributes | Source |
 |----------|------------|--------|
 | **Subject** | `user_id`, `hostname`, `client_name` | Local identity provider |
-| **Action** | `mcp_method`, `intent`, `is_mutating`, `category` | MCP request |
+| **Action** | `mcp_method`, `intent`, `category` | MCP request |
 | **Resource** | `tool_name`, `path`, `extension`, `backend_id`, `side_effects` | MCP request arguments |
 | **Environment** | `timestamp`, `session_id`, `request_id` | Runtime context |
 
@@ -158,13 +158,6 @@ Side effects are currently **manually mapped** per tool. Example mappings:
 - Unknown tools fail-safe: they won't match allow rules with side_effect conditions
 
 Future: Verified Tool Registry
-
----
-
-## Unknown Tools
-
-- `is_mutating=true` for any method not in `NON_MUTATING_METHODS`
-- Dangerous assumption for safety - treats unknown as potentially harmful
 
 ---
 

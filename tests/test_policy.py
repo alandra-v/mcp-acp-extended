@@ -120,12 +120,8 @@ def make_context():
                 mcp_method=method,
                 name=method.replace("/", "."),
                 intent=None,
-                is_mutating=True,
                 category=category,
-                provenance=ActionProvenance(
-                    intent=None,
-                    is_mutating=Provenance.DERIVED,
-                ),
+                provenance=ActionProvenance(intent=None),
             ),
             resource=Resource(
                 type=ResourceType.TOOL,

@@ -6,7 +6,6 @@ Key design principles tested:
 1. Context describes reality, not intent
 2. Facts carry provenance
 3. For tools/call, intent is None (we don't guess what tools do)
-4. is_mutating defaults to True for tools/call (distrust by default)
 """
 
 import getpass
@@ -200,31 +199,12 @@ class TestAction:
             mcp_method="tools/call",
             name="tools.call",
             intent=None,
-            is_mutating=True,
             category=ActionCategory.ACTION,
-            provenance=ActionProvenance(
-                intent=None,
-                is_mutating=Provenance.DERIVED,
-            ),
+            provenance=ActionProvenance(intent=None),
         )
 
         # Assert
         assert action.intent is None
-
-    def test_tools_call_is_mutating_by_default(self):
-        """Given tools/call action, is_mutating is True for distrust by default."""
-        # Arrange
-        action = Action(
-            mcp_method="tools/call",
-            name="tools.call",
-            intent=None,
-            is_mutating=True,
-            category=ActionCategory.ACTION,
-            provenance=ActionProvenance(intent=None, is_mutating=Provenance.DERIVED),
-        )
-
-        # Assert
-        assert action.is_mutating is True
 
     def test_resources_read_has_read_intent(self):
         """Given resources/read action, intent is 'read' (known from method semantics)."""
@@ -233,12 +213,8 @@ class TestAction:
             mcp_method="resources/read",
             name="resources.read",
             intent="read",
-            is_mutating=False,
             category=ActionCategory.ACTION,
-            provenance=ActionProvenance(
-                intent=Provenance.MCP_METHOD,
-                is_mutating=Provenance.DERIVED,
-            ),
+            provenance=ActionProvenance(intent=Provenance.MCP_METHOD),
         )
 
         # Assert
@@ -335,14 +311,6 @@ class TestBuildDecisionContextFactsOnly:
         # Assert
         assert ctx.resource.tool.name == tool_name
 
-    def test_tools_call_is_mutating_true_by_default(self, build_ctx):
-        """Given tools/call, is_mutating is True (distrust by default)."""
-        # Act
-        ctx = build_ctx("tools/call", {"name": "any_tool"})
-
-        # Assert
-        assert ctx.action.is_mutating is True
-
 
 # ============================================================================
 # Tests: build_decision_context() - Known Actions from MCP Methods
@@ -370,26 +338,6 @@ class TestBuildDecisionContextKnownActions:
 
         # Assert
         assert ctx.action.intent == expected_intent
-
-    @pytest.mark.parametrize(
-        ("method", "expected_mutating"),
-        [
-            ("resources/read", False),
-            ("ping", False),
-            ("tools/list", False),
-            ("resources/list", False),
-            ("prompts/list", False),
-            ("tools/call", True),
-        ],
-        ids=["resources/read", "ping", "tools/list", "resources/list", "prompts/list", "tools/call"],
-    )
-    def test_mcp_method_mutation_status(self, build_ctx, method, expected_mutating):
-        """Given MCP method, is_mutating is correctly derived from method semantics."""
-        # Act
-        ctx = build_ctx(method, {"name": "test"} if method == "tools/call" else None)
-
-        # Assert
-        assert ctx.action.is_mutating == expected_mutating
 
 
 # ============================================================================
@@ -665,22 +613,6 @@ class TestSpecialMethods:
         # Assert
         assert ctx.resource.tool is None
 
-    def test_prompts_method_is_not_mutating(self, build_ctx):
-        """Given prompts method, is_mutating is False."""
-        # Act
-        ctx = build_ctx("prompts/get", {"name": "my-prompt"})
-
-        # Assert
-        assert ctx.action.is_mutating is False
-
-    def test_unknown_method_is_mutating(self, build_ctx):
-        """Given unknown method, is_mutating is True (distrust by default)."""
-        # Act
-        ctx = build_ctx("custom/dangerous_operation", {})
-
-        # Assert
-        assert ctx.action.is_mutating is True
-
     def test_unknown_method_has_none_intent(self, build_ctx):
         """Given unknown method, intent is None (we don't guess)."""
         # Act
@@ -724,33 +656,6 @@ class TestActionCategoryAssignment:
 
         # Assert
         assert ctx.action.category == ActionCategory.DISCOVERY
-
-    @pytest.mark.parametrize(
-        "method",
-        [
-            "initialize",
-            "ping",
-            "tools/list",
-            "resources/list",
-            "resources/templates/list",
-            "prompts/list",
-        ],
-        ids=[
-            "initialize",
-            "ping",
-            "tools/list",
-            "resources/list",
-            "resources/templates/list",
-            "prompts/list",
-        ],
-    )
-    def test_discovery_methods_are_not_mutating(self, build_ctx, method):
-        """Given discovery method, is_mutating is False."""
-        # Act
-        ctx = build_ctx(method)
-
-        # Assert
-        assert ctx.action.is_mutating is False
 
     @pytest.mark.parametrize(
         "method",
