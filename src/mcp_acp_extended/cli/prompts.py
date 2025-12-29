@@ -65,7 +65,7 @@ def prompt_http_config() -> HttpTransportConfig:
     click.echo("\n[HTTP Configuration]")
 
     while True:
-        url = prompt_with_retry("Server URL")
+        url = prompt_with_retry("Server URL (e.g., https://host:port/mcp)")
         timeout_str = prompt_optional("Connection timeout (seconds)", str(DEFAULT_HTTP_TIMEOUT_SECONDS))
         try:
             timeout = int(timeout_str)
@@ -79,10 +79,15 @@ def prompt_http_config() -> HttpTransportConfig:
             check_http_health(url, timeout=min(timeout, HEALTH_CHECK_TIMEOUT_SECONDS))
             click.echo("Server is reachable!")
             return HttpTransportConfig(url=url, timeout=timeout)
-        except Exception:
+        except Exception as e:
+            error_str = str(e).lower()
             click.echo(f"\nHealth check failed: could not reach {url}")
+            click.echo(f"  Error: {e}")
+            if "ssl" in error_str or "certificate" in error_str:
+                click.echo("\n  Note: SSL/TLS error detected. If this server requires mTLS,")
+                click.echo("  you can continue - mTLS will be configured in the next step.")
             click.echo("What would you like to do?")
-            click.echo("  1. Continue anyway - save this configuration")
+            click.echo("  1. Continue - server may be offline temporarily")
             click.echo("  2. Reconfigure - enter a different URL")
             click.echo("  3. Cancel - abort setup")
             choice = click.prompt("Select an option", type=click.IntRange(1, 3), default=1)

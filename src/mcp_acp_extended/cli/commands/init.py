@@ -34,7 +34,7 @@ from mcp_acp_extended.utils.config import (
     get_policy_history_path,
 )
 from mcp_acp_extended.utils.history_logging import log_config_created
-from mcp_acp_extended.utils.transport import check_http_health
+from mcp_acp_extended.utils.transport import check_http_health, validate_mtls_config
 
 from ..prompts import prompt_http_config, prompt_stdio_config, prompt_with_retry
 
@@ -168,16 +168,62 @@ def _prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
     mtls_config: MTLSConfig | None = None
     if http_config and http_config.url.startswith("https://"):
         click.echo("\n--- mTLS (Mutual TLS) ---")
-        click.echo("HTTPS backend detected. Configure client certificates.\n")
-        if click.confirm("Configure mTLS?", default=True):
-            client_cert = prompt_with_retry("Client certificate path (PEM)")
-            client_key = prompt_with_retry("Client private key path (PEM)")
-            ca_bundle = prompt_with_retry("CA bundle path (PEM)")
-            mtls_config = MTLSConfig(
-                client_cert_path=client_cert,
-                client_key_path=client_key,
-                ca_bundle_path=ca_bundle,
-            )
+        click.echo("HTTPS backend detected. mTLS allows the proxy to authenticate")
+        click.echo("itself to the backend using a client certificate.\n")
+        click.echo("You need 3 PEM files (get from IT team or generate for testing):")
+        click.echo("  - Client certificate: proves proxy identity to backend")
+        click.echo("  - Client private key: must match certificate (keep secure)")
+        click.echo("  - CA bundle: verifies backend server's certificate\n")
+        click.echo("Skip if your backend doesn't require client certificates.")
+        click.echo("See 'docs/auth.md' for how to generate test certificates.\n")
+
+        if click.confirm("Configure mTLS?", default=False):
+            click.echo("\n  (Paths support ~ expansion, e.g., ~/.mcp-certs/client.pem)")
+
+            while True:
+                client_cert = prompt_with_retry("Client certificate path")
+                client_key = prompt_with_retry("Client private key path")
+                ca_bundle = prompt_with_retry("CA bundle path")
+
+                # Validate certificates
+                click.echo("\nValidating certificates...")
+                errors = validate_mtls_config(client_cert, client_key, ca_bundle)
+
+                if not errors:
+                    click.echo(click.style("  Certificates valid!", fg="green"))
+                    mtls_config = MTLSConfig(
+                        client_cert_path=client_cert,
+                        client_key_path=client_key,
+                        ca_bundle_path=ca_bundle,
+                    )
+                    break
+
+                # Show errors
+                click.echo(click.style("\n  Certificate validation failed:", fg="red"))
+                for error in errors:
+                    click.echo(f"    - {error}")
+                click.echo()
+
+                # Ask what to do
+                choice = click.prompt(
+                    "What would you like to do?",
+                    type=click.Choice(["retry", "skip", "continue"]),
+                    default="retry",
+                    show_choices=True,
+                )
+
+                if choice == "skip":
+                    click.echo("  Skipping mTLS configuration.")
+                    break
+                elif choice == "continue":
+                    click.echo("  Saving config with invalid certificates (will fail at startup).")
+                    mtls_config = MTLSConfig(
+                        client_cert_path=client_cert,
+                        client_key_path=client_key,
+                        ca_bundle_path=ca_bundle,
+                    )
+                    break
+                # else retry - loop continues
 
     click.echo("\nNote: Device health (disk encryption, firewall) is checked at startup.")
 
@@ -341,6 +387,16 @@ def _run_non_interactive_init(
 
     mtls_config: MTLSConfig | None = None
     if mtls_cert and mtls_key and mtls_ca:
+        # Validate mTLS certificates
+        click.echo("Validating mTLS certificates...")
+        errors = validate_mtls_config(mtls_cert, mtls_key, mtls_ca)
+        if errors:
+            click.echo("Error: mTLS certificate validation failed:", err=True)
+            for error in errors:
+                click.echo(f"  - {error}", err=True)
+            sys.exit(1)
+        click.echo("mTLS certificates valid.")
+
         mtls_config = MTLSConfig(
             client_cert_path=mtls_cert,
             client_key_path=mtls_key,
@@ -390,9 +446,18 @@ def _run_non_interactive_init(
 @click.option("--oidc-issuer", help="OIDC issuer URL (e.g., https://your-tenant.auth0.com)")
 @click.option("--oidc-client-id", help="Auth0 client ID")
 @click.option("--oidc-audience", help="API audience for token validation")
-@click.option("--mtls-cert", help="mTLS client certificate path (PEM)")
-@click.option("--mtls-key", help="mTLS client private key path (PEM)")
-@click.option("--mtls-ca", help="mTLS CA bundle path (PEM)")
+@click.option(
+    "--mtls-cert",
+    help="Client certificate for mTLS (PEM). Presented to backend to prove proxy identity.",
+)
+@click.option(
+    "--mtls-key",
+    help="Client private key for mTLS (PEM). Must match --mtls-cert. Keep secure (0600).",
+)
+@click.option(
+    "--mtls-ca",
+    help="CA bundle for mTLS (PEM). Used to verify backend server's certificate.",
+)
 @click.option("--force", is_flag=True, help="Overwrite existing config without prompting")
 def init(
     non_interactive: bool,
@@ -429,6 +494,13 @@ def init(
             At runtime: tries HTTP first, falls back to STDIO if
             HTTP is unreachable. Useful for development (local)
             vs production (remote) flexibility.
+
+    \b
+    mTLS (Mutual TLS):
+    For HTTPS backends requiring client certificate authentication,
+    provide all three mTLS options: --mtls-cert, --mtls-key, --mtls-ca.
+    Get certificates from your IT team or generate for testing.
+    See 'docs/auth.md' for certificate generation instructions.
 
     Use --non-interactive with required flags for scripted setup.
     """

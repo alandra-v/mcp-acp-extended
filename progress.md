@@ -202,17 +202,34 @@ Session binding per MCP security spec.
 
 ---
 
-## Phase 9: mTLS Transport
+## Phase 9: mTLS Transport ✓
 
-mTLS support for proxy-to-backend authentication is planned but not yet implemented.
+**Status: Complete**
 
-- [ ] **mTLS transport** (`utils/transport.py`)
-  - SSL context with client cert, client key, CA bundle
-  - Integration with httpx for HTTP backends
+mTLS support for proxy-to-backend authentication via HTTPS.
 
-**When Needed:** mTLS is primarily useful for authenticating the proxy to backend servers in Zero Trust network architectures. For now, use HTTPS backends with standard TLS.
+- [x] **mTLS client factory** (`utils/transport.py`)
+  - `create_mtls_client_factory()` with SSL context
+  - Client certificate and key for mutual authentication
+  - CA bundle for server verification
+  - Certificate expiry checking with warnings/critical alerts
+  - Integration with FastMCP's StreamableHttpTransport
 
-See [docs/auth.md#mtls-mutual-tls---deferred](docs/auth.md#mtls-mutual-tls---deferred) for details.
+- [x] **CLI integration** (`cli/commands/init.py`, `cli/prompts.py`)
+  - Prompt for mTLS config when using HTTPS URLs
+  - Certificate path validation during init
+  - `auth status` shows mTLS certificate expiry
+
+- [x] **Transport auto-detection**
+  - mTLS applied only to HTTPS URLs (not HTTP)
+  - Falls back to STDIO if HTTP+mTLS fails with both transports configured
+  - Improved error messages for SSL/certificate failures
+
+- [x] **Documentation** (`docs/manual-e2e-testing.md`)
+  - Test certificate generation with proper key usage extensions
+  - End-to-end testing instructions for mTLS
+
+See [docs/auth.md](docs/auth.md) for configuration details.
 
 ---
 
@@ -286,7 +303,7 @@ Web UI requests go through proxy → uses same session
 - [x] Zero Trust enforcement (auth MANDATORY, no fallback)
 - [x] Documentation (docs/auth.md)
 - [x] E2E testing guide (docs/manual-e2e-testing.md)
-- [ ] mTLS for HTTP backend connections (deferred)
+- [x] mTLS for HTTP backend connections
 - [ ] Policy OR logic, trace, IDs
 - [ ] Environment and provenance conditions
 - [ ] Hot reload via SIGHUP

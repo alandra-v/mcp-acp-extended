@@ -206,7 +206,9 @@ def create_proxy(
     )
 
     # Create backend transport (handles detection, validation, health checks)
-    transport, transport_type = create_backend_transport(config.backend)
+    # Pass mTLS config for client certificate authentication to HTTP backends
+    mtls_config = config.auth.mtls if config.auth else None
+    transport, transport_type = create_backend_transport(config.backend, mtls_config)
 
     # Determine if debug wire logging is enabled
     debug_enabled = config.logging.log_level == "DEBUG"
@@ -345,9 +347,9 @@ def create_proxy(
     # Tested with FastMCP 2.x - verify after upgrades.
     proxy._lifespan = proxy_lifespan
 
-    # Create identity provider
-    # - With auth configured: OIDCIdentityProvider (validates JWT from keychain)
-    # - Without auth: LocalIdentityProvider (development fallback)
+    # Create identity provider (Zero Trust - auth is mandatory)
+    # OIDCIdentityProvider validates JWT from keychain
+    # Raises AuthenticationError if auth not configured (no fallback)
     # Note: transport="stdio" because clients connect via STDIO (Claude Desktop).
     # transport_type is the BACKEND transport, not client transport.
     # Future: When HTTP client transport is added, this will need updating.

@@ -3,13 +3,20 @@
 Tests use the AAA pattern (Arrange-Act-Assert) for clarity.
 """
 
-from unittest.mock import patch
+from pathlib import Path
+from unittest.mock import MagicMock, patch
 
+import httpx
 import pytest
 from fastmcp.client.transports import StdioTransport, StreamableHttpTransport
 
-from mcp_acp_extended.config import BackendConfig, HttpTransportConfig, StdioTransportConfig
-from mcp_acp_extended.utils.transport import create_backend_transport
+from mcp_acp_extended.config import BackendConfig, HttpTransportConfig, MTLSConfig, StdioTransportConfig
+from mcp_acp_extended.utils.transport import (
+    _check_certificate_expiry,
+    _validate_certificates,
+    create_backend_transport,
+    create_mtls_client_factory,
+)
 
 
 # ============================================================================
@@ -25,6 +32,12 @@ def stdio_config() -> StdioTransportConfig:
 @pytest.fixture
 def http_config() -> HttpTransportConfig:
     return HttpTransportConfig(url="http://localhost:3000/mcp")
+
+
+@pytest.fixture
+def https_config() -> HttpTransportConfig:
+    """HTTPS config for mTLS tests."""
+    return HttpTransportConfig(url="https://localhost:3000/mcp")
 
 
 @pytest.fixture
@@ -230,3 +243,234 @@ class TestTransportCreation:
 
         # Assert
         assert transport.url == "http://localhost:3000/mcp"
+
+
+# ============================================================================
+# Tests: mTLS Client Factory
+# ============================================================================
+
+
+class TestMTLSClientFactory:
+    """Tests for mTLS client factory creation."""
+
+    @pytest.fixture
+    def cert_files(self, tmp_path: Path) -> dict[str, Path]:
+        """Create temporary certificate files with valid PEM content."""
+        # Create minimal valid PEM files (content doesn't matter for path tests)
+        cert_path = tmp_path / "client.pem"
+        key_path = tmp_path / "client-key.pem"
+        ca_path = tmp_path / "ca-bundle.pem"
+
+        cert_path.write_text("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----")
+        key_path.write_text("-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----")
+        ca_path.write_text("-----BEGIN CERTIFICATE-----\ntest\n-----END CERTIFICATE-----")
+
+        return {"cert": cert_path, "key": key_path, "ca": ca_path}
+
+    @pytest.fixture
+    def mtls_config(self, cert_files: dict[str, Path]) -> MTLSConfig:
+        """Create MTLSConfig with valid paths."""
+        return MTLSConfig(
+            client_cert_path=str(cert_files["cert"]),
+            client_key_path=str(cert_files["key"]),
+            ca_bundle_path=str(cert_files["ca"]),
+        )
+
+    def test_create_factory_returns_callable(self, mtls_config: MTLSConfig, cert_files: dict[str, Path]):
+        """Factory creation succeeds with valid certificate paths."""
+        # Act - skip actual SSL validation since test certs are not real
+        with patch("mcp_acp_extended.utils.transport._validate_certificates"):
+            factory = create_mtls_client_factory(mtls_config)
+
+        # Assert
+        assert callable(factory)
+
+    def test_factory_creates_httpx_client(self, mtls_config: MTLSConfig, cert_files: dict[str, Path]):
+        """Factory returns httpx.AsyncClient with correct configuration."""
+        # Act - mock validation, ssl context, and httpx client creation
+        mock_ssl_ctx = MagicMock()
+        with (
+            patch("mcp_acp_extended.utils.transport._validate_certificates"),
+            patch("mcp_acp_extended.utils.transport.ssl.create_default_context", return_value=mock_ssl_ctx),
+            patch("mcp_acp_extended.utils.transport.httpx.AsyncClient") as mock_client_cls,
+        ):
+            factory = create_mtls_client_factory(mtls_config)
+            factory()
+
+        # Assert
+        mock_client_cls.assert_called_once()
+        # Verify ssl context was passed as verify param
+        call_kwargs = mock_client_cls.call_args[1]
+        assert "verify" in call_kwargs
+        assert call_kwargs["verify"] == mock_ssl_ctx
+        # Verify ssl context had cert chain loaded
+        mock_ssl_ctx.load_cert_chain.assert_called_once()
+
+    def test_create_factory_missing_cert_raises(self, tmp_path: Path):
+        """FileNotFoundError when client certificate doesn't exist."""
+        # Arrange
+        key_path = tmp_path / "client-key.pem"
+        ca_path = tmp_path / "ca-bundle.pem"
+        key_path.write_text("key")
+        ca_path.write_text("ca")
+
+        config = MTLSConfig(
+            client_cert_path=str(tmp_path / "missing.pem"),
+            client_key_path=str(key_path),
+            ca_bundle_path=str(ca_path),
+        )
+
+        # Act & Assert
+        with pytest.raises(FileNotFoundError, match="client certificate not found"):
+            create_mtls_client_factory(config)
+
+    def test_create_factory_missing_key_raises(self, tmp_path: Path):
+        """FileNotFoundError when client key doesn't exist."""
+        # Arrange
+        cert_path = tmp_path / "client.pem"
+        ca_path = tmp_path / "ca-bundle.pem"
+        cert_path.write_text("cert")
+        ca_path.write_text("ca")
+
+        config = MTLSConfig(
+            client_cert_path=str(cert_path),
+            client_key_path=str(tmp_path / "missing-key.pem"),
+            ca_bundle_path=str(ca_path),
+        )
+
+        # Act & Assert
+        with pytest.raises(FileNotFoundError, match="client key not found"):
+            create_mtls_client_factory(config)
+
+    def test_create_factory_missing_ca_raises(self, tmp_path: Path):
+        """FileNotFoundError when CA bundle doesn't exist."""
+        # Arrange
+        cert_path = tmp_path / "client.pem"
+        key_path = tmp_path / "client-key.pem"
+        cert_path.write_text("cert")
+        key_path.write_text("key")
+
+        config = MTLSConfig(
+            client_cert_path=str(cert_path),
+            client_key_path=str(key_path),
+            ca_bundle_path=str(tmp_path / "missing-ca.pem"),
+        )
+
+        # Act & Assert
+        with pytest.raises(FileNotFoundError, match="CA bundle not found"):
+            create_mtls_client_factory(config)
+
+    def test_create_factory_expands_tilde_paths(self, tmp_path: Path, monkeypatch):
+        """Factory expands ~ in certificate paths."""
+        # Arrange - mock home directory
+        monkeypatch.setenv("HOME", str(tmp_path))
+
+        cert_path = tmp_path / "client.pem"
+        key_path = tmp_path / "client-key.pem"
+        ca_path = tmp_path / "ca-bundle.pem"
+        cert_path.write_text("cert")
+        key_path.write_text("key")
+        ca_path.write_text("ca")
+
+        config = MTLSConfig(
+            client_cert_path="~/client.pem",
+            client_key_path="~/client-key.pem",
+            ca_bundle_path="~/ca-bundle.pem",
+        )
+
+        # Act - skip validation
+        with patch("mcp_acp_extended.utils.transport._validate_certificates"):
+            factory = create_mtls_client_factory(config)
+
+        # Assert
+        assert callable(factory)
+
+
+# ============================================================================
+# Tests: mTLS Transport Integration
+# ============================================================================
+
+
+class TestTransportWithMTLS:
+    """Tests for transport creation with mTLS."""
+
+    @pytest.fixture
+    def mtls_config(self, tmp_path: Path) -> MTLSConfig:
+        """Create MTLSConfig with valid paths."""
+        cert_path = tmp_path / "client.pem"
+        key_path = tmp_path / "client-key.pem"
+        ca_path = tmp_path / "ca-bundle.pem"
+        cert_path.write_text("cert")
+        key_path.write_text("key")
+        ca_path.write_text("ca")
+
+        return MTLSConfig(
+            client_cert_path=str(cert_path),
+            client_key_path=str(key_path),
+            ca_bundle_path=str(ca_path),
+        )
+
+    def test_http_transport_with_mtls_has_factory(
+        self, https_config: HttpTransportConfig, mtls_config: MTLSConfig
+    ):
+        """StreamableHttpTransport created with client factory when mTLS configured."""
+        # Arrange - must use https:// for mTLS to be applied
+        config = BackendConfig(server_name="test", transport="streamablehttp", http=https_config)
+
+        # Act
+        with (
+            patch("mcp_acp_extended.utils.transport.check_http_health"),
+            patch("mcp_acp_extended.utils.transport._validate_certificates"),
+        ):
+            transport, transport_type = create_backend_transport(config, mtls_config)
+
+        # Assert
+        assert isinstance(transport, StreamableHttpTransport)
+        assert transport_type == "streamablehttp"
+        # Verify factory was set
+        assert transport.httpx_client_factory is not None
+
+    def test_http_transport_without_mtls_no_factory(self, http_config: HttpTransportConfig):
+        """StreamableHttpTransport created without factory when mTLS is None."""
+        # Arrange
+        config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
+
+        # Act
+        with patch("mcp_acp_extended.utils.transport.check_http_health"):
+            transport, _ = create_backend_transport(config, mtls_config=None)
+
+        # Assert
+        assert isinstance(transport, StreamableHttpTransport)
+        assert transport.httpx_client_factory is None
+
+    def test_stdio_transport_ignores_mtls(self, stdio_config: StdioTransportConfig, mtls_config: MTLSConfig):
+        """STDIO transport ignores mTLS configuration."""
+        # Arrange
+        config = BackendConfig(server_name="test", transport="stdio", stdio=stdio_config)
+
+        # Act - mTLS config is passed but should be ignored
+        transport, transport_type = create_backend_transport(config, mtls_config)
+
+        # Assert
+        assert isinstance(transport, StdioTransport)
+        assert transport_type == "stdio"
+
+    def test_health_check_receives_mtls_config(
+        self, http_config: HttpTransportConfig, mtls_config: MTLSConfig
+    ):
+        """Health check is called with mTLS config."""
+        # Arrange
+        config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
+
+        # Act
+        with (
+            patch("mcp_acp_extended.utils.transport.check_http_health") as mock_health,
+            patch("mcp_acp_extended.utils.transport._validate_certificates"),
+        ):
+            create_backend_transport(config, mtls_config)
+
+        # Assert - health check received mtls_config
+        mock_health.assert_called_once()
+        call_args = mock_health.call_args
+        assert call_args[0][0] == http_config.url  # URL
+        assert call_args[0][2] == mtls_config  # mtls_config (3rd positional arg)

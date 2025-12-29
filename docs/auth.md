@@ -364,23 +364,176 @@ The `SessionManager` handles session lifecycle:
 
 ---
 
-## mTLS (Mutual TLS) - Deferred
+## mTLS (Mutual TLS)
 
-mTLS support for proxy-to-backend authentication is planned but not yet implemented.
+mTLS provides mutual authentication between the proxy and backend servers. When configured, the proxy presents a client certificate to prove its identity to the backend.
 
-**Current Status:** The proxy supports HTTPS backends but without client certificate authentication.
+### How mTLS Works
 
-**Planned Features:**
-- Client certificate authentication for HTTP backends
-- Certificate path configuration in `auth.mtls` config section
-- Automatic certificate rotation support
+```
+Standard TLS (one-way):
+┌───────┐                    ┌─────────┐
+│ Proxy │ ──── TLS ────────► │ Backend │
+│       │ ◄─ Server Cert ─── │         │
+│       │    (verified)      │         │
+└───────┘                    └─────────┘
+Backend identity verified, but backend doesn't know who proxy is
 
-**When Needed:** mTLS is primarily useful for:
-- Authenticating the proxy to backend servers
-- Zero Trust network architectures requiring mutual authentication
-- Environments where bearer tokens alone aren't sufficient
+mTLS (two-way):
+┌───────┐                    ┌─────────┐
+│ Proxy │ ──── TLS ────────► │ Backend │
+│       │ ◄─ Server Cert ─── │         │  Backend presents cert
+│       │ ── Client Cert ──► │         │  Proxy presents cert
+│       │    (verified)      │         │  Both verified
+└───────┘                    └─────────┘
+```
 
-For now, use HTTPS backends with standard TLS (server-only verification).
+### Configuration
+
+mTLS is configured during `mcp-acp-extended init` when an HTTPS backend is detected:
+
+```json
+{
+  "auth": {
+    "oidc": { ... },
+    "mtls": {
+      "client_cert_path": "/path/to/client.pem",
+      "client_key_path": "/path/to/client-key.pem",
+      "ca_bundle_path": "/path/to/ca-bundle.pem"
+    }
+  }
+}
+```
+
+| Field | Description |
+|-------|-------------|
+| `client_cert_path` | Client certificate (PEM format) - presented to backend |
+| `client_key_path` | Client private key (PEM format) - must match certificate |
+| `ca_bundle_path` | CA bundle (PEM format) - verifies backend's server certificate |
+
+### Certificate Requirements
+
+- All certificates must be PEM format
+- Client certificate and key must be a matching pair
+- CA bundle must contain the CA that signed the backend server's certificate
+- All files must be readable by the proxy process (0600 permissions recommended)
+- Paths support `~` expansion (e.g., `~/certs/client.pem`)
+
+### Behavior
+
+**Backend doesn't require mTLS:** Works fine. The proxy sends its client cert, but the backend simply ignores it. Connection proceeds as standard TLS.
+
+**Backend requires mTLS:** The proxy presents its client certificate during TLS handshake. If the backend doesn't trust the cert, connection fails at startup (during health check).
+
+**No mTLS configured for HTTPS backend:** Works fine with standard TLS. The proxy verifies the backend's certificate but doesn't present a client certificate.
+
+### Startup Validation
+
+At proxy startup, mTLS certificates are validated:
+
+1. **File existence**: All three paths must exist
+2. **PEM format**: Files must be valid PEM-encoded certificates/keys
+3. **Cert-key match**: Certificate and private key must form a valid pair
+
+If validation fails, proxy refuses to start with a descriptive error.
+
+### When to Use mTLS
+
+mTLS is recommended when:
+- Backend requires client certificate authentication
+- Zero Trust network architecture requires mutual authentication
+- Additional layer of security beyond bearer tokens is needed
+- Compliance requirements mandate mutual TLS
+
+### How to Obtain mTLS Certificates
+
+The process for obtaining certificates depends on your organization:
+
+#### Enterprise / Corporate Environment
+
+Contact your IT or Security team. They typically:
+1. Issue certificates from an internal Certificate Authority (CA)
+2. Provide you with three files:
+   - **Client certificate** (`client.pem`) - Your proxy's identity
+   - **Client private key** (`client-key.pem`) - Keep this secure!
+   - **CA bundle** (`ca-bundle.pem`) - To verify the backend server
+
+Common enterprise PKI systems:
+- Microsoft Active Directory Certificate Services (AD CS)
+- HashiCorp Vault PKI
+- AWS Private CA
+- Google Cloud Certificate Authority Service
+
+#### Cloud / SaaS Backend
+
+Your backend provider may have a certificate provisioning process:
+- Check your provider's documentation for "client certificates" or "mTLS setup"
+- They typically provide a CA bundle and instructions for generating client certs
+- Some providers use their own CLI tools for certificate management
+
+#### Self-Hosted / Development
+
+Generate self-signed certificates for testing:
+
+```bash
+# Create a directory for certificates
+mkdir -p ~/.mcp-certs && cd ~/.mcp-certs
+
+# 1. Generate CA (Certificate Authority)
+openssl genrsa -out ca-key.pem 4096
+openssl req -new -x509 -days 365 -key ca-key.pem -out ca-cert.pem \
+  -subj "/CN=My CA/O=My Organization"
+
+# 2. Generate client certificate for the proxy
+openssl genrsa -out client-key.pem 4096
+openssl req -new -key client-key.pem -out client.csr \
+  -subj "/CN=mcp-proxy/O=My Organization"
+openssl x509 -req -days 365 -in client.csr \
+  -CA ca-cert.pem -CAkey ca-key.pem -CAcreateserial \
+  -out client-cert.pem
+
+# 3. Set secure permissions
+chmod 600 client-key.pem
+
+# 4. Verify certificates
+openssl verify -CAfile ca-cert.pem client-cert.pem
+```
+
+Then configure during init:
+```bash
+mcp-acp-extended init
+# When prompted for mTLS:
+# Client certificate: ~/.mcp-certs/client-cert.pem
+# Client key: ~/.mcp-certs/client-key.pem
+# CA bundle: ~/.mcp-certs/ca-cert.pem
+```
+
+#### Certificate File Formats
+
+The proxy expects **PEM format** files. If you have other formats:
+
+| Format | Extension | Convert to PEM |
+|--------|-----------|----------------|
+| DER | `.der`, `.cer` | `openssl x509 -in cert.der -inform DER -out cert.pem` |
+| PKCS#12 | `.p12`, `.pfx` | `openssl pkcs12 -in cert.p12 -out cert.pem -nodes` |
+| PKCS#7 | `.p7b` | `openssl pkcs7 -in cert.p7b -print_certs -out cert.pem` |
+
+#### Certificate Renewal
+
+Certificates expire. Plan for renewal:
+- The proxy warns when certificates expire within **14 days**
+- Critical warning when certificates expire within **7 days**
+- Expired certificates **block proxy startup**
+
+Check certificate status anytime:
+```bash
+mcp-acp-extended auth status
+```
+
+To check expiry manually:
+```bash
+openssl x509 -in /path/to/client-cert.pem -noout -enddate
+```
 
 ---
 

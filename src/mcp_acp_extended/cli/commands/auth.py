@@ -307,3 +307,38 @@ def status() -> None:
     click.echo(f"  Issuer: {oidc_config.issuer}")
     click.echo(f"  Client ID: {oidc_config.client_id}")
     click.echo(f"  Audience: {oidc_config.audience}")
+
+    # Show mTLS certificate status if configured
+    if config.auth.mtls:
+        from mcp_acp_extended.utils.transport import get_certificate_expiry_info
+
+        click.echo()
+        click.echo(click.style("mTLS Certificate", fg="cyan", bold=True))
+        click.echo(f"  Client cert: {config.auth.mtls.client_cert_path}")
+        click.echo(f"  Client key: {config.auth.mtls.client_key_path}")
+        click.echo(f"  CA bundle: {config.auth.mtls.ca_bundle_path}")
+
+        # Check certificate expiry
+        cert_info = get_certificate_expiry_info(config.auth.mtls.client_cert_path)
+
+        if "error" in cert_info:
+            click.echo(f"  Status: {click.style('Error', fg='red')} - {cert_info['error']}")
+        else:
+            status = cert_info["status"]
+            days_value = cert_info.get("days_until_expiry")
+            days = int(days_value) if days_value is not None else 0
+
+            if status == "expired":
+                click.echo(f"  Status: {click.style('EXPIRED', fg='red', bold=True)}")
+                click.echo(f"  Expired: {abs(days)} days ago")
+            elif status == "critical":
+                click.echo(f"  Status: {click.style('CRITICAL', fg='red', bold=True)}")
+                click.echo(f"  Expires in: {click.style(f'{days} days', fg='red')}")
+                click.echo("  Renew immediately!")
+            elif status == "warning":
+                click.echo(f"  Status: {click.style('Warning', fg='yellow')}")
+                click.echo(f"  Expires in: {click.style(f'{days} days', fg='yellow')}")
+                click.echo("  Consider renewing soon.")
+            else:
+                click.echo(f"  Status: {click.style('Valid', fg='green')}")
+                click.echo(f"  Expires in: {days} days")
