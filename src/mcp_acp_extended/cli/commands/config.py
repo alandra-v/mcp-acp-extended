@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import sys
+from pathlib import Path
 
 import click
 
@@ -241,3 +242,40 @@ def config_edit() -> None:
     else:
         click.echo("\nConfiguration saved (no changes detected).")
     click.echo(f"Saved to: {config_path}")
+
+
+@config.command("validate")
+@click.option(
+    "--path",
+    "-p",
+    type=click.Path(exists=True, dir_okay=False, path_type=Path),
+    help="Path to config file (default: OS config location)",
+)
+def config_validate(path: Path | None) -> None:
+    """Validate configuration file.
+
+    Checks the config file for:
+    - Valid JSON syntax
+    - Schema validation (required fields, types)
+    - Pydantic model validation
+
+    Exit codes:
+        0: Config is valid
+        1: Config is invalid or not found
+    """
+    config_file_path = path or get_config_path()
+
+    if not config_file_path.exists():
+        click.echo(f"✗ Config file not found: {config_file_path}", err=True)
+        click.echo("Run 'mcp-acp-extended init' to create configuration.", err=True)
+        sys.exit(1)
+
+    try:
+        AppConfig.load_from_files(config_file_path)
+        click.echo(f"✓ Config valid: {config_file_path}")
+    except json.JSONDecodeError as e:
+        click.echo(f"✗ Invalid JSON: {e}", err=True)
+        sys.exit(1)
+    except (FileNotFoundError, ValueError) as e:
+        click.echo(f"✗ {e}", err=True)
+        sys.exit(1)

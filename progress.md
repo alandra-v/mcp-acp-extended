@@ -184,9 +184,25 @@ Session binding per MCP security spec.
 
 ---
 
-## Phase 7: mTLS Transport
+## Phase 7: CLI Enhancements ✓
 
-**Status: Deferred**
+**Status: Complete**
+
+- [x] `policy validate` command
+- [x] `config validate` command
+
+---
+
+## Phase 8: Testing & Documentation ✓
+
+**Status: Complete**
+
+- [x] Unit tests for auth components (test_auth.py, test_session.py)
+- [x] Documentation (docs/auth.md - comprehensive auth documentation)
+
+---
+
+## Phase 9: mTLS Transport
 
 mTLS support for proxy-to-backend authentication is planned but not yet implemented.
 
@@ -200,23 +216,7 @@ See [docs/auth.md#mtls-mutual-tls---deferred](docs/auth.md#mtls-mutual-tls---def
 
 ---
 
-## Phase 8: Testing & Documentation ✓
-
-**Status: Complete**
-
-- [x] Unit tests for auth components (test_auth.py, test_session.py)
-- [x] Documentation (docs/auth.md - comprehensive auth documentation)
-- [x] E2E testing guide (docs/manual-e2e-testing.md - AUTH-01 through AUTH-05)
-
----
-
-## Future Phases
-
-See below for context enhancements, policy improvements, and Web UI.
-
----
-
-## Phase 8: Context Enhancements
+## Phase 10: Context Enhancements
 
 - [ ] Approval context (HITL tracking)
 - [ ] Data inspection (regex-based secret/PII detection)
@@ -226,7 +226,7 @@ See below for context enhancements, policy improvements, and Web UI.
 
 ---
 
-## Phase 9: Policy Enhancements
+## Phase 11: Policy Enhancements
 
 - [ ] List support for conditions (OR logic)
 - [ ] Trace/explanation in decision logs
@@ -238,15 +238,7 @@ See below for context enhancements, policy improvements, and Web UI.
 
 ---
 
-## Phase 10: CLI Enhancements
-
-- [ ] `policy validate` command
-- [ ] `config validate` command
-- [ ] `config export --claude` for Claude Desktop
-
----
-
-## Phase 11: Web UI (React + shadcn)
+## Phase 12: Web UI (React + shadcn)
 
 - [ ] FastAPI backend (embedded)
 - [ ] React + Vite + shadcn dashboard
