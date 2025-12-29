@@ -25,6 +25,8 @@ Design principles:
 
 from __future__ import annotations
 
+import hashlib
+import json
 from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
@@ -149,6 +151,32 @@ class HITLConfig(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
+def _generate_rule_id(rule: PolicyRule) -> str:
+    """Generate deterministic ID from rule content.
+
+    Creates a stable hash-based ID using the rule's effect and conditions.
+    Same rule content always produces the same ID.
+
+    Args:
+        rule: PolicyRule to generate ID for.
+
+    Returns:
+        ID in format "rule_<8-char-hex>", e.g., "rule_a1b2c3d4".
+    """
+    # Create stable JSON representation (sorted keys, exclude None values)
+    content = json.dumps(
+        {
+            "effect": rule.effect,
+            "conditions": rule.conditions.model_dump(exclude_none=True),
+        },
+        sort_keys=True,
+    )
+
+    # Hash and take first 8 chars
+    hash_id = hashlib.sha256(content.encode()).hexdigest()[:8]
+    return f"rule_{hash_id}"
+
+
 class PolicyConfig(BaseModel):
     """Complete policy configuration.
 
@@ -157,6 +185,10 @@ class PolicyConfig(BaseModel):
         default_action: What to do when no rule matches (always "deny")
         rules: List of rules; all matches combined via HITL > DENY > ALLOW
         hitl: HITL configuration
+
+    Note:
+        Rules without IDs get deterministic auto-generated IDs based on content hash.
+        User-provided IDs must be unique within the policy.
     """
 
     version: str = "1"
@@ -165,6 +197,41 @@ class PolicyConfig(BaseModel):
     hitl: HITLConfig = Field(default_factory=HITLConfig)
 
     model_config = ConfigDict(frozen=True)
+
+    @model_validator(mode="after")
+    def ensure_rule_ids(self) -> Self:
+        """Ensure all rules have unique IDs, generating them if needed.
+
+        1. Check user-provided IDs are unique
+        2. Generate deterministic IDs for rules without them
+        3. Check all final IDs (user + generated) are unique
+        """
+        # Check user-provided IDs are unique
+        user_ids = [r.id for r in self.rules if r.id is not None]
+        if len(user_ids) != len(set(user_ids)):
+            duplicates = [id for id in user_ids if user_ids.count(id) > 1]
+            raise ValueError(f"Duplicate rule IDs: {set(duplicates)}")
+
+        # Generate IDs for rules without them
+        new_rules = []
+        for rule in self.rules:
+            if rule.id is None:
+                generated_id = _generate_rule_id(rule)
+                new_rules.append(rule.model_copy(update={"id": generated_id}))
+            else:
+                new_rules.append(rule)
+
+        # Check all final IDs are unique (handles edge case of user ID matching generated)
+        all_ids = [r.id for r in new_rules]
+        if len(all_ids) != len(set(all_ids)):
+            duplicates = [id for id in all_ids if all_ids.count(id) > 1]
+            raise ValueError(
+                f"Rule ID collision: {set(duplicates)}. " "Add explicit IDs to conflicting rules."
+            )
+
+        # Replace rules list (model is frozen, use object.__setattr__)
+        object.__setattr__(self, "rules", new_rules)
+        return self
 
 
 def create_default_policy() -> PolicyConfig:

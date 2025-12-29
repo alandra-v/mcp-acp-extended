@@ -216,6 +216,137 @@ class TestPolicyConfigModel:
 # ============================================================================
 
 
+class TestRuleIdGeneration:
+    """Tests for automatic rule ID generation."""
+
+    def test_auto_generates_id_when_not_provided(self):
+        """Given rule without ID, auto-generates deterministic ID."""
+        # Act
+        policy = PolicyConfig(
+            rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="read_*"))]
+        )
+
+        # Assert
+        assert policy.rules[0].id is not None
+        assert policy.rules[0].id.startswith("rule_")
+        assert len(policy.rules[0].id) == 13  # "rule_" + 8 hex chars
+
+    def test_preserves_user_provided_id(self):
+        """Given rule with user ID, preserves it."""
+        # Act
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    id="my-custom-id",
+                    effect="allow",
+                    conditions=RuleConditions(tool_name="read_*"),
+                )
+            ]
+        )
+
+        # Assert
+        assert policy.rules[0].id == "my-custom-id"
+
+    def test_same_content_generates_same_id(self):
+        """Given same rule content, generates same ID (deterministic)."""
+        # Act
+        policy1 = PolicyConfig(
+            rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="read_*"))]
+        )
+        policy2 = PolicyConfig(
+            rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="read_*"))]
+        )
+
+        # Assert
+        assert policy1.rules[0].id == policy2.rules[0].id
+
+    def test_different_content_generates_different_id(self):
+        """Given different rule content, generates different IDs."""
+        # Act
+        policy1 = PolicyConfig(
+            rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="read_*"))]
+        )
+        policy2 = PolicyConfig(
+            rules=[PolicyRule(effect="deny", conditions=RuleConditions(tool_name="read_*"))]
+        )
+
+        # Assert
+        assert policy1.rules[0].id != policy2.rules[0].id
+
+    def test_mixed_user_and_auto_ids(self):
+        """Given mix of user and auto IDs, handles both correctly."""
+        # Act
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    id="user-rule",
+                    effect="allow",
+                    conditions=RuleConditions(tool_name="a"),
+                ),
+                PolicyRule(effect="deny", conditions=RuleConditions(tool_name="b")),
+            ]
+        )
+
+        # Assert
+        assert policy.rules[0].id == "user-rule"
+        assert policy.rules[1].id.startswith("rule_")
+
+    def test_rejects_duplicate_user_ids(self):
+        """Given duplicate user IDs, raises ValidationError."""
+        # Act & Assert
+        with pytest.raises(ValidationError, match="Duplicate rule IDs"):
+            PolicyConfig(
+                rules=[
+                    PolicyRule(
+                        id="same-id",
+                        effect="allow",
+                        conditions=RuleConditions(tool_name="a"),
+                    ),
+                    PolicyRule(
+                        id="same-id",
+                        effect="deny",
+                        conditions=RuleConditions(tool_name="b"),
+                    ),
+                ]
+            )
+
+    def test_rejects_collision_between_user_and_generated_id(self):
+        """Given user ID matching auto-generated ID, raises ValidationError."""
+        # First, get the auto-generated ID for a specific rule
+        policy = PolicyConfig(rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="test"))])
+        generated_id = policy.rules[0].id
+
+        # Now try to create a policy where user provides that same ID for a different rule
+        with pytest.raises(ValidationError, match="Rule ID collision"):
+            PolicyConfig(
+                rules=[
+                    PolicyRule(
+                        id=generated_id,  # User provides the same ID
+                        effect="deny",
+                        conditions=RuleConditions(tool_name="other"),
+                    ),
+                    PolicyRule(
+                        effect="allow",
+                        conditions=RuleConditions(tool_name="test"),  # Will generate same ID
+                    ),
+                ]
+            )
+
+    def test_id_survives_roundtrip(self, temp_policy_dir):
+        """Given policy with auto-generated ID, ID survives save/load."""
+        # Arrange
+        policy = PolicyConfig(rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="test"))])
+        original_id = policy.rules[0].id
+        path = temp_policy_dir / "policy.json"
+
+        # Act
+        save_policy(policy, path)
+        loaded = load_policy(path)
+
+        # Assert
+        assert loaded.rules[0].id == original_id
+
+
 class TestPolicyRuleModel:
     """Tests for PolicyRule model validation."""
 
