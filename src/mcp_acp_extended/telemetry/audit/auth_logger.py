@@ -73,7 +73,8 @@ class AuthLogger:
     def log_token_validated(
         self,
         *,
-        session_id: str | None = None,
+        bound_session_id: str | None = None,
+        mcp_session_id: str | None = None,
         request_id: str | None = None,
         subject: SubjectIdentity | None = None,
         oidc: OIDCInfo | None = None,
@@ -83,7 +84,8 @@ class AuthLogger:
         """Log successful token validation.
 
         Args:
-            session_id: MCP session ID (may not exist during startup).
+            bound_session_id: Security-bound session ID (<user_id>:<session_uuid>).
+            mcp_session_id: MCP session ID (for correlation with other logs).
             request_id: JSON-RPC request ID (for per-request validation).
             subject: Validated user identity.
             oidc: OIDC token details.
@@ -96,7 +98,8 @@ class AuthLogger:
         event = AuthEvent(
             event_type="token_validated",
             status="Success",
-            session_id=session_id,
+            bound_session_id=bound_session_id,
+            mcp_session_id=mcp_session_id,
             request_id=request_id,
             subject=subject,
             oidc=oidc,
@@ -108,7 +111,8 @@ class AuthLogger:
     def log_token_invalid(
         self,
         *,
-        session_id: str | None = None,
+        bound_session_id: str | None = None,
+        mcp_session_id: str | None = None,
         request_id: str | None = None,
         subject: SubjectIdentity | None = None,
         oidc: OIDCInfo | None = None,
@@ -120,7 +124,8 @@ class AuthLogger:
         """Log failed token validation.
 
         Args:
-            session_id: MCP session ID (may not exist during startup).
+            bound_session_id: Security-bound session ID (<user_id>:<session_uuid>).
+            mcp_session_id: MCP session ID (for correlation with other logs).
             request_id: JSON-RPC request ID (for per-request validation).
             subject: Partial identity if token was parseable.
             oidc: OIDC token details if available.
@@ -135,7 +140,8 @@ class AuthLogger:
         event = AuthEvent(
             event_type="token_invalid",
             status="Failure",
-            session_id=session_id,
+            bound_session_id=bound_session_id,
+            mcp_session_id=mcp_session_id,
             request_id=request_id,
             subject=subject,
             oidc=oidc,
@@ -149,7 +155,8 @@ class AuthLogger:
     def log_token_refreshed(
         self,
         *,
-        session_id: str | None = None,
+        bound_session_id: str | None = None,
+        mcp_session_id: str | None = None,
         subject: SubjectIdentity | None = None,
         oidc: OIDCInfo | None = None,
         message: str | None = None,
@@ -157,7 +164,8 @@ class AuthLogger:
         """Log successful token refresh.
 
         Args:
-            session_id: MCP session ID.
+            bound_session_id: Security-bound session ID (<user_id>:<session_uuid>).
+            mcp_session_id: MCP session ID (for correlation with other logs).
             subject: User identity.
             oidc: New token details.
             message: Optional human-readable message.
@@ -168,7 +176,8 @@ class AuthLogger:
         event = AuthEvent(
             event_type="token_refreshed",
             status="Success",
-            session_id=session_id,
+            bound_session_id=bound_session_id,
+            mcp_session_id=mcp_session_id,
             subject=subject,
             oidc=oidc,
             message=message,
@@ -178,7 +187,8 @@ class AuthLogger:
     def log_token_refresh_failed(
         self,
         *,
-        session_id: str | None = None,
+        bound_session_id: str | None = None,
+        mcp_session_id: str | None = None,
         subject: SubjectIdentity | None = None,
         error_type: str | None = None,
         error_message: str | None = None,
@@ -187,7 +197,8 @@ class AuthLogger:
         """Log failed token refresh.
 
         Args:
-            session_id: MCP session ID.
+            bound_session_id: Security-bound session ID (<user_id>:<session_uuid>).
+            mcp_session_id: MCP session ID (for correlation with other logs).
             subject: User identity (from expired token).
             error_type: Exception class name.
             error_message: Human-readable error description.
@@ -199,7 +210,8 @@ class AuthLogger:
         event = AuthEvent(
             event_type="token_refresh_failed",
             status="Failure",
-            session_id=session_id,
+            bound_session_id=bound_session_id,
+            mcp_session_id=mcp_session_id,
             subject=subject,
             error_type=error_type,
             error_message=error_message,
@@ -210,7 +222,8 @@ class AuthLogger:
     def log_session_started(
         self,
         *,
-        session_id: str,
+        bound_session_id: str,
+        mcp_session_id: str | None = None,
         subject: SubjectIdentity | None = None,
         oidc: OIDCInfo | None = None,
         message: str | None = None,
@@ -218,7 +231,8 @@ class AuthLogger:
         """Log session start.
 
         Args:
-            session_id: MCP session ID.
+            bound_session_id: Security-bound session ID (<user_id>:<session_uuid>).
+            mcp_session_id: MCP session ID (for correlation with other logs).
             subject: Authenticated user identity.
             oidc: OIDC token details.
             message: Optional human-readable message.
@@ -229,7 +243,8 @@ class AuthLogger:
         event = AuthEvent(
             event_type="session_started",
             status="Success",
-            session_id=session_id,
+            bound_session_id=bound_session_id,
+            mcp_session_id=mcp_session_id,
             subject=subject,
             oidc=oidc,
             message=message,
@@ -239,7 +254,8 @@ class AuthLogger:
     def log_session_ended(
         self,
         *,
-        session_id: str,
+        bound_session_id: str,
+        mcp_session_id: str | None = None,
         subject: SubjectIdentity | None = None,
         end_reason: Literal["normal", "timeout", "error", "auth_expired"] = "normal",
         error_type: str | None = None,
@@ -249,7 +265,8 @@ class AuthLogger:
         """Log session end.
 
         Args:
-            session_id: MCP session ID.
+            bound_session_id: Security-bound session ID (<user_id>:<session_uuid>).
+            mcp_session_id: MCP session ID (for correlation with other logs).
             subject: User identity.
             end_reason: Why the session ended.
             error_type: Exception class name (if end_reason is "error").
@@ -265,7 +282,8 @@ class AuthLogger:
         event = AuthEvent(
             event_type="session_ended",
             status=status,
-            session_id=session_id,
+            bound_session_id=bound_session_id,
+            mcp_session_id=mcp_session_id,
             subject=subject,
             end_reason=end_reason,
             error_type=error_type,
@@ -277,7 +295,8 @@ class AuthLogger:
     def log_device_health_passed(
         self,
         *,
-        session_id: str | None = None,
+        bound_session_id: str | None = None,
+        mcp_session_id: str | None = None,
         subject: SubjectIdentity | None = None,
         device_checks: DeviceHealthChecks,
         message: str | None = None,
@@ -285,7 +304,8 @@ class AuthLogger:
         """Log successful device health check.
 
         Args:
-            session_id: MCP session ID (may not exist during startup).
+            bound_session_id: Security-bound session ID (may not exist during startup).
+            mcp_session_id: MCP session ID (for correlation with other logs).
             subject: User identity.
             device_checks: Individual check results.
             message: Optional human-readable message.
@@ -296,7 +316,8 @@ class AuthLogger:
         event = AuthEvent(
             event_type="device_health_passed",
             status="Success",
-            session_id=session_id,
+            bound_session_id=bound_session_id,
+            mcp_session_id=mcp_session_id,
             subject=subject,
             device_checks=device_checks,
             message=message,
@@ -306,7 +327,8 @@ class AuthLogger:
     def log_device_health_failed(
         self,
         *,
-        session_id: str | None = None,
+        bound_session_id: str | None = None,
+        mcp_session_id: str | None = None,
         subject: SubjectIdentity | None = None,
         device_checks: DeviceHealthChecks,
         error_type: str | None = None,
@@ -316,7 +338,8 @@ class AuthLogger:
         """Log failed device health check.
 
         Args:
-            session_id: MCP session ID (may not exist during startup).
+            bound_session_id: Security-bound session ID (may not exist during startup).
+            mcp_session_id: MCP session ID (for correlation with other logs).
             subject: User identity.
             device_checks: Individual check results (showing which failed).
             error_type: Exception class name.
@@ -329,7 +352,8 @@ class AuthLogger:
         event = AuthEvent(
             event_type="device_health_failed",
             status="Failure",
-            session_id=session_id,
+            bound_session_id=bound_session_id,
+            mcp_session_id=mcp_session_id,
             subject=subject,
             device_checks=device_checks,
             error_type=error_type,

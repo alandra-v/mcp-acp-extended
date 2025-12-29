@@ -90,7 +90,12 @@ class AuthEvent(BaseModel):
         None,
         description="ISO 8601 timestamp, added by formatter during serialization",
     )
-    session_id: str | None = None  # May not exist during startup validation
+
+    # Two session IDs for different purposes:
+    # - bound_session_id: Security format "<user_id>:<session_uuid>" for auth binding
+    # - mcp_session_id: Plain UUID for correlation with operations/decisions/wire logs
+    bound_session_id: str | None = None  # May not exist during startup validation
+    mcp_session_id: str | None = None  # For cross-log correlation
 
     # For per-request auth checks, this is the MCP JSON-RPC id; may be omitted for pure session events.
     request_id: str | None = None

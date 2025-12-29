@@ -132,4 +132,12 @@ def setup_failclosed_audit_logger(
     file_handler.setFormatter(ISO8601Formatter())
     logger.addHandler(file_handler)
 
+    # Set secure file permissions (owner read/write only)
+    # This is critical for audit logs containing sensitive auth data
+    if sys.platform != "win32":
+        try:
+            log_file.chmod(0o600)
+        except OSError:
+            pass  # Permission changes might fail on some systems
+
     return logger

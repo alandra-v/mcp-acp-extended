@@ -33,6 +33,7 @@ from mcp_acp_extended.security.auth import (
 )
 from mcp_acp_extended.telemetry.models.audit import OIDCInfo, SubjectIdentity
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
+from mcp_acp_extended.utils.logging.logging_context import get_request_id, get_session_id
 
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
@@ -229,6 +230,8 @@ class OIDCIdentityProvider:
             if self._auth_logger:
                 identity = self._build_identity(validated)
                 self._auth_logger.log_token_validated(
+                    mcp_session_id=get_session_id(),
+                    request_id=get_request_id(),
                     subject=identity,
                     oidc=self._build_oidc_info(validated),
                 )
@@ -247,6 +250,8 @@ class OIDCIdentityProvider:
             # Log validation failure to auth.jsonl and system (warning)
             if self._auth_logger:
                 self._auth_logger.log_token_invalid(
+                    mcp_session_id=get_session_id(),
+                    request_id=get_request_id(),
                     error_type=type(e).__name__,
                     error_message=str(e),
                 )
@@ -280,6 +285,7 @@ class OIDCIdentityProvider:
             # Log to auth.jsonl and system (error - user action required)
             if self._auth_logger:
                 self._auth_logger.log_token_refresh_failed(
+                    mcp_session_id=get_session_id(),
                     error_type="NoRefreshToken",
                     error_message=error_msg,
                 )
@@ -306,6 +312,7 @@ class OIDCIdentityProvider:
             if self._auth_logger:
                 identity = self._build_identity(validated)
                 self._auth_logger.log_token_refreshed(
+                    mcp_session_id=get_session_id(),
                     subject=identity,
                     oidc=self._build_oidc_info(validated),
                 )
@@ -318,6 +325,7 @@ class OIDCIdentityProvider:
             # Log to auth.jsonl and system (error - user action required)
             if self._auth_logger:
                 self._auth_logger.log_token_refresh_failed(
+                    mcp_session_id=get_session_id(),
                     error_type="TokenRefreshExpiredError",
                     error_message=str(e),
                 )

@@ -32,8 +32,8 @@ from mcp_acp_extended.constants import (
     PROTECTED_CONFIG_DIR,
 )
 from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
+from mcp_acp_extended.cli.startup_alerts import show_startup_error_popup
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware
-from mcp_acp_extended.pep.applescript import show_startup_error_popup
 from mcp_acp_extended.pips.auth import SessionManager
 from mcp_acp_extended.security import create_identity_provider
 from mcp_acp_extended.security.posture import DeviceHealthMonitor, check_device_health
@@ -48,6 +48,7 @@ from mcp_acp_extended.telemetry.debug.client_logger import (
 from mcp_acp_extended.telemetry.debug.logging_proxy_client import (
     create_logging_proxy_client,
 )
+from mcp_acp_extended.utils.logging.logging_context import get_session_id
 from mcp_acp_extended.telemetry.system.system_logger import (
     configure_system_logger_file,
     get_system_logger,
@@ -134,9 +135,11 @@ def create_proxy(
     # If this fails, we raise AuditFailure and don't start
     audit_path = get_audit_log_path(config)
     decisions_path = get_decisions_log_path(config)
+    auth_log_path = get_auth_log_path(config)
     try:
         verify_audit_writable(audit_path)
         verify_audit_writable(decisions_path)
+        verify_audit_writable(auth_log_path)
     except AuditFailure as e:
         # Show popup on macOS for users
         show_startup_error_popup(
@@ -192,7 +195,6 @@ def create_proxy(
     )
 
     # Create auth logger for authentication event audit trail
-    auth_log_path = get_auth_log_path(config)
     auth_logger = create_auth_logger(auth_log_path, on_audit_failure)
 
     # Create DeviceHealthMonitor for periodic device posture verification
@@ -259,7 +261,7 @@ def create_proxy(
             bound_session = session_manager.create_session(session_identity)
             bound_session_id = bound_session.bound_id
             auth_logger.log_session_started(
-                session_id=bound_session_id,
+                bound_session_id=bound_session_id,
                 subject=session_identity,
             )
         except AuthenticationError as e:
@@ -268,7 +270,7 @@ def create_proxy(
 
             auth_failed_id = f"auth_failed:{secrets.token_urlsafe(8)}"
             auth_logger.log_session_ended(
-                session_id=auth_failed_id,
+                bound_session_id=auth_failed_id,
                 end_reason="auth_expired",
                 error_type=type(e).__name__,
                 error_message=str(e),
@@ -309,10 +311,11 @@ def create_proxy(
             await device_monitor.stop()
             await audit_monitor.stop()
 
-            # Log session_ended with bound session ID
+            # Log session_ended with bound session ID and MCP session for correlation
             if bound_session_id:
                 auth_logger.log_session_ended(
-                    session_id=bound_session_id,
+                    bound_session_id=bound_session_id,
+                    mcp_session_id=get_session_id(),  # For correlation with operations/decisions
                     subject=session_identity,
                     end_reason=end_reason,
                 )

@@ -67,6 +67,13 @@ class AuthEvent(BaseModel):
         None,
         description="ISO 8601 timestamp, added by formatter during serialization",
     )
+
+    # Two session IDs for different purposes:
+    # - bound_session_id: Security format "<user_id>:<session_uuid>" for auth binding
+    # - mcp_session_id: Plain UUID for correlation with operations/decisions/wire logs
+    bound_session_id: Optional[str] = None  # May not exist during startup validation
+    mcp_session_id: Optional[str] = None  # For cross-log correlation
+
     event_type: Literal[
         "token_validated",
         "token_invalid",
@@ -80,7 +87,6 @@ class AuthEvent(BaseModel):
     status: Literal["Success", "Failure"]
 
     # --- correlation ---
-    session_id: Optional[str] = None  # MCP session ID (may not exist yet)
     request_id: Optional[str] = None  # JSON-RPC request ID (for per-request checks)
 
     # --- identity ---

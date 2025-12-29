@@ -7,8 +7,11 @@ time — ISO 8601 timestamp (added by formatter during serialization)
 event_type — "token_validated" | "token_invalid" | "token_refreshed" | "token_refresh_failed" | "session_started" | "session_ended" | "device_health_passed" | "device_health_failed"
 status — "Success" | "Failure"
 
+## Session IDs (two different concepts)
+bound_session_id — optional, security-bound session ID format "<user_id>:<session_uuid>" for auth binding
+mcp_session_id — optional, plain MCP session UUID for correlation with operations/decisions/wire logs
+
 ## Correlation
-session_id — optional, MCP session ID (may not exist during startup)
 request_id — optional, JSON-RPC request ID (for per-request token validation)
 
 ## Identity

@@ -103,11 +103,12 @@ Authentication events for Zero Trust compliance. Based on OCSF Authentication (3
 | `time` | ISO 8601 timestamp |
 | `event_type` | `token_validated`, `token_invalid`, `token_refreshed`, `token_refresh_failed`, `session_started`, `session_ended`, `device_health_passed`, `device_health_failed` |
 | `status` | `Success` or `Failure` |
-| `session_id` | MCP session ID (optional, may not exist during startup) |
+| `bound_session_id` | Security-bound session ID (`<user_id>:<session_uuid>`) for auth binding |
+| `mcp_session_id` | MCP session ID for correlation with operations/decisions logs |
 | `request_id` | JSON-RPC request ID (for per-request validation) |
 | `subject` | User identity (`subject_id`, `subject_claims`) |
 | `oidc` | OIDC token details (`issuer`, `provider`, `audience`, `scopes`, `token_exp`, `token_expired`) |
-| `device_checks` | Device health results (`disk_encryption`, `firewall`: `pass`/`fail`/`skip`) |
+| `device_checks` | Device health results (`disk_encryption`, `device_integrity`: `pass`/`fail`/`unknown`) |
 | `end_reason` | Session end reason: `normal`, `timeout`, `error`, `auth_expired` |
 | `method` | MCP method (for per-request token validation) |
 | `error_type`, `error_message` | Error details (for failure events) |

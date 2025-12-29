@@ -16,6 +16,7 @@ The Solution:
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import sys
@@ -182,8 +183,14 @@ def verify_audit_writable(audit_path: Path) -> None:
     except OSError as e:
         raise AuditFailure(f"Failed to create audit log directory: {e}") from e
 
-    # Verify we can write to the file
-    test_content = f"# Startup write test: {datetime.now(timezone.utc).isoformat()}\n"
+    # Verify we can write to the file (valid JSON for JSONL compatibility)
+    test_event = {
+        "time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
+        "event": "startup_write_test",
+        "status": "Success",
+        "message": "Audit log write verification",
+    }
+    test_content = json.dumps(test_event) + "\n"
     try:
         with audit_path.open("a", encoding="utf-8") as f:
             f.write(test_content)
@@ -193,3 +200,10 @@ def verify_audit_writable(audit_path: Path) -> None:
         raise AuditFailure(f"Audit log not writable (permission denied): {e}") from e
     except OSError as e:
         raise AuditFailure(f"Audit log not writable: {e}") from e
+
+    # Always set secure file permissions (owner read/write only)
+    # This fixes permissions on existing files and sets them on new files
+    try:
+        audit_path.chmod(0o600)
+    except OSError as e:
+        raise AuditFailure(f"Cannot set secure permissions on audit log: {e}") from e

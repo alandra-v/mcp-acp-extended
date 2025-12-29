@@ -193,6 +193,30 @@
       "description": "ISO 8601 timestamp, added by formatter during serialization",
       "title": "Time"
     },
+    "bound_session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Bound Session Id"
+    },
+    "mcp_session_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Mcp Session Id"
+    },
     "event_type": {
       "enum": [
         "token_validated",
@@ -214,18 +238,6 @@
       ],
       "title": "Status",
       "type": "string"
-    },
-    "session_id": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Session Id"
     },
     "request_id": {
       "anyOf": [
