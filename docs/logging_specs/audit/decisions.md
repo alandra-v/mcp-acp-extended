@@ -19,8 +19,7 @@ uri — optional resource URI (from resources/read)
 scheme — optional URI scheme (file, https, s3, etc.)
 subject_id — optional, OIDC sub (optional until auth is fully implemented)
 backend_id — backend server ID (always known from config)
-is_mutating — whether the action is mutating (default: false)
-side_effects — optional list of side-effect tags (e.g. "fs_read", "fs_write")
+side_effects — optional list of side-effect tags (e.g. "FS_WRITE", "CODE_EXEC")
 
 ## Policy
 policy_version — active policy version at decision time (always loaded)

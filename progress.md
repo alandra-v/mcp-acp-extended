@@ -28,7 +28,7 @@ Logging infrastructure, auth audit trail, and configuration schema.
   - Log to `audit/auth.jsonl` with fail-closed handler
   - Events: `token_validated`, `token_invalid`, `token_refreshed`, `token_refresh_failed`, `session_started`, `session_ended`, `device_health_passed`, `device_health_failed`
   - AuthEvent model with DeviceHealthChecks
-  - **Deferred:** Actually calling the logger (auth.jsonl won't exist until auth is implemented and first event is logged)
+  - Wired up in Phase 5 (auth.jsonl created on first auth event)
 
 - [x] **Configuration models** (`config.py`)
   - `OIDCConfig`, `MTLSConfig`, `AuthConfig` models
@@ -87,8 +87,7 @@ Device health checks and periodic monitoring.
   - Background async task checks every 5 minutes
   - Zero Trust: fails on first check failure (threshold=1)
   - Triggers shutdown via `ShutdownCoordinator` if device becomes unhealthy
-  - Auth logging code ready (`if self.auth_logger:` checks in place)
-  - **Deferred:** Pass `auth_logger` to monitor in `proxy.py` (waiting for auth integration)
+  - Auth logging integrated (wired up in Phase 5)
 
 - [x] **Proxy integration**
   - Hard gate at startup: proxy won't start if device unhealthy
@@ -116,13 +115,14 @@ Wire authentication into the proxy request flow.
 - [x] **Identity provider migration**
   - Update `create_identity_provider(config, transport)` for OIDC
   - Factory returns `OIDCIdentityProvider` when auth configured
-  - Falls back to `LocalIdentityProvider` for development
+  - Zero Trust: raises `AuthenticationError` if auth not configured (no fallback)
+  - `LocalIdentityProvider` exists only for unit tests, not exported for production
   - Future HTTP transport support documented (NotImplementedError)
 
 - [x] **Proxy integration**
   - `proxy.py` passes config to identity provider factory
-  - Handle `AuthenticationError` at startup with osascript popup
-  - `show_auth_error_popup()` added to `pep/applescript.py`
+  - Handle startup errors with osascript popup
+  - `show_startup_error_popup()` added to `pep/applescript.py`
 
 - [x] **Context integration**
   - `context/context.py` uses `build_subject_from_identity()`
@@ -135,52 +135,78 @@ Wire authentication into the proxy request flow.
 
 ---
 
-## Phase 5: CLI & Integration
+## Phase 5: CLI & Integration ✓
 
-**Status: Not Started**
+**Status: Complete**
 
 CLI auth commands and proxy integration.
 
-- [ ] **Auth CLI commands** (`cli/commands/auth.py`)
+- [x] **Auth CLI commands** (`cli/commands/auth.py`)
   - `auth login` - Device Flow, store token in keychain
   - `auth logout` - Clear stored tokens
   - `auth status` - Show token validity, user info, storage backend
 
-- [ ] **Proxy integration**
+- [x] **Proxy integration**
   - Load token → validate → device health → create provider
   - Show osascript popup on auth failure
+  - Zero Trust: `create_identity_provider()` raises `AuthenticationError` if auth not configured
 
-- [ ] **Wire up auth.jsonl logging**
+- [x] **Wire up auth.jsonl logging**
   - Create `AuthLogger` in proxy startup
-  - Pass to `DeviceHealthMonitor` (uncomment TODO code)
+  - Pass `auth_logger` to `OIDCIdentityProvider` and `DeviceHealthMonitor`
   - Log auth events: token validation, session start/end, device health
-  - auth.jsonl will be created on first event
+  - Token validation logged to auth.jsonl (failures also to system.jsonl)
 
 ---
 
-## Phase 6: Session & mTLS
+## Phase 6: Session Binding ✓
 
-**Status: Not Started**
+**Status: Complete**
 
-Session binding and mTLS transport.
+Session binding per MCP security spec.
 
-- [ ] **Session binding** (`pips/auth/session.py`)
-  - Cryptographically secure session IDs
-  - Sessions bound to subject_id per MCP spec
+- [x] **Session binding** (`pips/auth/session.py`)
+  - `BoundSession` dataclass with `bound_id` property
+  - `SessionManager` for create/validate/invalidate operations
+  - Sessions bound to subject_id: `<user_id>:<session_id>` format
+  - Prevents session hijacking across users per MCP spec
+
+- [x] **Proxy integration**
+  - `SessionManager` created in proxy startup
+  - Session created after identity validation with bound format
+  - Session invalidated on proxy shutdown
+  - Auth failures use placeholder ID for audit logging
+
+- [x] **Tests** (25 new tests in `test_session.py`)
+  - BoundSession format and expiry
+  - SessionManager CRUD operations
+  - User binding validation
+
+---
+
+## Phase 7: mTLS Transport
+
+**Status: Deferred**
+
+mTLS support for proxy-to-backend authentication is planned but not yet implemented.
 
 - [ ] **mTLS transport** (`utils/transport.py`)
   - SSL context with client cert, client key, CA bundle
   - Integration with httpx for HTTP backends
 
+**When Needed:** mTLS is primarily useful for authenticating the proxy to backend servers in Zero Trust network architectures. For now, use HTTPS backends with standard TLS.
+
+See [docs/auth.md#mtls-mutual-tls---deferred](docs/auth.md#mtls-mutual-tls---deferred) for details.
+
 ---
 
-## Phase 7: Testing & Documentation
+## Phase 8: Testing & Documentation ✓
 
-**Status: Not Started**
+**Status: Complete**
 
-- [ ] Unit tests for auth components
-- [ ] Documentation (authentication.md, security.md)
-- [ ] E2E testing with Auth0
+- [x] Unit tests for auth components (test_auth.py, test_session.py)
+- [x] Documentation (docs/auth.md - comprehensive auth documentation)
+- [x] E2E testing guide (docs/manual-e2e-testing.md - AUTH-01 through AUTH-05)
 
 ---
 
@@ -258,16 +284,18 @@ Web UI requests go through proxy → uses same session
 - [x] Device health checks (disk encryption, SIP)
 - [x] Token storage (keychain/encrypted file)
 - [x] JWT validation with JWKS caching
-- [x] Device Flow implementation (ready for CLI)
+- [x] Device Flow implementation
 - [x] Token refresh logic
 - [x] OIDCIdentityProvider with per-request validation
 - [x] Subject claims from OIDC tokens
 - [x] Auth event audit logging (auth.jsonl)
-- [ ] CLI auth commands (login, logout, status)
-- [ ] mTLS for HTTP backend connections
-- [ ] Session binding to user identity
+- [x] CLI auth commands (login, logout, status)
+- [x] Session binding to user identity (`<user_id>:<session_id>` format)
+- [x] Zero Trust enforcement (auth MANDATORY, no fallback)
+- [x] Documentation (docs/auth.md)
+- [x] E2E testing guide (docs/manual-e2e-testing.md)
+- [ ] mTLS for HTTP backend connections (deferred)
 - [ ] Policy OR logic, trace, IDs
 - [ ] Environment and provenance conditions
 - [ ] Hot reload via SIGHUP
 - [ ] React web UI
-- [ ] Documentation and E2E testing

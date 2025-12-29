@@ -1,5 +1,6 @@
 from __future__ import annotations
-from typing import Optional, Dict, List, Literal
+from datetime import datetime
+from typing import Any, Optional, Dict, List, Literal
 from pydantic import BaseModel, Field
 
 
@@ -25,8 +26,8 @@ class OIDCInfo(BaseModel):
     scopes: Optional[List[str]] = None  # token scopes, if available
 
     token_type: Optional[str] = None  # "access", "id", "proxy", etc.
-    token_exp: Optional[str] = None  # ISO 8601 expiration time
-    token_iat: Optional[str] = None  # ISO 8601 issued-at time
+    token_exp: Optional[datetime] = None  # 'exp' as datetime
+    token_iat: Optional[datetime] = None  # 'iat' as datetime
     token_expired: Optional[bool] = None  # whether expired at validation time
 
 
@@ -66,7 +67,7 @@ class AuthEvent(BaseModel):
         None,
         description="ISO 8601 timestamp, added by formatter during serialization",
     )
-    event: Literal[
+    event_type: Literal[
         "token_validated",
         "token_invalid",
         "token_refreshed",
@@ -101,6 +102,9 @@ class AuthEvent(BaseModel):
 
     # --- session end details ---
     end_reason: Optional[Literal["normal", "timeout", "error", "auth_expired"]] = None
+
+    # --- extra details ---
+    details: Optional[Dict[str, Any]] = None  # any extra structured data
 
     class Config:
         extra = "forbid"

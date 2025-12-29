@@ -4,7 +4,7 @@ The authentication log schema records Zero Trust authentication events for the p
 
 ## Core
 time — ISO 8601 timestamp (added by formatter during serialization)
-event — "token_validated" | "token_invalid" | "token_refreshed" | "token_refresh_failed" | "session_started" | "session_ended" | "device_health_passed" | "device_health_failed"
+event_type — "token_validated" | "token_invalid" | "token_refreshed" | "token_refresh_failed" | "session_started" | "session_ended" | "device_health_passed" | "device_health_failed"
 status — "Success" | "Failure"
 
 ## Correlation
@@ -48,3 +48,6 @@ error_message — optional detailed error message
 
 ## Session end (for session_ended event)
 end_reason — optional, "normal" | "timeout" | "error" | "auth_expired"
+
+## Extra details
+details — optional dict of additional structured data

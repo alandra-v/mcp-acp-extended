@@ -106,13 +106,8 @@
       "title": "Subject Id"
     },
     "backend_id": {
-      "title": "Server Id",
+      "title": "Backend Id",
       "type": "string"
-    },
-    "is_mutating": {
-      "default": false,
-      "title": "Is Mutating",
-      "type": "boolean"
     },
     "side_effects": {
       "anyOf": [
@@ -135,7 +130,6 @@
     },
     "policy_eval_ms": {
       "title": "Policy Eval Ms",
-      "description": "Policy rule evaluation time in milliseconds",
       "type": "number"
     },
     "policy_hitl_ms": {
@@ -148,12 +142,10 @@
         }
       ],
       "default": null,
-      "title": "Policy Hitl Ms",
-      "description": "HITL wait time in milliseconds (only when decision == hitl)"
+      "title": "Policy Hitl Ms"
     },
     "policy_total_ms": {
       "title": "Policy Total Ms",
-      "description": "Total evaluation time in milliseconds (eval + HITL, excludes context)",
       "type": "number"
     },
     "request_id": {
