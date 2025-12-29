@@ -3,8 +3,7 @@
 This module provides integrations with external systems that supply
 attributes for policy decisions:
 
-- auth/: OIDC authentication, token validation, device health
-- device/: Device posture checks (future)
+- auth/: OIDC authentication, token validation, session management
 """
 
 # Namespace package - no direct exports, submodules accessed via:

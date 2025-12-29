@@ -321,9 +321,12 @@ class TestStartCorruptConfig:
             config_path = Path(tmpdir) / "config.json"
             config_path.write_text("{ not valid json }")
 
-            with patch(
-                "mcp_acp_extended.cli.commands.start.get_config_path",
-                return_value=config_path,
+            with (
+                patch(
+                    "mcp_acp_extended.cli.commands.start.get_config_path",
+                    return_value=config_path,
+                ),
+                patch("mcp_acp_extended.cli.commands.start.show_startup_error_popup"),
             ):
                 # Act
                 result = runner.invoke(cli, ["start"])
@@ -342,9 +345,12 @@ class TestStartCorruptConfig:
             config_path.write_text("{ corrupt }")
             backup_path.write_text('{"valid": "backup"}')
 
-            with patch(
-                "mcp_acp_extended.cli.commands.start.get_config_path",
-                return_value=config_path,
+            with (
+                patch(
+                    "mcp_acp_extended.cli.commands.start.get_config_path",
+                    return_value=config_path,
+                ),
+                patch("mcp_acp_extended.cli.commands.start.show_startup_error_popup"),
             ):
                 # Act
                 result = runner.invoke(cli, ["start"])
@@ -369,9 +375,12 @@ class TestStartCorruptConfig:
             config_path.write_text(json.dumps(invalid_config))
             backup_path.write_text('{"some": "backup"}')  # Backup exists
 
-            with patch(
-                "mcp_acp_extended.cli.commands.start.get_config_path",
-                return_value=config_path,
+            with (
+                patch(
+                    "mcp_acp_extended.cli.commands.start.get_config_path",
+                    return_value=config_path,
+                ),
+                patch("mcp_acp_extended.cli.commands.start.show_startup_error_popup"),
             ):
                 # Act
                 result = runner.invoke(cli, ["start"])

@@ -97,12 +97,22 @@ def start() -> None:
         proxy.run()
 
     except FileNotFoundError as e:
-        show_startup_error_popup(
-            title="MCP ACP",
-            message="Configuration not found.",
-            detail="Run in terminal:\n  mcp-acp-extended init\n\nThen restart your MCP client.",
-        )
-        click.echo(f"\nError: {e}", err=True)
+        error_msg = str(e).lower()
+        # Distinguish between config not found vs mTLS cert not found
+        if "mtls" in error_msg or "certificate" in error_msg or "cert" in error_msg:
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="mTLS certificate not found.",
+                detail=f"{e}\n\nCheck certificate paths in config or run:\n  mcp-acp-extended init",
+            )
+            click.echo(f"\nError: mTLS certificate not found: {e}", err=True)
+        else:
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="Configuration not found.",
+                detail="Run in terminal:\n  mcp-acp-extended init\n\nThen restart your MCP client.",
+            )
+            click.echo(f"\nError: {e}", err=True)
         sys.exit(1)
 
     except ValueError as e:
@@ -163,25 +173,73 @@ def start() -> None:
 
         sys.exit(1)
 
-    except (TimeoutError, ConnectionError) as e:
+    except TimeoutError as e:
         show_startup_error_popup(
             title="MCP ACP",
-            message="Backend connection failed.",
-            detail=f"{e}\n\nCheck that the backend server is running.",
+            message="Backend connection timed out.",
+            detail=f"{e}\n\nCheck that the backend server is running and responsive.",
         )
-        click.echo(f"Error: Backend connection failed: {e}", err=True)
+        click.echo(f"Error: Backend connection timed out: {e}", err=True)
+        sys.exit(1)
+
+    except ConnectionError as e:
+        # Check for SSL-specific errors
+        error_msg = str(e).lower()
+        if "ssl" in error_msg or "certificate" in error_msg:
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="SSL/TLS error.",
+                detail=f"{e}\n\nCheck your mTLS certificate configuration.",
+            )
+            click.echo(f"Error: SSL/TLS error: {e}", err=True)
+        else:
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="Backend connection failed.",
+                detail=f"{e}\n\nCheck that the backend server is running.",
+            )
+            click.echo(f"Error: Backend connection failed: {e}", err=True)
         sys.exit(1)
 
     except AuditFailure as e:
+        show_startup_error_popup(
+            title="MCP ACP",
+            message="Audit log failure.",
+            detail=f"{e}\n\nThe proxy cannot start without a writable audit log.\nCheck file permissions in the log directory.",
+        )
         click.echo(f"Error: Audit log failure: {e}", err=True)
         click.echo("The proxy cannot start without a writable audit log.", err=True)
         sys.exit(10)
 
     except AuthenticationError as e:
+        error_msg = str(e).lower()
+        if "not authenticated" in error_msg or "no token" in error_msg or "token not found" in error_msg:
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="Not authenticated.",
+                detail="Run in terminal:\n  mcp-acp-extended auth login\n\nThen restart your MCP client.",
+            )
+        elif "expired" in error_msg:
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="Authentication expired.",
+                detail="Run in terminal:\n  mcp-acp-extended auth login\n\nThen restart your MCP client.",
+            )
+        else:
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="Authentication error.",
+                detail=f"{e}\n\nRun 'mcp-acp-extended auth login' to re-authenticate.",
+            )
         click.echo(f"\nError: {e}", err=True)
         sys.exit(13)
 
     except DeviceHealthError as e:
+        show_startup_error_popup(
+            title="MCP ACP",
+            message="Device health check failed.",
+            detail=f"{e}\n\nEnsure FileVault is enabled and SIP is not disabled.",
+        )
         click.echo(f"\nError: Device health check failed", err=True)
         click.echo(str(e), err=True)
         sys.exit(14)
