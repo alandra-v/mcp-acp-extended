@@ -15,9 +15,9 @@ from mcp_acp_extended.utils.history_logging.policy_logger import (
     log_policy_loaded,
     log_policy_validation_failed,
 )
-from mcp_acp_extended.proxy import create_proxy
+from mcp_acp_extended.cli.startup_alerts import show_startup_error_popup
 from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
-from mcp_acp_extended.pep.applescript import show_startup_error_popup
+from mcp_acp_extended.proxy import create_proxy
 from mcp_acp_extended.utils.config import (
     ensure_directories,
     get_config_history_path,
