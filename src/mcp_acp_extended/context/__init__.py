@@ -40,6 +40,7 @@ from mcp_acp_extended.context.resource import (
 )
 from mcp_acp_extended.context.environment import Environment
 from mcp_acp_extended.context.context import DecisionContext, build_decision_context
+from mcp_acp_extended.context.parsing import parse_path_resource, parse_uri_resource
 
 __all__ = [
     # Provenance
@@ -64,4 +65,7 @@ __all__ = [
     # Context
     "DecisionContext",
     "build_decision_context",
+    # Parsing
+    "parse_path_resource",
+    "parse_uri_resource",
 ]
