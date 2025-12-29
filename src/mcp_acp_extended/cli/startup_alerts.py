@@ -16,6 +16,10 @@ __all__ = [
     "show_startup_error_popup",
 ]
 
+# Timeout for AppleScript dialogs (seconds)
+# User has 30 seconds to acknowledge the dialog before it auto-closes
+_DIALOG_TIMEOUT_SECONDS = 30
+
 
 def _escape_applescript_string(s: str) -> str:
     """Escape a string for safe use in AppleScript.
@@ -79,7 +83,7 @@ def show_startup_error_popup(
         subprocess.run(
             ["osascript", "-e", script],
             capture_output=True,
-            timeout=30,  # Don't hang forever
+            timeout=_DIALOG_TIMEOUT_SECONDS,
         )
         return True
     except (subprocess.SubprocessError, OSError):

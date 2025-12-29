@@ -28,11 +28,13 @@ from mcp_acp_extended.constants import (
     DELETE_TOOL_PREFIXES,
     READ_TOOL_CONTAINS,
     READ_TOOL_PREFIXES,
-    REGEX_SPECIAL_CHARS,
     WRITE_TOOL_CONTAINS,
     WRITE_TOOL_PREFIXES,
 )
 from mcp_acp_extended.context.resource import SideEffect
+
+# Regex special characters that need escaping in glob-to-regex conversion
+_REGEX_SPECIAL_CHARS = ".^$+{}[]|()"
 
 
 def match_path_pattern(pattern: str, path: str | None) -> bool:
@@ -93,7 +95,7 @@ def match_path_pattern(pattern: str, path: str | None) -> bool:
             # ? matches single character except /
             regex_pattern += "[^/]"
             i += 1
-        elif c in REGEX_SPECIAL_CHARS:
+        elif c in _REGEX_SPECIAL_CHARS:
             # Escape regex special characters
             regex_pattern += "\\" + c
             i += 1

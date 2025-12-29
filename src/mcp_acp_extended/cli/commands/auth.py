@@ -119,8 +119,8 @@ def login(no_browser: bool) -> None:
                 webbrowser.open(auth_url)
                 browser_opened = True
                 click.echo("  Browser opened automatically.")
-            except Exception:
-                click.echo("  (Could not open browser automatically)")
+            except (OSError, webbrowser.Error) as e:
+                click.echo(f"  (Could not open browser automatically: {e})")
 
         click.echo()
         click.echo("Waiting for authentication", nl=False)
@@ -298,9 +298,9 @@ def status() -> None:
             if "sub" in claims:
                 click.echo(f"  Subject: {claims['sub']}")
 
-        except Exception:
-            # Can't decode ID token, that's fine
-            pass
+        except (ValueError, KeyError) as e:
+            # Can't decode ID token - not critical, just skip user info display
+            click.echo(f"  (Could not decode ID token: {e})", err=True)
 
     click.echo()
     click.echo(click.style("OIDC Configuration", fg="cyan", bold=True))

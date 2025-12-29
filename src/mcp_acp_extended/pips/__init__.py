@@ -6,3 +6,7 @@ attributes for policy decisions:
 - auth/: OIDC authentication, token validation, device health
 - device/: Device posture checks (future)
 """
+
+# Namespace package - no direct exports, submodules accessed via:
+#   from mcp_acp_extended.pips.auth import SessionManager
+__all__: list[str] = []

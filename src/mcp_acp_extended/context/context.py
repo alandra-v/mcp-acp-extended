@@ -23,8 +23,8 @@ from mcp_acp_extended.constants import (
     DISCOVERY_METHODS,
     METHOD_INTENTS,
     PATH_ARGUMENT_NAMES,
-    TOOL_SIDE_EFFECTS,
 )
+from mcp_acp_extended.context.tool_side_effects import TOOL_SIDE_EFFECTS
 from mcp_acp_extended.context.action import (
     Action,
     ActionCategory,

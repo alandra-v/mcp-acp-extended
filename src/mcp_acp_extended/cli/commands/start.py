@@ -8,7 +8,7 @@ import sys
 import click
 
 from mcp_acp_extended import __version__
-from mcp_acp_extended.constants import BOOTSTRAP_LOG_FILENAME, CLI_SEPARATOR
+from mcp_acp_extended.constants import BOOTSTRAP_LOG_FILENAME
 from mcp_acp_extended.config import AppConfig
 from mcp_acp_extended.utils.policy import get_policy_path, load_policy
 from mcp_acp_extended.utils.history_logging.policy_logger import (
@@ -90,7 +90,7 @@ def start() -> None:
 
         # Display actual transport used (after detection)
         click.echo(f"Backend transport: {actual_transport}", err=True)
-        click.echo(CLI_SEPARATOR, err=True)
+        click.echo("-" * 50, err=True)
 
         click.echo("Proxy server ready - listening on STDIO", err=True)
         # proxy server listens for clients via STDIO
@@ -132,8 +132,9 @@ def start() -> None:
                     component="cli",
                     source="cli_start",
                 )
-        except OSError:
-            pass  # Don't fail startup due to logging errors
+        except OSError as log_err:
+            # Don't fail startup due to logging errors, but warn for debugging
+            click.echo(f"Warning: Could not write to bootstrap log: {log_err}", err=True)
 
         if is_policy_error:
             show_startup_error_popup(

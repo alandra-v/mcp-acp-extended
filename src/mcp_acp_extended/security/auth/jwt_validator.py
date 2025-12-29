@@ -23,8 +23,10 @@ from mcp_acp_extended.exceptions import AuthenticationError
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
 
-# JWKS cache TTL in seconds (1 hour)
-JWKS_CACHE_TTL_SECONDS = 3600
+# JWKS cache TTL in seconds (10 minutes)
+# Shorter TTL reduces window for revoked key acceptance while still avoiding
+# excessive requests to the JWKS endpoint
+JWKS_CACHE_TTL_SECONDS = 600
 
 
 @dataclass

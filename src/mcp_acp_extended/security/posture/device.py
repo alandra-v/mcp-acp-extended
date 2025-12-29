@@ -27,6 +27,10 @@ from typing import Any, Literal
 
 CheckResult = Literal["pass", "fail", "unknown"]
 
+# Timeout for device health check subprocess calls (seconds)
+# fdesetup and csrutil are quick local commands - 5 seconds is generous
+_SUBPROCESS_TIMEOUT_SECONDS = 5
+
 
 @dataclass
 class DeviceHealthReport:
@@ -68,7 +72,7 @@ def _check_filevault() -> tuple[CheckResult, str | None]:
             ["fdesetup", "status"],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=_SUBPROCESS_TIMEOUT_SECONDS,
         )
         if result.returncode != 0:
             return "unknown", f"fdesetup exit code {result.returncode}"
@@ -92,7 +96,7 @@ def _check_sip() -> tuple[CheckResult, str | None]:
             ["csrutil", "status"],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=_SUBPROCESS_TIMEOUT_SECONDS,
         )
         output = result.stdout.lower()
         if "status: enabled" in output:
