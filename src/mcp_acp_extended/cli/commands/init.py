@@ -150,7 +150,7 @@ def _prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
     Returns:
         AuthConfig with user-provided values.
     """
-    click.echo("\n--- Authentication (Zero Trust) ---")
+    click.echo("\n--- Authentication ---")
     click.echo("Configure Auth0/OIDC for user authentication.\n")
 
     # OIDC settings

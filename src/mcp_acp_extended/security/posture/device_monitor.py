@@ -145,13 +145,10 @@ class DeviceHealthMonitor:
             self._running = False
 
     def _log_check_passed(self, report: DeviceHealthReport) -> None:
-        """Log successful health check."""
-        _system_logger.debug(
-            {
-                "event": "device_health_check_passed",
-                "report": report.to_dict(),
-            }
-        )
+        """Log successful health check to auth.jsonl.
+
+        TODO: Remove after testing complete - success events are noise.
+        """
         if self.auth_logger:
             self.auth_logger.log_device_health_passed(
                 device_checks=DeviceHealthChecks(

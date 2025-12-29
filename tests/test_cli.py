@@ -829,3 +829,189 @@ class TestConfigShow:
         assert "Logging" in result.output
         assert "Backend" in result.output
         assert "test-server" in result.output
+
+
+class TestAuthHelp:
+    """Tests for auth command help."""
+
+    def test_auth_help_shows_subcommands(self, runner: CliRunner):
+        """Given auth --help, shows subcommands."""
+        # Act
+        result = runner.invoke(cli, ["auth", "--help"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "login" in result.output
+        assert "logout" in result.output
+        assert "status" in result.output
+
+    def test_root_help_shows_auth_command(self, runner: CliRunner):
+        """Given --help, shows auth command."""
+        # Act
+        result = runner.invoke(cli, ["--help"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "auth" in result.output
+
+
+class TestAuthLogin:
+    """Tests for auth login command."""
+
+    def test_login_no_config_shows_error(self, runner: CliRunner):
+        """Given no config file, shows helpful error."""
+        # Arrange
+        with runner.isolated_filesystem():
+            with patch(
+                "mcp_acp_extended.cli.commands.auth.get_config_path",
+                return_value=Path("nonexistent.json"),
+            ):
+                # Act
+                result = runner.invoke(cli, ["auth", "login"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower() or "configuration" in result.output.lower()
+        assert "init" in result.output  # Suggests running init
+
+    def test_login_no_oidc_config_shows_error(self, runner: CliRunner):
+        """Given config without OIDC settings, shows error."""
+        # Arrange - config without auth section
+        config_without_auth = {
+            "logging": {"log_dir": "/tmp/test-logs", "log_level": "INFO"},
+            "backend": {
+                "server_name": "test-server",
+                "stdio": {"command": "echo", "args": ["test"]},
+            },
+        }
+
+        with runner.isolated_filesystem() as tmpdir:
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config_without_auth, indent=2))
+
+            with patch(
+                "mcp_acp_extended.cli.commands.auth.get_config_path",
+                return_value=config_path,
+            ):
+                # Act
+                result = runner.invoke(cli, ["auth", "login"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "not configured" in result.output.lower() or "oidc" in result.output.lower()
+
+
+class TestAuthLogout:
+    """Tests for auth logout command."""
+
+    def test_logout_no_config_shows_error(self, runner: CliRunner):
+        """Given no config file, shows helpful error."""
+        # Arrange
+        with runner.isolated_filesystem():
+            with patch(
+                "mcp_acp_extended.cli.commands.auth.get_config_path",
+                return_value=Path("nonexistent.json"),
+            ):
+                # Act
+                result = runner.invoke(cli, ["auth", "logout"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower() or "configuration" in result.output.lower()
+
+    def test_logout_no_credentials_shows_message(self, runner: CliRunner, valid_config: dict):
+        """Given no stored credentials, shows appropriate message."""
+        # Arrange
+        with runner.isolated_filesystem() as tmpdir:
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(valid_config, indent=2))
+
+            # Mock storage to return no credentials
+            mock_storage = patch("mcp_acp_extended.cli.commands.auth.create_token_storage")
+
+            with patch(
+                "mcp_acp_extended.cli.commands.auth.get_config_path",
+                return_value=config_path,
+            ):
+                with mock_storage as storage_mock:
+                    storage_instance = storage_mock.return_value
+                    storage_instance.exists.return_value = False
+
+                    # Act
+                    result = runner.invoke(cli, ["auth", "logout"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "no stored credentials" in result.output.lower()
+
+
+class TestAuthStatus:
+    """Tests for auth status command."""
+
+    def test_status_no_config_shows_error(self, runner: CliRunner):
+        """Given no config file, shows helpful error."""
+        # Arrange
+        with runner.isolated_filesystem():
+            with patch(
+                "mcp_acp_extended.cli.commands.auth.get_config_path",
+                return_value=Path("nonexistent.json"),
+            ):
+                # Act
+                result = runner.invoke(cli, ["auth", "status"])
+
+        # Assert
+        assert result.exit_code == 1
+        assert "not found" in result.output.lower() or "configuration" in result.output.lower()
+
+    def test_status_no_oidc_config_shows_not_configured(self, runner: CliRunner):
+        """Given config without OIDC settings, shows not configured."""
+        # Arrange - config without auth section
+        config_without_auth = {
+            "logging": {"log_dir": "/tmp/test-logs", "log_level": "INFO"},
+            "backend": {
+                "server_name": "test-server",
+                "stdio": {"command": "echo", "args": ["test"]},
+            },
+        }
+
+        with runner.isolated_filesystem() as tmpdir:
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(config_without_auth, indent=2))
+
+            with patch(
+                "mcp_acp_extended.cli.commands.auth.get_config_path",
+                return_value=config_path,
+            ):
+                # Act
+                result = runner.invoke(cli, ["auth", "status"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "not configured" in result.output.lower()
+
+    def test_status_not_authenticated(self, runner: CliRunner, valid_config: dict):
+        """Given no stored token, shows not authenticated."""
+        # Arrange
+        with runner.isolated_filesystem() as tmpdir:
+            config_path = Path(tmpdir) / "config.json"
+            config_path.write_text(json.dumps(valid_config, indent=2))
+
+            with patch(
+                "mcp_acp_extended.cli.commands.auth.get_config_path",
+                return_value=config_path,
+            ):
+                with patch("mcp_acp_extended.cli.commands.auth.create_token_storage") as storage_mock:
+                    storage_instance = storage_mock.return_value
+                    storage_instance.exists.return_value = False
+
+                    with patch(
+                        "mcp_acp_extended.cli.commands.auth.get_token_storage_info",
+                        return_value={"backend": "keychain"},
+                    ):
+                        # Act
+                        result = runner.invoke(cli, ["auth", "status"])
+
+        # Assert
+        assert result.exit_code == 0
+        assert "not authenticated" in result.output.lower()
+        assert "login" in result.output.lower()  # Suggests running login

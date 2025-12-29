@@ -13,7 +13,7 @@ import subprocess
 __all__ = [
     "escape_applescript_string",
     "parse_applescript_record",
-    "show_auth_error_popup",
+    "show_startup_error_popup",
 ]
 
 
@@ -80,26 +80,27 @@ def parse_applescript_record(output: str) -> dict[str, str]:
     return result
 
 
-def show_auth_error_popup(
-    title: str = "Authentication Required",
-    message: str = "Your session has expired.",
-    detail: str = "Run 'mcp-acp-extended auth login' to re-authenticate.",
+def show_startup_error_popup(
+    title: str = "MCP ACP",
+    message: str = "Startup failed.",
+    detail: str = "Check logs for details.",
 ) -> bool:
-    """Show an authentication error popup on macOS.
+    """Show a startup error popup on macOS.
 
-    Displays a native macOS alert dialog when authentication fails.
+    Displays a native macOS alert dialog when proxy startup fails.
+    Used for pre-start failures (auth, config, device health, etc.).
     Non-blocking on other platforms (returns immediately).
 
     Args:
-        title: Alert title (default: "Authentication Required").
-        message: Main message text.
-        detail: Additional detail text (e.g., command to run).
+        title: Alert title (default: "MCP ACP").
+        message: Main message text describing the failure.
+        detail: Additional detail text (e.g., command to run to fix).
 
     Returns:
         True if popup was shown, False if not on macOS or osascript failed.
 
     Example:
-        >>> show_auth_error_popup()  # doctest: +SKIP
+        >>> show_startup_error_popup()  # doctest: +SKIP
         True
     """
     if platform.system() != "Darwin":

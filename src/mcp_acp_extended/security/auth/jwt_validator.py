@@ -102,10 +102,11 @@ class JWTValidator:
         self._config = config
         self._jwks_cache: _CachedJWKS | None = None
 
-        # Normalize issuer (strip trailing slash for consistent comparison)
-        # Auth0 tokens use issuer without trailing slash
-        self._issuer = config.issuer.rstrip("/")
-        self._jwks_uri = f"{self._issuer}/.well-known/jwks.json"
+        # Keep issuer as-is for token validation (Auth0 includes trailing slash)
+        # Only strip trailing slash for JWKS URI to avoid double slashes
+        self._issuer = config.issuer
+        issuer_base = config.issuer.rstrip("/")
+        self._jwks_uri = f"{issuer_base}/.well-known/jwks.json"
 
     def _get_jwks_client(self) -> PyJWKClient:
         """Get or create JWKS client with caching.
@@ -315,8 +316,9 @@ class JWTValidator:
     def decode_without_validation(self, token: str) -> dict[str, Any]:
         """Decode token without validating signature.
 
-        UNSAFE: Only use for extracting claims when you don't need security,
-        such as displaying user info from an already-validated token.
+        WARNING: Does not validate signature! Only use for extracting claims
+        from trusted tokens (e.g., id_token from our own auth flow) for
+        display purposes.
 
         Args:
             token: JWT token string.

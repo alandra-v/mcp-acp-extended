@@ -16,7 +16,8 @@ from mcp_acp_extended.utils.history_logging.policy_logger import (
     log_policy_validation_failed,
 )
 from mcp_acp_extended.proxy import create_proxy
-from mcp_acp_extended.exceptions import AuditFailure
+from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
+from mcp_acp_extended.pep.applescript import show_startup_error_popup
 from mcp_acp_extended.utils.config import (
     ensure_directories,
     get_config_history_path,
@@ -96,6 +97,11 @@ def start() -> None:
         proxy.run()
 
     except FileNotFoundError as e:
+        show_startup_error_popup(
+            title="MCP ACP",
+            message="Configuration not found.",
+            detail="Run in terminal:\n  mcp-acp-extended init\n\nThen restart your MCP client.",
+        )
         click.echo(f"\nError: {e}", err=True)
         sys.exit(1)
 
@@ -130,8 +136,18 @@ def start() -> None:
             pass  # Don't fail startup due to logging errors
 
         if is_policy_error:
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="Invalid policy.",
+                detail=f"{error_msg}\n\nFix policy file or run:\n  mcp-acp-extended init",
+            )
             click.echo(f"\nError: Invalid policy: {e}", err=True)
         else:
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="Invalid configuration.",
+                detail=f"{error_msg}\n\nFix config file or run:\n  mcp-acp-extended init",
+            )
             click.echo(f"\nError: Invalid configuration: {e}", err=True)
 
         # Check for backup if config file is corrupt
@@ -147,6 +163,11 @@ def start() -> None:
         sys.exit(1)
 
     except (TimeoutError, ConnectionError) as e:
+        show_startup_error_popup(
+            title="MCP ACP",
+            message="Backend connection failed.",
+            detail=f"{e}\n\nCheck that the backend server is running.",
+        )
         click.echo(f"Error: Backend connection failed: {e}", err=True)
         sys.exit(1)
 
@@ -155,6 +176,20 @@ def start() -> None:
         click.echo("The proxy cannot start without a writable audit log.", err=True)
         sys.exit(10)
 
+    except AuthenticationError as e:
+        click.echo(f"\nError: {e}", err=True)
+        sys.exit(13)
+
+    except DeviceHealthError as e:
+        click.echo(f"\nError: Device health check failed", err=True)
+        click.echo(str(e), err=True)
+        sys.exit(14)
+
     except (PermissionError, RuntimeError, OSError) as e:
+        show_startup_error_popup(
+            title="MCP ACP",
+            message="Proxy startup failed.",
+            detail=f"{e}\n\nCheck file permissions and system configuration.",
+        )
         click.echo(f"Error: Proxy startup failed: {e}", err=True)
         sys.exit(1)

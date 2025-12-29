@@ -60,7 +60,7 @@ class AuthLogger:
         Returns:
             True if logged to primary, False if fallback was used.
         """
-        event_data = event.model_dump(exclude={"time"}, exclude_none=True)
+        event_data = event.model_dump(mode="json", exclude={"time"}, exclude_none=True)
         success, _ = log_with_fallback(
             primary_logger=self._logger,
             system_logger=_system_logger,

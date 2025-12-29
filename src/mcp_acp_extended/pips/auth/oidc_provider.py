@@ -31,11 +31,12 @@ from mcp_acp_extended.security.auth import (
     create_token_storage,
     refresh_tokens,
 )
-from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
+from mcp_acp_extended.telemetry.models.audit import OIDCInfo, SubjectIdentity
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
+    from mcp_acp_extended.telemetry.audit.auth_logger import AuthLogger
 
 # Cache TTL for validated identity (Zero Trust with performance)
 # Re-validates token every 60 seconds
@@ -81,6 +82,7 @@ class OIDCIdentityProvider:
         config: "OIDCConfig",
         token_storage: TokenStorage | None = None,
         jwt_validator: JWTValidator | None = None,
+        auth_logger: "AuthLogger | None" = None,
     ) -> None:
         """Initialize OIDC identity provider.
 
@@ -88,13 +90,15 @@ class OIDCIdentityProvider:
             config: OIDC configuration (issuer, client_id, audience).
             token_storage: Token storage backend (default: auto-detect keychain/file).
             jwt_validator: JWT validator (default: create from config).
+            auth_logger: Logger for auth events to auth.jsonl (optional for tests).
         """
         self._config = config
         self._storage = token_storage or create_token_storage(config)
         self._validator = jwt_validator or JWTValidator(config)
         self._cache: _CachedIdentity | None = None
         self._current_token: StoredToken | None = None
-        self._logger = get_system_logger()
+        self._system_logger = get_system_logger()
+        self._auth_logger = auth_logger
         # Lock protects cache read-modify-write operations
         self._lock = asyncio.Lock()
 
@@ -179,6 +183,27 @@ class OIDCIdentityProvider:
         self._current_token = token
         return token
 
+    def _build_oidc_info(self, validated: ValidatedToken) -> OIDCInfo:
+        """Build OIDCInfo from validated token for logging."""
+        from datetime import datetime, timezone
+
+        return OIDCInfo(
+            issuer=validated.issuer,
+            audience=validated.audience,
+            scopes=list(validated.scopes) if validated.scopes else None,
+            token_type="access",
+            token_exp=(
+                datetime.fromtimestamp(validated.claims.get("exp", 0), tz=timezone.utc)
+                if validated.claims.get("exp")
+                else None
+            ),
+            token_iat=(
+                datetime.fromtimestamp(validated.claims.get("iat", 0), tz=timezone.utc)
+                if validated.claims.get("iat")
+                else None
+            ),
+        )
+
     def _validate_token(self, token: StoredToken) -> ValidatedToken:
         """Validate token, refreshing if expired.
 
@@ -193,25 +218,20 @@ class OIDCIdentityProvider:
         """
         # Check if token is expired based on stored expiry
         if token.is_expired:
-            self._logger.debug(
-                {
-                    "event": "token_expired_attempting_refresh",
-                    "seconds_expired": -token.seconds_until_expiry,
-                }
-            )
             return self._refresh_and_validate(token)
 
         # Validate JWT (signature, issuer, audience, exp)
         try:
             validated = self._validator.validate(token.access_token)
 
-            self._logger.debug(
-                {
-                    "event": "token_validated",
-                    "subject_id": validated.subject_id,
-                    "token_age_s": validated.token_age_seconds,
-                }
-            )
+            # Log successful validation to auth.jsonl
+            # TODO: Remove after testing complete - success events are noise
+            if self._auth_logger:
+                identity = self._build_identity(validated)
+                self._auth_logger.log_token_validated(
+                    subject=identity,
+                    oidc=self._build_oidc_info(validated),
+                )
 
             return validated
 
@@ -222,15 +242,22 @@ class OIDCIdentityProvider:
 
             is_expiry = isinstance(e.__cause__, jwt.ExpiredSignatureError)
             if is_expiry:
-                self._logger.debug(
-                    {
-                        "event": "token_validation_expired_attempting_refresh",
-                        "error": str(e),
-                    }
-                )
                 return self._refresh_and_validate(token)
 
-            # Other validation error - re-raise
+            # Log validation failure to auth.jsonl and system (warning)
+            if self._auth_logger:
+                self._auth_logger.log_token_invalid(
+                    error_type=type(e).__name__,
+                    error_message=str(e),
+                )
+            self._system_logger.warning(
+                {
+                    "event": "token_validation_failed",
+                    "error": str(e),
+                }
+            )
+
+            # Re-raise
             raise
 
     def _refresh_and_validate(self, token: StoredToken) -> ValidatedToken:
@@ -246,10 +273,23 @@ class OIDCIdentityProvider:
             AuthenticationError: If refresh fails (user must re-login).
         """
         if not token.refresh_token:
-            raise AuthenticationError(
+            error_msg = (
                 "Token expired and no refresh token available. "
                 "Run 'mcp-acp-extended auth login' to re-authenticate."
             )
+            # Log to auth.jsonl and system (error - user action required)
+            if self._auth_logger:
+                self._auth_logger.log_token_refresh_failed(
+                    error_type="NoRefreshToken",
+                    error_message=error_msg,
+                )
+            self._system_logger.error(
+                {
+                    "event": "token_refresh_failed",
+                    "reason": "no_refresh_token",
+                }
+            )
+            raise AuthenticationError(error_msg)
 
         try:
             # Refresh tokens
@@ -259,21 +299,35 @@ class OIDCIdentityProvider:
             self._storage.save(refreshed)
             self._current_token = refreshed
 
-            self._logger.info(
-                {
-                    "event": "token_refreshed",
-                    "expires_in_seconds": refreshed.seconds_until_expiry,
-                }
-            )
-
             # Validate the new token
-            return self._validator.validate(refreshed.access_token)
+            validated = self._validator.validate(refreshed.access_token)
+
+            # Log successful refresh to auth.jsonl
+            if self._auth_logger:
+                identity = self._build_identity(validated)
+                self._auth_logger.log_token_refreshed(
+                    subject=identity,
+                    oidc=self._build_oidc_info(validated),
+                )
+
+            return validated
 
         except TokenRefreshExpiredError as e:
             # Refresh token has expired - user must re-authenticate
-            raise AuthenticationError(
-                "Session expired. Run 'mcp-acp-extended auth login' to re-authenticate."
-            ) from e
+            error_msg = "Session expired. Run 'mcp-acp-extended auth login' to re-authenticate."
+            # Log to auth.jsonl and system (error - user action required)
+            if self._auth_logger:
+                self._auth_logger.log_token_refresh_failed(
+                    error_type="TokenRefreshExpiredError",
+                    error_message=str(e),
+                )
+            self._system_logger.error(
+                {
+                    "event": "token_refresh_failed",
+                    "reason": "refresh_token_expired",
+                }
+            )
+            raise AuthenticationError(error_msg) from e
 
     def _build_identity(self, validated: ValidatedToken) -> SubjectIdentity:
         """Build SubjectIdentity from validated token.

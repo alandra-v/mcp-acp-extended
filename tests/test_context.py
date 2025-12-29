@@ -33,7 +33,7 @@ from mcp_acp_extended.context import (
     ToolInfo,
     build_decision_context,
 )
-from mcp_acp_extended.security.identity import create_identity_provider
+from mcp_acp_extended.security.identity import LocalIdentityProvider
 
 
 # ============================================================================
@@ -44,7 +44,7 @@ from mcp_acp_extended.security.identity import create_identity_provider
 @pytest.fixture
 def identity_provider():
     """Create a local identity provider for testing."""
-    return create_identity_provider()
+    return LocalIdentityProvider()
 
 
 @pytest.fixture

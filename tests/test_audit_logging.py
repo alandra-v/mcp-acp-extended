@@ -28,7 +28,6 @@ from mcp_acp_extended.telemetry.models.audit import (
 from mcp_acp_extended.security.identity import (
     IdentityProvider,
     LocalIdentityProvider,
-    create_identity_provider,
 )
 from mcp_acp_extended.security.shutdown import ShutdownCoordinator
 from mcp_acp_extended.security.integrity.audit_monitor import AuditHealthMonitor
@@ -112,7 +111,7 @@ def temp_log_file():
 @pytest.fixture
 def identity_provider() -> IdentityProvider:
     """Create a local identity provider for testing."""
-    return create_identity_provider()
+    return LocalIdentityProvider()
 
 
 @pytest.fixture

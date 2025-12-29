@@ -21,7 +21,7 @@ from __future__ import annotations
 import asyncio
 import os
 from contextlib import asynccontextmanager
-from typing import AsyncIterator
+from typing import AsyncIterator, Literal
 
 from fastmcp import FastMCP
 
@@ -33,13 +33,15 @@ from mcp_acp_extended.constants import (
 )
 from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware
-from mcp_acp_extended.pep.applescript import show_auth_error_popup
+from mcp_acp_extended.pep.applescript import show_startup_error_popup
+from mcp_acp_extended.pips.auth import SessionManager
 from mcp_acp_extended.security import create_identity_provider
 from mcp_acp_extended.security.posture import DeviceHealthMonitor, check_device_health
 from mcp_acp_extended.security.integrity.audit_handler import verify_audit_writable
 from mcp_acp_extended.security.integrity.audit_monitor import AuditHealthMonitor
 from mcp_acp_extended.security.shutdown import ShutdownCoordinator, sync_emergency_shutdown
-from mcp_acp_extended.telemetry.audit import create_audit_logging_middleware
+from mcp_acp_extended.telemetry.audit import create_audit_logging_middleware, create_auth_logger
+from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
 from mcp_acp_extended.telemetry.debug.client_logger import (
     create_client_logging_middleware,
 )
@@ -52,6 +54,7 @@ from mcp_acp_extended.telemetry.system.system_logger import (
 )
 from mcp_acp_extended.utils.config import (
     get_audit_log_path,
+    get_auth_log_path,
     get_backend_log_path,
     get_client_log_path,
     get_decisions_log_path,
@@ -131,34 +134,34 @@ def create_proxy(
     # If this fails, we raise AuditFailure and don't start
     audit_path = get_audit_log_path(config)
     decisions_path = get_decisions_log_path(config)
-    verify_audit_writable(audit_path)
-    verify_audit_writable(decisions_path)
+    try:
+        verify_audit_writable(audit_path)
+        verify_audit_writable(decisions_path)
+    except AuditFailure as e:
+        # Show popup on macOS for users
+        show_startup_error_popup(
+            title="MCP ACP",
+            message="Audit log failure.",
+            detail=f"{e}\n\nCheck log directory permissions.",
+        )
+        raise
 
     # Run device health check (hard gate - proxy won't start if unhealthy)
     # Zero Trust: device posture must be verified before accepting any requests
     device_health = check_device_health()
     if not device_health.is_healthy:
+        # Show popup on macOS for users
+        show_startup_error_popup(
+            title="MCP ACP",
+            message="Device health check failed.",
+            detail=f"{device_health}\n\nEnable FileVault and ensure SIP is enabled.",
+        )
         raise DeviceHealthError(str(device_health))
 
     # Create shutdown coordinator for fail-closed behavior
     log_dir = get_log_dir(config)
     system_logger = get_system_logger()
     shutdown_coordinator = ShutdownCoordinator(log_dir, system_logger)
-
-    # Create AuditHealthMonitor for background integrity checking
-    # This runs periodic checks even during idle periods (defense in depth)
-    audit_monitor = AuditHealthMonitor(
-        audit_paths=[audit_path, decisions_path],
-        shutdown_coordinator=shutdown_coordinator,
-        check_interval_seconds=AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
-    )
-
-    # Create DeviceHealthMonitor for periodic device posture verification
-    # Device state can change during operation (e.g., user disables SIP)
-    device_monitor = DeviceHealthMonitor(
-        shutdown_coordinator=shutdown_coordinator,
-        check_interval_seconds=DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
-    )
 
     # Create shutdown callback with hybrid approach:
     # Try async coordinator if event loop is running, fall back to sync
@@ -180,6 +183,26 @@ def create_proxy(
                 log_dir, AuditFailure.failure_type, reason, exit_code=AuditFailure.exit_code
             )
 
+    # Create AuditHealthMonitor for background integrity checking
+    # This runs periodic checks even during idle periods (defense in depth)
+    audit_monitor = AuditHealthMonitor(
+        audit_paths=[audit_path, decisions_path],
+        shutdown_coordinator=shutdown_coordinator,
+        check_interval_seconds=AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
+    )
+
+    # Create auth logger for authentication event audit trail
+    auth_log_path = get_auth_log_path(config)
+    auth_logger = create_auth_logger(auth_log_path, on_audit_failure)
+
+    # Create DeviceHealthMonitor for periodic device posture verification
+    # Device state can change during operation (e.g., user disables SIP)
+    device_monitor = DeviceHealthMonitor(
+        shutdown_coordinator=shutdown_coordinator,
+        auth_logger=auth_logger,
+        check_interval_seconds=DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
+    )
+
     # Create backend transport (handles detection, validation, health checks)
     transport, transport_type = create_backend_transport(config.backend)
 
@@ -200,12 +223,20 @@ def create_proxy(
         name=config.proxy.name,
     )
 
-    # Create lifespan context manager for health monitors
+    # Create session manager for user-bound sessions
+    # Sessions use format <user_id>:<session_id> per MCP spec
+    session_manager = SessionManager()
+
+    # Create lifespan context manager for health monitors and session logging
     # This starts monitors when the proxy starts and stops them on shutdown
     @asynccontextmanager
     async def proxy_lifespan(app: FastMCP) -> AsyncIterator[None]:
-        """Manage proxy lifecycle: start/stop health monitors."""
+        """Manage proxy lifecycle: start/stop health monitors, log session."""
         # Note: app parameter required by FastMCP's _lifespan_manager
+        session_identity: SubjectIdentity | None = None
+        bound_session_id: str | None = None
+        end_reason: Literal["normal", "timeout", "error", "auth_expired"] = "normal"
+
         try:
             await audit_monitor.start()
             await device_monitor.start()
@@ -219,11 +250,75 @@ def create_proxy(
                 }
             )
             raise
+
+        # Validate identity and create user-bound session
+        try:
+            session_identity = await identity_provider.get_identity()
+            # Create session bound to user identity (format: <user_id>:<session_id>)
+            # This prevents session hijacking across users per MCP spec
+            bound_session = session_manager.create_session(session_identity)
+            bound_session_id = bound_session.bound_id
+            auth_logger.log_session_started(
+                session_id=bound_session_id,
+                subject=session_identity,
+            )
+        except AuthenticationError as e:
+            # Auth failed at startup - log with placeholder (no user to bind to)
+            import secrets
+
+            auth_failed_id = f"auth_failed:{secrets.token_urlsafe(8)}"
+            auth_logger.log_session_ended(
+                session_id=auth_failed_id,
+                end_reason="auth_expired",
+                error_type=type(e).__name__,
+                error_message=str(e),
+            )
+            # Show popup on macOS for users
+            show_startup_error_popup(
+                title="MCP ACP",
+                message="Not authenticated.",
+                detail="Run in terminal:\n  mcp-acp-extended auth login\n\nThen restart your MCP client.",
+            )
+            raise
+
         try:
             yield
+        except AuthenticationError as e:
+            end_reason = "auth_expired"
+            system_logger.critical(
+                {
+                    "event": "auth_failed_during_session",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                }
+            )
+            # No popup - this happens during operation, not before start
+            # Error is logged to system log and auth.jsonl
+            raise
+        except Exception as e:
+            end_reason = "error"
+            system_logger.error(
+                {
+                    "event": "proxy_error",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                }
+            )
+            raise
         finally:
             await device_monitor.stop()
             await audit_monitor.stop()
+
+            # Log session_ended with bound session ID
+            if bound_session_id:
+                auth_logger.log_session_ended(
+                    session_id=bound_session_id,
+                    subject=session_identity,
+                    end_reason=end_reason,
+                )
+                # Invalidate session in manager
+                session_manager.invalidate_session(bound_session_id)
+
             # Check if monitors crashed - if so, it's a fatal error
             # (Monitors trigger shutdown on crash via ShutdownCoordinator)
             if audit_monitor._crashed:
@@ -254,14 +349,13 @@ def create_proxy(
     # transport_type is the BACKEND transport, not client transport.
     # Future: When HTTP client transport is added, this will need updating.
     try:
-        identity_provider = create_identity_provider(config, transport="stdio")
+        identity_provider = create_identity_provider(config, transport="stdio", auth_logger=auth_logger)
     except AuthenticationError as e:
-        # Show popup on macOS to notify user of auth failure
-        # This helps users understand why Claude Desktop's MCP connection failed
-        show_auth_error_popup(
-            title="Authentication Required",
-            message=str(e),
-            detail="Run 'mcp-acp-extended auth login' to authenticate.",
+        # Show popup on macOS for users
+        show_startup_error_popup(
+            title="MCP ACP",
+            message="Authentication not configured.",
+            detail="Run in terminal:\n  mcp-acp-extended init\n\nThen restart your MCP client.",
         )
         raise
 

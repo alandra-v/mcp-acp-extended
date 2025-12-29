@@ -3,6 +3,7 @@
 Defines the CLI group and registers all subcommands.
 
 Commands:
+    auth    - Authentication commands (login, logout, status)
     init    - Initialize proxy configuration (interactive or with flags)
     start   - Start the proxy server manually (for testing)
     config  - Configuration management commands
@@ -13,6 +14,9 @@ Commands:
 Usage:
     mcp-acp-extended -h, --help      Show help message
     mcp-acp-extended -v, --version   Show version
+    mcp-acp-extended auth login      Authenticate via browser (Device Flow)
+    mcp-acp-extended auth logout     Clear stored credentials
+    mcp-acp-extended auth status     Show authentication status
     mcp-acp-extended init            Initialize configuration
     mcp-acp-extended start           Start proxy server
     mcp-acp-extended config show     Display configuration
@@ -29,6 +33,7 @@ import click
 
 from mcp_acp_extended import __version__
 
+from .commands.auth import auth
 from .commands.config import config
 from .commands.init import init
 from .commands.start import start
@@ -85,6 +90,7 @@ def cli(ctx: click.Context, version: bool) -> None:
 
 
 # Register commands
+cli.add_command(auth)
 cli.add_command(init)
 cli.add_command(start)
 cli.add_command(config)

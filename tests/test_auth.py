@@ -759,7 +759,7 @@ class TestJWTValidatorBasic:
         # Arrange
         validator = JWTValidator(oidc_config)
 
-        # Act
+        # Act (using internal method for testing)
         claims = validator.decode_without_validation(valid_jwt)
 
         # Assert
@@ -768,11 +768,11 @@ class TestJWTValidatorBasic:
         assert claims["aud"] == oidc_config.audience
 
     def test_decode_without_validation_raises_on_malformed(self, oidc_config: OIDCConfig):
-        """Given malformed token, raises AuthenticationError."""
+        """Given malformed token, decode_without_validation raises AuthenticationError."""
         # Arrange
         validator = JWTValidator(oidc_config)
 
-        # Act & Assert
+        # Act & Assert (using internal method for testing)
         with pytest.raises(AuthenticationError, match="Failed to decode"):
             validator.decode_without_validation("not-a-valid-jwt")
 
@@ -1106,6 +1106,53 @@ class TestClaimsUtilities:
         assert subject.scopes == frozenset(["openid", "profile"])
         assert subject.provenance.id == Provenance.TOKEN
 
+    def test_build_subject_from_identity_trims_whitespace(self):
+        """Given claims with whitespace, trims them correctly."""
+        from mcp_acp_extended.pips.auth.claims import build_subject_from_identity
+        from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
+
+        # Arrange - whitespace around comma-separated values
+        identity = SubjectIdentity(
+            subject_id="auth0|user789",
+            subject_claims={
+                "auth_type": "oidc",
+                "issuer": "https://test.auth0.com",
+                "audience": "aud1 , aud2 , aud3",
+                "scopes": "read , write , delete",
+            },
+        )
+
+        # Act
+        subject = build_subject_from_identity(identity)
+
+        # Assert - no leading/trailing whitespace
+        assert subject.audience == ["aud1", "aud2", "aud3"]
+        assert subject.scopes == frozenset(["read", "write", "delete"])
+
+    def test_build_subject_from_identity_missing_issuer_falls_back(self):
+        """Given OIDC identity without issuer, falls back to DERIVED provenance."""
+        from mcp_acp_extended.pips.auth.claims import build_subject_from_identity
+        from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
+        from mcp_acp_extended.context.provenance import Provenance
+
+        # Arrange - OIDC type but missing issuer
+        identity = SubjectIdentity(
+            subject_id="auth0|incomplete",
+            subject_claims={
+                "auth_type": "oidc",
+                "scopes": "read",
+                # No issuer - incomplete OIDC data
+            },
+        )
+
+        # Act
+        subject = build_subject_from_identity(identity)
+
+        # Assert - falls back to DERIVED since we can't verify provenance
+        assert subject.id == "auth0|incomplete"
+        assert subject.issuer is None
+        assert subject.provenance.id == Provenance.DERIVED
+
 
 # ============================================================================
 # Tests: Identity Provider Factory
@@ -1115,25 +1162,19 @@ class TestClaimsUtilities:
 class TestCreateIdentityProvider:
     """Tests for create_identity_provider factory function."""
 
-    def test_returns_local_provider_when_no_config(self):
-        """Given no config, returns LocalIdentityProvider."""
-        from mcp_acp_extended.security.identity import (
-            create_identity_provider,
-            LocalIdentityProvider,
-        )
+    def test_raises_when_no_config(self):
+        """Given no config, raises AuthenticationError (Zero Trust)."""
+        from mcp_acp_extended.security.identity import create_identity_provider
+        from mcp_acp_extended.exceptions import AuthenticationError
 
-        # Act
-        provider = create_identity_provider(config=None)
+        # Act & Assert
+        with pytest.raises(AuthenticationError, match="Authentication not configured"):
+            create_identity_provider(config=None)
 
-        # Assert
-        assert isinstance(provider, LocalIdentityProvider)
-
-    def test_returns_local_provider_when_no_auth(self):
-        """Given config without auth, returns LocalIdentityProvider."""
-        from mcp_acp_extended.security.identity import (
-            create_identity_provider,
-            LocalIdentityProvider,
-        )
+    def test_raises_when_no_auth(self):
+        """Given config without auth, raises AuthenticationError (Zero Trust)."""
+        from mcp_acp_extended.security.identity import create_identity_provider
+        from mcp_acp_extended.exceptions import AuthenticationError
         from mcp_acp_extended.config import (
             AppConfig,
             LoggingConfig,
@@ -1151,11 +1192,9 @@ class TestCreateIdentityProvider:
             ),
         )
 
-        # Act
-        provider = create_identity_provider(config=config)
-
-        # Assert
-        assert isinstance(provider, LocalIdentityProvider)
+        # Act & Assert
+        with pytest.raises(AuthenticationError, match="Authentication not configured"):
+            create_identity_provider(config=config)
 
     def test_returns_oidc_provider_when_auth_configured(self):
         """Given config with auth, returns OIDCIdentityProvider."""

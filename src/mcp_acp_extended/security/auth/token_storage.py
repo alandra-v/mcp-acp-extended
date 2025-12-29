@@ -282,7 +282,13 @@ class EncryptedFileStorage(TokenStorage):
         combined = f"{machine_id}:{hostname}:mcp-acp-extended-token-storage"
 
         # Derive key using PBKDF2
-        # Salt is static per-application (not per-token) for key stability
+        # Note: Salt is static per-application for key stability across restarts.
+        # This is acceptable here because:
+        # 1. machine_id + hostname provide per-machine uniqueness
+        # 2. PBKDF2 with 100k iterations is still computationally expensive
+        # 3. Tokens are short-lived (24h access, 30d refresh)
+        # 4. This is fallback storage when keychain is unavailable
+        # Future enhancement: store random salt in a separate file
         salt = b"mcp-acp-extended-v1"
         key = hashlib.pbkdf2_hmac(
             "sha256",

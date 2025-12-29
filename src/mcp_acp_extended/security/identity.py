@@ -3,10 +3,11 @@
 Supports two transport patterns:
 - Pattern 1 (STDIO): OIDCIdentityProvider loads from keychain, validates JWT
 - Pattern 2 (HTTP): HTTPIdentityProvider uses FastMCP get_access_token() [Future]
-- Fallback: LocalIdentityProvider uses getpass.getuser() (development only)
 
-The IdentityProvider protocol enables pluggable identity extraction,
-allowing seamless swap between local and OAuth/OIDC authentication.
+Zero Trust: Authentication is MANDATORY. There is no unauthenticated fallback.
+The proxy refuses to start without valid OIDC configuration.
+
+LocalIdentityProvider exists only for unit tests (not exported for production use).
 
 All identity providers are async to support:
 - OIDC token validation (network calls to JWKS endpoint)
@@ -25,6 +26,7 @@ from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
 
 if TYPE_CHECKING:
     from mcp_acp_extended.config import AppConfig
+    from mcp_acp_extended.telemetry.audit.auth_logger import AuthLogger
 
 
 @runtime_checkable
@@ -36,7 +38,6 @@ class IdentityProvider(Protocol):
 
     Pattern 1 (STDIO): OIDCIdentityProvider - loads from keychain
     Pattern 2 (HTTP): HTTPIdentityProvider - uses get_access_token() [Future]
-    Fallback: LocalIdentityProvider - uses local username
 
     All implementations must be async to support OIDC token operations.
     """
@@ -51,18 +52,17 @@ class IdentityProvider(Protocol):
 
 
 class LocalIdentityProvider:
-    """Local user identity via getpass.getuser().
+    """Local user identity via getpass.getuser() - FOR TESTS ONLY.
 
     Uses Python's cross-platform getpass.getuser() which:
     - Tries environment variables: LOGNAME -> USER -> LNAME -> USERNAME
     - Falls back to pwd.getpwuid(os.getuid()).pw_name on Unix
-    - Works in containers, cron, systemd, SSH (unlike os.getlogin())
 
     Identity is cached at initialization since local username doesn't
     change during proxy lifetime.
 
-    WARNING: This provider is for development/testing only.
-    Production deployments MUST use OIDCIdentityProvider for Zero Trust.
+    WARNING: This provider is for unit tests only. It is NOT exported
+    for production use. Production deployments MUST use OIDCIdentityProvider.
     """
 
     def __init__(self) -> None:
@@ -96,39 +96,43 @@ class LocalIdentityProvider:
 def create_identity_provider(
     config: "AppConfig | None" = None,
     transport: Literal["stdio", "http"] = "stdio",
+    auth_logger: "AuthLogger | None" = None,
 ) -> IdentityProvider:
     """Create the appropriate identity provider for the transport.
 
-    Selects provider based on configuration and transport type:
-    - If config.auth is configured: Use OIDC-based provider
-    - If no auth configured: Use LocalIdentityProvider (development only)
+    Zero Trust: Authentication is MANDATORY. Raises error if not configured.
 
     Args:
-        config: Application configuration with auth settings.
+        config: Application configuration with auth settings. Required.
         transport: Transport type ("stdio" or "http").
+        auth_logger: Logger for auth events to auth.jsonl.
 
     Returns:
         IdentityProvider appropriate for the configuration:
         - stdio + auth: OIDCIdentityProvider (loads from keychain)
         - http + auth: HTTPIdentityProvider [Future]
-        - no auth: LocalIdentityProvider (development fallback)
 
     Raises:
-        AuthenticationError: If OIDC auth fails (no token, invalid, etc.)
+        AuthenticationError: If auth not configured or OIDC auth fails.
     """
-    # No config or no auth configured - use local identity (development only)
+    from mcp_acp_extended.exceptions import AuthenticationError
+
+    # Zero Trust: auth is MANDATORY - no unauthenticated fallback
     if config is None or config.auth is None:
-        return LocalIdentityProvider()
+        raise AuthenticationError(
+            "Authentication not configured. "
+            "Add 'auth.oidc' section to config with issuer, client_id, and audience. "
+            "See docs/auth.md for setup instructions."
+        )
 
     # Auth configured - use OIDC provider based on transport
     if transport == "stdio":
         # Pattern 1: STDIO transport - load from keychain
         from mcp_acp_extended.pips.auth import OIDCIdentityProvider
 
-        return OIDCIdentityProvider(config.auth.oidc)
+        return OIDCIdentityProvider(config.auth.oidc, auth_logger=auth_logger)
     else:
         # Pattern 2: HTTP transport - use FastMCP get_access_token() [Future]
-        # For now, fall back to local until HTTP support is implemented
         raise NotImplementedError(
             "HTTP transport authentication not yet implemented. "
             "Use STDIO transport or wait for future release."
