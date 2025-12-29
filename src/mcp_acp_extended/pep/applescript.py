@@ -1,16 +1,19 @@
 """AppleScript utilities for macOS dialog handling.
 
 Provides safe string escaping and output parsing for AppleScript dialogs.
-Used by HITL (Human-in-the-Loop) approval flows on macOS.
+Used by HITL (Human-in-the-Loop) approval flows and auth error notifications.
 """
 
 from __future__ import annotations
 
+import platform
 import re
+import subprocess
 
 __all__ = [
     "escape_applescript_string",
     "parse_applescript_record",
+    "show_auth_error_popup",
 ]
 
 
@@ -75,3 +78,53 @@ def parse_applescript_record(output: str) -> dict[str, str]:
         result[key] = value
 
     return result
+
+
+def show_auth_error_popup(
+    title: str = "Authentication Required",
+    message: str = "Your session has expired.",
+    detail: str = "Run 'mcp-acp-extended auth login' to re-authenticate.",
+) -> bool:
+    """Show an authentication error popup on macOS.
+
+    Displays a native macOS alert dialog when authentication fails.
+    Non-blocking on other platforms (returns immediately).
+
+    Args:
+        title: Alert title (default: "Authentication Required").
+        message: Main message text.
+        detail: Additional detail text (e.g., command to run).
+
+    Returns:
+        True if popup was shown, False if not on macOS or osascript failed.
+
+    Example:
+        >>> show_auth_error_popup()  # doctest: +SKIP
+        True
+    """
+    if platform.system() != "Darwin":
+        # Not macOS - can't show native popup
+        return False
+
+    # Escape strings for AppleScript
+    safe_title = escape_applescript_string(title)
+    safe_message = escape_applescript_string(message)
+    safe_detail = escape_applescript_string(detail)
+
+    # Build AppleScript command
+    script = f"""
+    display alert "{safe_title}" message "{safe_message}
+
+{safe_detail}" as critical buttons {{"OK"}} default button "OK"
+    """
+
+    try:
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            timeout=30,  # Don't hang forever
+        )
+        return True
+    except (subprocess.SubprocessError, OSError):
+        # osascript failed or not available
+        return False

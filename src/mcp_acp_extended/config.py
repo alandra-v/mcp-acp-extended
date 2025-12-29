@@ -184,17 +184,20 @@ class AppConfig(BaseModel):
     """Main application configuration for mcp-acp-extended.
 
     Contains all configuration sections including authentication, logging,
-    backend server, and proxy settings. All configuration is required -
-    user must run `mcp-acp-extended init` to create the config file.
+    backend server, and proxy settings.
+
+    Authentication:
+    - Production: auth is required for Zero Trust compliance
+    - Development: auth can be omitted, falls back to LocalIdentityProvider
 
     Attributes:
-        auth: Authentication configuration (OIDC, mTLS, device health).
+        auth: Authentication configuration (OIDC, mTLS). Optional for development.
         logging: Logging configuration (log level, paths, payload settings).
         backend: Backend server configuration (STDIO or Streamable HTTP transport).
         proxy: Proxy server configuration (name).
     """
 
-    auth: AuthConfig
+    auth: AuthConfig | None = None  # Optional for development, required in production
     logging: LoggingConfig
     backend: BackendConfig
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)

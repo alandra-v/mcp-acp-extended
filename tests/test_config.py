@@ -249,17 +249,19 @@ class TestAppConfig:
                 auth=valid_auth_config,
             )
 
-    def test_requires_auth_section(self):
-        # Act & Assert
-        with pytest.raises(ValidationError):
-            AppConfig(
-                logging=LoggingConfig(log_dir="/tmp"),
-                backend=BackendConfig(
-                    server_name="test",
-                    transport="stdio",
-                    stdio=StdioTransportConfig(command="echo"),
-                ),
-            )
+    def test_auth_is_optional_for_development(self):
+        # Auth is optional for development (falls back to LocalIdentityProvider)
+        # Production deployments should always have auth configured
+        config = AppConfig(
+            logging=LoggingConfig(log_dir="/tmp"),
+            backend=BackendConfig(
+                server_name="test",
+                transport="stdio",
+                stdio=StdioTransportConfig(command="echo"),
+            ),
+        )
+        # Assert auth defaults to None
+        assert config.auth is None
 
     def test_defaults_proxy_name(self, valid_auth_config: AuthConfig):
         # Act

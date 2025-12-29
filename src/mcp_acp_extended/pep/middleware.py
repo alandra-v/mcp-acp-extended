@@ -108,7 +108,7 @@ class PolicyEnforcementMiddleware(Middleware):
         if client_info.name:
             self._client_name = client_info.name
 
-    def _build_context(
+    async def _build_context(
         self,
         method: str,
         arguments: dict[str, Any] | None,
@@ -126,7 +126,7 @@ class PolicyEnforcementMiddleware(Middleware):
         Returns:
             DecisionContext for policy evaluation.
         """
-        return build_decision_context(
+        return await build_decision_context(
             method=method,
             arguments=arguments,
             identity_provider=self._identity_provider,
@@ -319,7 +319,7 @@ class PolicyEnforcementMiddleware(Middleware):
 
         # Build decision context
         try:
-            decision_context = self._build_context(method, arguments, request_id, session_id)
+            decision_context = await self._build_context(method, arguments, request_id, session_id)
         except Exception as e:
             # Log error and deny by default (fail-secure)
             _system_logger.error(

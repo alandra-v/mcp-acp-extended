@@ -12,7 +12,9 @@ from mcp_acp_extended.config import BackendConfig, HttpTransportConfig, StdioTra
 from mcp_acp_extended.utils.transport import create_backend_transport
 
 
-# --- Fixtures ---
+# ============================================================================
+# Fixtures
+# ============================================================================
 
 
 @pytest.fixture
@@ -40,7 +42,9 @@ def backend_both(stdio_config: StdioTransportConfig, http_config: HttpTransportC
     return BackendConfig(server_name="test", transport=None, stdio=stdio_config, http=http_config)
 
 
-# --- Explicit Transport Selection ---
+# ============================================================================
+# Tests: Explicit Transport Selection
+# ============================================================================
 
 
 class TestExplicitTransport:
@@ -111,7 +115,9 @@ class TestExplicitTransport:
                 create_backend_transport(config)
 
 
-# --- Auto-detect Transport ---
+# ============================================================================
+# Tests: Auto-detect Transport
+# ============================================================================
 
 
 class TestAutoDetect:
@@ -195,7 +201,9 @@ class TestAutoDetect:
         assert transport_type == "stdio"
 
 
-# --- Transport Creation ---
+# ============================================================================
+# Tests: Transport Creation
+# ============================================================================
 
 
 class TestTransportCreation:

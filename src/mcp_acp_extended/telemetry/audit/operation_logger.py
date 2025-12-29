@@ -25,6 +25,7 @@ from mcp_acp_extended.telemetry.models.audit import (
     DurationInfo,
     OperationEvent,
     ResponseSummary,
+    SubjectIdentity,
 )
 from mcp_acp_extended.security.identity import IdentityProvider
 from mcp_acp_extended.security.shutdown import ShutdownCoordinator
@@ -90,9 +91,9 @@ class AuditLoggingMiddleware(Middleware):
         self.backend_id = backend_id
         self.transport = transport
         self.config_version = config_version
-        # Get identity from provider (cached for local, per-request for OIDC in Stage 2+)
+        # Identity provider - get_identity() is async, so we fetch on first request
         self._identity_provider = identity_provider
-        self._subject = identity_provider.get_identity()
+        self._subject: SubjectIdentity | None = None
         # Client ID extracted from initialize request, cached for all subsequent requests
         self._client_id: str | None = None
 
@@ -185,6 +186,10 @@ class AuditLoggingMiddleware(Middleware):
                     message="Proxy shutting down due to security failure",
                 )
             )
+
+        # Fetch identity on first request (async, so can't be done in __init__)
+        if self._subject is None:
+            self._subject = await self._identity_provider.get_identity()
 
         # Extract client_id from initialize request (cached for subsequent requests)
         self._extract_client_id(context)

@@ -40,11 +40,12 @@ from mcp_acp_extended.context.resource import (
     SideEffect,
     ToolInfo,
 )
-from mcp_acp_extended.context.subject import Subject, SubjectProvenance
+from mcp_acp_extended.context.subject import Subject
 from mcp_acp_extended.context.parsing import (
     parse_path_resource as _parse_path_resource,
     parse_uri_resource as _parse_uri_resource,
 )
+from mcp_acp_extended.pips.auth.claims import build_subject_from_identity
 from mcp_acp_extended.security.identity import IdentityProvider
 
 
@@ -72,7 +73,7 @@ class DecisionContext(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-def build_decision_context(
+async def build_decision_context(
     method: str,
     arguments: dict[str, Any] | None,
     identity_provider: IdentityProvider,
@@ -98,12 +99,11 @@ def build_decision_context(
     Returns:
         DecisionContext with ABAC attributes populated from observable facts.
     """
-    # Build Subject
-    identity = identity_provider.get_identity()
-    subject = Subject(
-        id=identity.subject_id,
-        provenance=SubjectProvenance(id=Provenance.DERIVED),
-    )
+    # Build Subject from identity
+    # - OIDC: Full claims (issuer, audience, scopes) with TOKEN provenance
+    # - Local: Minimal (id only) with DERIVED provenance
+    identity = await identity_provider.get_identity()
+    subject = build_subject_from_identity(identity)
 
     # Build Action
     action = _build_action(method)

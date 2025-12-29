@@ -473,43 +473,54 @@ class TestProcessRequestEdgeCases:
 class TestLocalIdentityProvider:
     """Tests for LocalIdentityProvider identity extraction."""
 
-    def test_returns_current_user(self):
+    async def test_returns_current_user(self):
         """Given normal environment, returns getpass.getuser() username."""
         import getpass
 
         # Arrange & Act
         provider = LocalIdentityProvider()
-        identity = provider.get_identity()
+        identity = await provider.get_identity()
 
         # Assert
         assert identity.subject_id == getpass.getuser()
         assert identity.subject_claims == {"auth_type": "local"}
 
-    def test_caches_identity(self):
+    async def test_caches_identity(self):
         """Given provider, get_identity() returns same cached instance."""
         # Arrange
         provider = LocalIdentityProvider()
 
         # Act
-        identity1 = provider.get_identity()
-        identity2 = provider.get_identity()
+        identity1 = await provider.get_identity()
+        identity2 = await provider.get_identity()
 
         # Assert
         assert identity1 is identity2
 
-    def test_middleware_uses_identity_provider(
+    async def test_middleware_uses_identity_provider(
         self, temp_log_file: Path, identity_provider: IdentityProvider
     ):
-        """Given middleware with provider, subject comes from provider."""
+        """Given middleware with provider, subject comes from provider after first request."""
         import getpass
 
-        # Arrange & Act
+        # Arrange
         middleware = create_test_audit_middleware(
             log_path=temp_log_file,
             identity_provider=identity_provider,
         )
 
-        # Assert
+        # Initially, subject is None (fetched lazily)
+        assert middleware._subject is None
+
+        # Act - make a request to trigger identity fetch
+        context = MockMiddlewareContext(method="ping")
+
+        async def call_next(_ctx):
+            return None
+
+        await middleware.on_message(context, call_next)
+
+        # Assert - after request, subject is populated from identity provider
         assert middleware._subject.subject_id == getpass.getuser()
         assert middleware._subject.subject_claims == {"auth_type": "local"}
 
@@ -893,7 +904,8 @@ class TestCreateAuditLoggingMiddleware:
         # Assert
         assert middleware.backend_id == "my-backend"
         assert middleware.config_version == "v42"
-        assert middleware._subject is not None
+        # Subject is fetched lazily on first request (async)
+        assert middleware._identity_provider is identity_provider
 
     def test_creates_log_directory_if_missing(self, identity_provider: IdentityProvider):
         """Given non-existent directory, creates it."""

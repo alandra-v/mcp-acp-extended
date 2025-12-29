@@ -51,11 +51,11 @@ def identity_provider():
 def build_ctx(identity_provider):
     """Factory fixture to build DecisionContext with defaults.
 
-    Returns a function that creates contexts with sensible defaults,
+    Returns an async function that creates contexts with sensible defaults,
     reducing boilerplate in tests.
     """
 
-    def _build(method: str, arguments: dict | None = None, **overrides):
+    async def _build(method: str, arguments: dict | None = None, **overrides):
         defaults = {
             "method": method,
             "arguments": arguments or {},
@@ -65,7 +65,7 @@ def build_ctx(identity_provider):
             "backend_id": "filesystem",
         }
         defaults.update(overrides)
-        return build_decision_context(**defaults)
+        return await build_decision_context(**defaults)
 
     return _build
 
@@ -290,10 +290,10 @@ class TestBuildDecisionContextFactsOnly:
         ["read_file", "write_file", "bash", "process_data"],
         ids=["read-like", "write-like", "dangerous", "ambiguous"],
     )
-    def test_tools_call_intent_is_always_none(self, build_ctx, tool_name):
+    async def test_tools_call_intent_is_always_none(self, build_ctx, tool_name):
         """Given tools/call, intent is None regardless of tool name."""
         # Act
-        ctx = build_ctx("tools/call", {"name": tool_name})
+        ctx = await build_ctx("tools/call", {"name": tool_name})
 
         # Assert
         assert ctx.action.intent is None
@@ -303,10 +303,10 @@ class TestBuildDecisionContextFactsOnly:
         ["read_file", "write_file", "bash", "process_data"],
         ids=["read-like", "write-like", "dangerous", "ambiguous"],
     )
-    def test_tools_call_extracts_tool_name(self, build_ctx, tool_name):
+    async def test_tools_call_extracts_tool_name(self, build_ctx, tool_name):
         """Given tools/call, tool name is extracted from arguments."""
         # Act
-        ctx = build_ctx("tools/call", {"name": tool_name})
+        ctx = await build_ctx("tools/call", {"name": tool_name})
 
         # Assert
         assert ctx.resource.tool.name == tool_name
@@ -331,10 +331,10 @@ class TestBuildDecisionContextKnownActions:
         ],
         ids=["resources/read", "ping", "tools/list", "resources/list", "prompts/list"],
     )
-    def test_mcp_method_intent(self, build_ctx, method, expected_intent):
+    async def test_mcp_method_intent(self, build_ctx, method, expected_intent):
         """Given MCP method, intent is correctly derived from method semantics."""
         # Act
-        ctx = build_ctx(method)
+        ctx = await build_ctx(method)
 
         # Assert
         assert ctx.action.intent == expected_intent
@@ -348,61 +348,61 @@ class TestBuildDecisionContextKnownActions:
 class TestBuildDecisionContextResources:
     """Tests for resource attribute extraction."""
 
-    def test_tools_call_extracts_tool_info(self, build_ctx):
+    async def test_tools_call_extracts_tool_info(self, build_ctx):
         """Given tools/call, extracts tool info with correct provenance."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "read_file", "path": "/tmp/secrets.key"})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "path": "/tmp/secrets.key"})
 
         # Assert
         assert ctx.resource.type == ResourceType.TOOL
         assert ctx.resource.tool.name == "read_file"
         assert ctx.resource.tool.provenance == Provenance.MCP_REQUEST
 
-    def test_tools_call_extracts_filename(self, build_ctx):
+    async def test_tools_call_extracts_filename(self, build_ctx):
         """Given tools/call with path, extracts filename."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "read_file", "path": "/tmp/secrets.key"})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "path": "/tmp/secrets.key"})
 
         # Assert
         assert ctx.resource.resource.filename == "secrets.key"
 
-    def test_tools_call_extracts_extension(self, build_ctx):
+    async def test_tools_call_extracts_extension(self, build_ctx):
         """Given tools/call with path, extracts file extension."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "read_file", "path": "/tmp/secrets.key"})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "path": "/tmp/secrets.key"})
 
         # Assert
         assert ctx.resource.resource.extension == ".key"
 
-    def test_resources_read_extracts_uri(self, build_ctx):
+    async def test_resources_read_extracts_uri(self, build_ctx):
         """Given resources/read with URI, extracts full URI."""
         # Act
-        ctx = build_ctx("resources/read", {"uri": "file:///tmp/test.txt"})
+        ctx = await build_ctx("resources/read", {"uri": "file:///tmp/test.txt"})
 
         # Assert
         assert ctx.resource.resource.uri == "file:///tmp/test.txt"
 
-    def test_resources_read_extracts_scheme(self, build_ctx):
+    async def test_resources_read_extracts_scheme(self, build_ctx):
         """Given resources/read with URI, extracts URI scheme."""
         # Act
-        ctx = build_ctx("resources/read", {"uri": "file:///tmp/test.txt"})
+        ctx = await build_ctx("resources/read", {"uri": "file:///tmp/test.txt"})
 
         # Assert
         assert ctx.resource.resource.scheme == "file"
 
-    def test_tool_without_path_has_no_resource_info(self, build_ctx):
+    async def test_tool_without_path_has_no_resource_info(self, build_ctx):
         """Given tools/call without path argument, resource info is None."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "get_weather", "city": "London"})
+        ctx = await build_ctx("tools/call", {"name": "get_weather", "city": "London"})
 
         # Assert
         assert ctx.resource.tool.name == "get_weather"
         assert ctx.resource.resource is None
 
-    def test_handles_none_arguments(self, build_ctx):
+    async def test_handles_none_arguments(self, build_ctx):
         """Given None arguments, handles gracefully."""
         # Act
-        ctx = build_ctx("tools/list", None)
+        ctx = await build_ctx("tools/list", None)
 
         # Assert
         assert ctx.resource.type == ResourceType.SERVER
@@ -418,18 +418,18 @@ class TestBuildDecisionContextResources:
 class TestBuildDecisionContextSubject:
     """Tests for subject (identity) extraction."""
 
-    def test_extracts_subject_id_from_identity_provider(self, build_ctx):
+    async def test_extracts_subject_id_from_identity_provider(self, build_ctx):
         """Given identity provider, extracts correct subject id."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "test"})
+        ctx = await build_ctx("tools/call", {"name": "test"})
 
         # Assert
         assert ctx.subject.id == getpass.getuser()
 
-    def test_subject_has_derived_provenance(self, build_ctx):
+    async def test_subject_has_derived_provenance(self, build_ctx):
         """Given local identity provider, subject has DERIVED provenance."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "test"})
+        ctx = await build_ctx("tools/call", {"name": "test"})
 
         # Assert
         assert ctx.subject.provenance.id == Provenance.DERIVED
@@ -443,34 +443,34 @@ class TestBuildDecisionContextSubject:
 class TestBuildDecisionContextEnvironment:
     """Tests for environment attribute extraction."""
 
-    def test_includes_client_name(self, build_ctx):
+    async def test_includes_client_name(self, build_ctx):
         """Given client_name, includes it in environment."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "test"}, client_name="Claude Desktop")
+        ctx = await build_ctx("tools/call", {"name": "test"}, client_name="Claude Desktop")
 
         # Assert
         assert ctx.environment.mcp_client_name == "Claude Desktop"
 
-    def test_includes_session_id(self, build_ctx):
+    async def test_includes_session_id(self, build_ctx):
         """Given session_id, includes it in environment."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "test"})
+        ctx = await build_ctx("tools/call", {"name": "test"})
 
         # Assert
         assert ctx.environment.session_id == "sess-123"
 
-    def test_includes_request_id(self, build_ctx):
+    async def test_includes_request_id(self, build_ctx):
         """Given request_id, includes it in environment."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "test"})
+        ctx = await build_ctx("tools/call", {"name": "test"})
 
         # Assert
         assert ctx.environment.request_id == "req-456"
 
-    def test_timestamp_is_utc(self, build_ctx):
+    async def test_timestamp_is_utc(self, build_ctx):
         """Given any request, timestamp is in UTC."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "test"})
+        ctx = await build_ctx("tools/call", {"name": "test"})
 
         # Assert
         assert ctx.environment.timestamp.tzinfo == timezone.utc
@@ -484,10 +484,10 @@ class TestBuildDecisionContextEnvironment:
 class TestDecisionContextStructure:
     """Tests for the full DecisionContext structure."""
 
-    def test_context_is_immutable(self, build_ctx, minimal_subject):
+    async def test_context_is_immutable(self, build_ctx, minimal_subject):
         """Given a DecisionContext, it cannot be modified after creation."""
         # Arrange
-        ctx = build_ctx("tools/call", {"name": "test"})
+        ctx = await build_ctx("tools/call", {"name": "test"})
 
         # Act & Assert
         with pytest.raises(ValidationError):
@@ -497,18 +497,18 @@ class TestDecisionContextStructure:
         "field",
         ["subject", "action", "resource", "environment"],
     )
-    def test_context_has_required_abac_field(self, build_ctx, field):
+    async def test_context_has_required_abac_field(self, build_ctx, field):
         """Given a DecisionContext, all core ABAC fields are present."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "test"})
+        ctx = await build_ctx("tools/call", {"name": "test"})
 
         # Assert
         assert getattr(ctx, field) is not None
 
-    def test_context_serializes_to_json(self, build_ctx):
+    async def test_context_serializes_to_json(self, build_ctx):
         """Given a DecisionContext, it can be serialized to JSON for audit."""
         # Arrange
-        ctx = build_ctx("tools/call", {"name": "bash", "command": "ls"})
+        ctx = await build_ctx("tools/call", {"name": "bash", "command": "ls"})
 
         # Act
         data = ctx.model_dump(mode="json")
@@ -536,10 +536,10 @@ class TestFileExtensionExtraction:
         ],
         ids=["dotfile", "multi-dot", "normal", "no-extension"],
     )
-    def test_filename_extraction(self, build_ctx, path, expected_filename):
+    async def test_filename_extraction(self, build_ctx, path, expected_filename):
         """Given various paths, filename is correctly extracted."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "read_file", "path": path})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "path": path})
 
         # Assert
         assert ctx.resource.resource.filename == expected_filename
@@ -554,10 +554,10 @@ class TestFileExtensionExtraction:
         ],
         ids=["dotfile", "multi-dot", "normal", "no-extension"],
     )
-    def test_extension_extraction(self, build_ctx, path, expected_ext):
+    async def test_extension_extraction(self, build_ctx, path, expected_ext):
         """Given various paths, extension is correctly extracted (or None)."""
         # Act
-        ctx = build_ctx("tools/call", {"name": "read_file", "path": path})
+        ctx = await build_ctx("tools/call", {"name": "read_file", "path": path})
 
         # Assert
         assert ctx.resource.resource.extension == expected_ext
@@ -580,10 +580,10 @@ class TestUriSchemeExtraction:
         ],
         ids=["https", "file", "s3"],
     )
-    def test_uri_scheme_extraction(self, build_ctx, uri, expected_scheme):
+    async def test_uri_scheme_extraction(self, build_ctx, uri, expected_scheme):
         """Given various URIs, scheme is correctly extracted."""
         # Act
-        ctx = build_ctx("resources/read", {"uri": uri})
+        ctx = await build_ctx("resources/read", {"uri": uri})
 
         # Assert
         assert ctx.resource.resource.scheme == expected_scheme
@@ -597,26 +597,26 @@ class TestUriSchemeExtraction:
 class TestSpecialMethods:
     """Tests for special method handling."""
 
-    def test_prompts_method_has_prompt_type(self, build_ctx):
+    async def test_prompts_method_has_prompt_type(self, build_ctx):
         """Given prompts method, resource type is PROMPT."""
         # Act
-        ctx = build_ctx("prompts/get", {"name": "my-prompt"})
+        ctx = await build_ctx("prompts/get", {"name": "my-prompt"})
 
         # Assert
         assert ctx.resource.type == ResourceType.PROMPT
 
-    def test_prompts_method_has_no_tool(self, build_ctx):
+    async def test_prompts_method_has_no_tool(self, build_ctx):
         """Given prompts method, tool is None."""
         # Act
-        ctx = build_ctx("prompts/get", {"name": "my-prompt"})
+        ctx = await build_ctx("prompts/get", {"name": "my-prompt"})
 
         # Assert
         assert ctx.resource.tool is None
 
-    def test_unknown_method_has_none_intent(self, build_ctx):
+    async def test_unknown_method_has_none_intent(self, build_ctx):
         """Given unknown method, intent is None (we don't guess)."""
         # Act
-        ctx = build_ctx("custom/dangerous_operation", {})
+        ctx = await build_ctx("custom/dangerous_operation", {})
 
         # Assert
         assert ctx.action.intent is None
@@ -649,10 +649,10 @@ class TestActionCategoryAssignment:
             "prompts/list",
         ],
     )
-    def test_discovery_methods_have_discovery_category(self, build_ctx, method):
+    async def test_discovery_methods_have_discovery_category(self, build_ctx, method):
         """Given discovery method, action category is DISCOVERY."""
         # Act
-        ctx = build_ctx(method)
+        ctx = await build_ctx(method)
 
         # Assert
         assert ctx.action.category == ActionCategory.DISCOVERY
@@ -662,10 +662,10 @@ class TestActionCategoryAssignment:
         ["tools/call", "resources/read", "prompts/get", "custom/operation"],
         ids=["tools/call", "resources/read", "prompts/get", "custom"],
     )
-    def test_action_methods_have_action_category(self, build_ctx, method):
+    async def test_action_methods_have_action_category(self, build_ctx, method):
         """Given action method, action category is ACTION."""
         # Act
-        ctx = build_ctx(method, {"name": "test"})
+        ctx = await build_ctx(method, {"name": "test"})
 
         # Assert
         assert ctx.action.category == ActionCategory.ACTION
@@ -691,11 +691,11 @@ class TestActionCategoryAssignment:
         # Assert - security decision: prompts/get returns content
         assert "prompts/get" not in DISCOVERY_METHODS
 
-    def test_tools_list_is_discovery_but_call_is_action(self, build_ctx):
+    async def test_tools_list_is_discovery_but_call_is_action(self, build_ctx):
         """Given tools/list vs tools/call, categories differ appropriately."""
         # Act
-        list_ctx = build_ctx("tools/list")
-        call_ctx = build_ctx("tools/call", {"name": "bash"})
+        list_ctx = await build_ctx("tools/list")
+        call_ctx = await build_ctx("tools/call", {"name": "bash"})
 
         # Assert
         assert list_ctx.action.category == ActionCategory.DISCOVERY

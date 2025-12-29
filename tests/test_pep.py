@@ -621,9 +621,10 @@ class TestPolicyEnforcementMiddleware:
 
     @pytest.fixture
     def mock_identity_provider(self) -> MagicMock:
-        """Create mock IdentityProvider."""
+        """Create mock IdentityProvider with async get_identity."""
         provider = MagicMock()
-        provider.get_identity.return_value = MagicMock(subject_id="test_user")
+        # get_identity is now async
+        provider.get_identity = AsyncMock(return_value=MagicMock(subject_id="test_user"))
         return provider
 
     @pytest.fixture

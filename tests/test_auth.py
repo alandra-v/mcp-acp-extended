@@ -9,11 +9,9 @@ Tests cover:
 
 from __future__ import annotations
 
-import json
-import time
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -64,7 +62,7 @@ def oidc_config() -> OIDCConfig:
 
 @pytest.fixture
 def stored_token() -> StoredToken:
-    """Valid stored token for tests."""
+    """Valid stored token (expires in 1 hour)."""
     now = datetime.now(timezone.utc)
     return StoredToken(
         access_token="test-access-token",
@@ -77,7 +75,7 @@ def stored_token() -> StoredToken:
 
 @pytest.fixture
 def expired_token() -> StoredToken:
-    """Expired stored token for tests."""
+    """Expired stored token (expired 1 hour ago)."""
     now = datetime.now(timezone.utc)
     return StoredToken(
         access_token="expired-access-token",
@@ -100,7 +98,7 @@ def rsa_key_pair() -> tuple[rsa.RSAPrivateKey, rsa.RSAPublicKey]:
 
 @pytest.fixture
 def valid_jwt(oidc_config: OIDCConfig, rsa_key_pair: tuple) -> str:
-    """Create a valid JWT for testing."""
+    """Create a valid JWT signed with test RSA key."""
     private_key, _ = rsa_key_pair
     now = datetime.now(timezone.utc)
 
@@ -122,36 +120,75 @@ def valid_jwt(oidc_config: OIDCConfig, rsa_key_pair: tuple) -> str:
     return jwt.encode(payload, private_key_pem, algorithm="RS256")
 
 
+@pytest.fixture
+def device_code_response_data() -> dict:
+    """Sample Auth0 device code response."""
+    return {
+        "device_code": "device-code-123",
+        "user_code": "HDFC-LQRT",
+        "verification_uri": "https://test.auth0.com/activate",
+        "verification_uri_complete": "https://test.auth0.com/activate?user_code=HDFC-LQRT",
+        "expires_in": 900,
+        "interval": 5,
+    }
+
+
+@pytest.fixture
+def device_code(device_code_response_data: dict) -> DeviceCodeResponse:
+    """Parsed device code for polling tests."""
+    data = device_code_response_data.copy()
+    data["interval"] = 0  # No delay for tests
+    return DeviceCodeResponse.from_response(data)
+
+
 # ============================================================================
-# StoredToken Tests
+# Tests: StoredToken Model
 # ============================================================================
 
 
 class TestStoredToken:
-    """Tests for StoredToken model."""
+    """Tests for StoredToken model validation and behavior."""
 
     def test_is_expired_returns_false_for_valid_token(self, stored_token: StoredToken):
-        """Valid token should not be expired."""
-        assert stored_token.is_expired is False
+        """Given a token expiring in the future, is_expired returns False."""
+        # Act
+        result = stored_token.is_expired
+
+        # Assert
+        assert result is False
 
     def test_is_expired_returns_true_for_expired_token(self, expired_token: StoredToken):
-        """Expired token should be expired."""
-        assert expired_token.is_expired is True
+        """Given a token that expired in the past, is_expired returns True."""
+        # Act
+        result = expired_token.is_expired
+
+        # Assert
+        assert result is True
 
     def test_seconds_until_expiry_positive_for_valid_token(self, stored_token: StoredToken):
-        """Valid token should have positive seconds until expiry."""
-        assert stored_token.seconds_until_expiry > 0
-        assert stored_token.seconds_until_expiry <= 3600  # 1 hour
+        """Given a valid token, seconds_until_expiry is positive."""
+        # Act
+        result = stored_token.seconds_until_expiry
+
+        # Assert
+        assert result > 0
+        assert result <= 3600  # 1 hour max
 
     def test_seconds_until_expiry_negative_for_expired_token(self, expired_token: StoredToken):
-        """Expired token should have negative seconds until expiry."""
-        assert expired_token.seconds_until_expiry < 0
+        """Given an expired token, seconds_until_expiry is negative."""
+        # Act
+        result = expired_token.seconds_until_expiry
+
+        # Assert
+        assert result < 0
 
     def test_serialization_roundtrip(self, stored_token: StoredToken):
-        """Token should survive JSON serialization roundtrip."""
+        """Given a token, JSON serialization preserves all fields."""
+        # Act
         json_str = stored_token.to_json()
         restored = StoredToken.from_json(json_str)
 
+        # Assert
         assert restored.access_token == stored_token.access_token
         assert restored.refresh_token == stored_token.refresh_token
         assert restored.id_token == stored_token.id_token
@@ -159,27 +196,33 @@ class TestStoredToken:
         assert restored.issued_at == stored_token.issued_at
 
     def test_optional_fields_can_be_none(self):
-        """Optional fields (refresh_token, id_token) can be None."""
+        """Given minimal required fields, optional fields default to None."""
+        # Arrange
         now = datetime.now(timezone.utc)
+
+        # Act
         token = StoredToken(
             access_token="access",
             expires_at=now + timedelta(hours=1),
             issued_at=now,
         )
+
+        # Assert
         assert token.refresh_token is None
         assert token.id_token is None
 
 
 # ============================================================================
-# ValidatedToken Tests
+# Tests: ValidatedToken Model
 # ============================================================================
 
 
 class TestValidatedToken:
-    """Tests for ValidatedToken model."""
+    """Tests for ValidatedToken model properties."""
 
-    def test_token_age_seconds(self):
-        """token_age_seconds should return time since issued."""
+    def test_token_age_seconds_returns_time_since_issued(self):
+        """Given a token issued 5 minutes ago, token_age_seconds is ~300."""
+        # Arrange
         now = datetime.now(timezone.utc)
         token = ValidatedToken(
             subject_id="user123",
@@ -192,12 +235,15 @@ class TestValidatedToken:
             claims={},
         )
 
-        # Should be approximately 300 seconds (5 minutes)
+        # Act
         age = token.token_age_seconds
+
+        # Assert
         assert 299 <= age <= 301
 
-    def test_auth_age_seconds_when_present(self):
-        """auth_age_seconds should return time since auth_time."""
+    def test_auth_age_seconds_returns_time_since_auth(self):
+        """Given auth_time 10 minutes ago, auth_age_seconds is ~600."""
+        # Arrange
         now = datetime.now(timezone.utc)
         token = ValidatedToken(
             subject_id="user123",
@@ -210,12 +256,16 @@ class TestValidatedToken:
             claims={},
         )
 
+        # Act
         age = token.auth_age_seconds
+
+        # Assert
         assert age is not None
         assert 599 <= age <= 601
 
-    def test_auth_age_seconds_none_when_missing(self):
-        """auth_age_seconds should be None when auth_time not set."""
+    def test_auth_age_seconds_none_when_no_auth_time(self):
+        """Given no auth_time, auth_age_seconds returns None."""
+        # Arrange
         now = datetime.now(timezone.utc)
         token = ValidatedToken(
             subject_id="user123",
@@ -228,109 +278,123 @@ class TestValidatedToken:
             claims={},
         )
 
-        assert token.auth_age_seconds is None
+        # Act
+        result = token.auth_age_seconds
+
+        # Assert
+        assert result is None
 
 
 # ============================================================================
-# EncryptedFileStorage Tests
+# Tests: EncryptedFileStorage
 # ============================================================================
 
 
 class TestEncryptedFileStorage:
     """Tests for EncryptedFileStorage backend."""
 
-    def test_save_and_load_roundtrip(self, tmp_path: Path, stored_token: StoredToken):
-        """Token should survive save/load cycle."""
-        # Patch the storage path to use temp directory
-        with patch.object(
-            EncryptedFileStorage,
-            "_storage_path",
-            tmp_path / "tokens.enc",
-            create=True,
-        ):
-            storage = EncryptedFileStorage()
-            storage._storage_path = tmp_path / "tokens.enc"
+    def test_save_and_load_preserves_token(self, tmp_path: Path, stored_token: StoredToken):
+        """Given a saved token, load returns identical token."""
+        # Arrange
+        storage = EncryptedFileStorage()
+        storage._storage_path = tmp_path / "tokens.enc"
 
-            storage.save(stored_token)
-            loaded = storage.load()
+        # Act
+        storage.save(stored_token)
+        loaded = storage.load()
 
-            assert loaded is not None
-            assert loaded.access_token == stored_token.access_token
-            assert loaded.refresh_token == stored_token.refresh_token
+        # Assert
+        assert loaded is not None
+        assert loaded.access_token == stored_token.access_token
+        assert loaded.refresh_token == stored_token.refresh_token
 
     def test_load_returns_none_when_no_file(self, tmp_path: Path):
-        """load() should return None when no token file exists."""
+        """Given no token file exists, load returns None."""
+        # Arrange
         storage = EncryptedFileStorage()
         storage._storage_path = tmp_path / "nonexistent.enc"
 
-        assert storage.load() is None
+        # Act
+        result = storage.load()
+
+        # Assert
+        assert result is None
 
     def test_exists_returns_false_when_no_file(self, tmp_path: Path):
-        """exists() should return False when no file."""
+        """Given no token file, exists returns False."""
+        # Arrange
         storage = EncryptedFileStorage()
         storage._storage_path = tmp_path / "nonexistent.enc"
 
-        assert storage.exists() is False
+        # Act
+        result = storage.exists()
+
+        # Assert
+        assert result is False
 
     def test_exists_returns_true_after_save(self, tmp_path: Path, stored_token: StoredToken):
-        """exists() should return True after saving."""
+        """Given a saved token, exists returns True."""
+        # Arrange
         storage = EncryptedFileStorage()
         storage._storage_path = tmp_path / "tokens.enc"
-
         storage.save(stored_token)
-        assert storage.exists() is True
+
+        # Act
+        result = storage.exists()
+
+        # Assert
+        assert result is True
 
     def test_delete_removes_file(self, tmp_path: Path, stored_token: StoredToken):
-        """delete() should remove the token file."""
+        """Given an existing token file, delete removes it."""
+        # Arrange
         storage = EncryptedFileStorage()
         storage._storage_path = tmp_path / "tokens.enc"
-
         storage.save(stored_token)
-        assert storage.exists() is True
 
+        # Act
         storage.delete()
+
+        # Assert
         assert storage.exists() is False
 
     def test_delete_silent_when_no_file(self, tmp_path: Path):
-        """delete() should not raise when file doesn't exist."""
+        """Given no token file, delete does not raise."""
+        # Arrange
         storage = EncryptedFileStorage()
         storage._storage_path = tmp_path / "nonexistent.enc"
 
-        # Should not raise
+        # Act & Assert (should not raise)
         storage.delete()
 
     def test_file_has_secure_permissions(self, tmp_path: Path, stored_token: StoredToken):
-        """Saved file should have 0o600 permissions."""
+        """Given a saved token, file permissions are 0o600."""
+        # Arrange
         storage = EncryptedFileStorage()
         storage._storage_path = tmp_path / "tokens.enc"
 
+        # Act
         storage.save(stored_token)
 
+        # Assert
         mode = storage._storage_path.stat().st_mode & 0o777
         assert mode == 0o600
 
 
 # ============================================================================
-# DeviceCodeResponse Tests
+# Tests: DeviceCodeResponse
 # ============================================================================
 
 
 class TestDeviceCodeResponse:
-    """Tests for DeviceCodeResponse parsing."""
+    """Tests for DeviceCodeResponse parsing from Auth0 response."""
 
-    def test_from_response_parses_all_fields(self):
-        """Should parse all fields from Auth0 response."""
-        data = {
-            "device_code": "device-code-123",
-            "user_code": "HDFC-LQRT",
-            "verification_uri": "https://test.auth0.com/activate",
-            "verification_uri_complete": "https://test.auth0.com/activate?user_code=HDFC-LQRT",
-            "expires_in": 900,
-            "interval": 5,
-        }
+    def test_from_response_parses_all_fields(self, device_code_response_data: dict):
+        """Given complete Auth0 response, parses all fields correctly."""
+        # Act
+        response = DeviceCodeResponse.from_response(device_code_response_data)
 
-        response = DeviceCodeResponse.from_response(data)
-
+        # Assert
         assert response.device_code == "device-code-123"
         assert response.user_code == "HDFC-LQRT"
         assert response.verification_uri == "https://test.auth0.com/activate"
@@ -339,7 +403,8 @@ class TestDeviceCodeResponse:
         assert response.interval == 5
 
     def test_from_response_handles_missing_optional_fields(self):
-        """Should handle missing optional fields with defaults."""
+        """Given minimal Auth0 response, uses defaults for optional fields."""
+        # Arrange
         data = {
             "device_code": "device-code-123",
             "user_code": "HDFC-LQRT",
@@ -347,63 +412,59 @@ class TestDeviceCodeResponse:
             "expires_in": 900,
         }
 
+        # Act
         response = DeviceCodeResponse.from_response(data)
 
+        # Assert
         assert response.verification_uri_complete is None
         assert response.interval == 5  # Default
 
 
 # ============================================================================
-# DeviceFlow Tests (with mocked HTTP)
+# Tests: DeviceFlow (with mocked HTTP)
 # ============================================================================
 
 
 class TestDeviceFlow:
     """Tests for DeviceFlow with mocked HTTP client."""
 
-    def test_request_device_code_success(self, oidc_config: OIDCConfig):
-        """Should request device code from Auth0."""
+    def test_request_device_code_success(self, oidc_config: OIDCConfig, device_code_response_data: dict):
+        """Given valid config, request_device_code returns device code."""
+        # Arrange
         mock_response = MagicMock()
         mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "device_code": "device-code-123",
-            "user_code": "HDFC-LQRT",
-            "verification_uri": "https://test.auth0.com/activate",
-            "expires_in": 900,
-            "interval": 5,
-        }
+        mock_response.json.return_value = device_code_response_data
         mock_response.raise_for_status = MagicMock()
 
         mock_client = MagicMock(spec=httpx.Client)
         mock_client.post.return_value = mock_response
 
         flow = DeviceFlow(oidc_config, http_client=mock_client)
+
+        # Act
         response = flow.request_device_code()
 
+        # Assert
         assert response.user_code == "HDFC-LQRT"
         mock_client.post.assert_called_once()
 
-    def test_request_device_code_http_error(self, oidc_config: OIDCConfig):
-        """Should raise DeviceFlowError on HTTP error."""
+    def test_request_device_code_raises_on_http_error(self, oidc_config: OIDCConfig):
+        """Given HTTP failure, raises DeviceFlowError."""
+        # Arrange
         mock_client = MagicMock(spec=httpx.Client)
         mock_client.post.side_effect = httpx.HTTPError("Connection failed")
 
         flow = DeviceFlow(oidc_config, http_client=mock_client)
 
+        # Act & Assert
         with pytest.raises(DeviceFlowError, match="HTTP error"):
             flow.request_device_code()
 
-    def test_poll_for_token_success(self, oidc_config: OIDCConfig):
-        """Should return token when user completes auth."""
-        device_code = DeviceCodeResponse(
-            device_code="device-code-123",
-            user_code="HDFC-LQRT",
-            verification_uri="https://test.auth0.com/activate",
-            verification_uri_complete=None,
-            expires_in=900,
-            interval=0,  # No delay for tests
-        )
-
+    def test_poll_for_token_returns_token_on_success(
+        self, oidc_config: OIDCConfig, device_code: DeviceCodeResponse
+    ):
+        """Given user completes auth, poll_for_token returns token."""
+        # Arrange
         mock_response = MagicMock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -418,24 +479,19 @@ class TestDeviceFlow:
 
         flow = DeviceFlow(oidc_config, http_client=mock_client)
 
-        with patch("time.sleep"):  # Skip sleep
+        # Act
+        with patch("time.sleep"):
             result = flow.poll_for_token(device_code, timeout=10)
 
+        # Assert
         assert result.token.access_token == "access-token-123"
         assert result.user_code == "HDFC-LQRT"
 
-    def test_poll_for_token_authorization_pending(self, oidc_config: OIDCConfig):
-        """Should continue polling on authorization_pending."""
-        device_code = DeviceCodeResponse(
-            device_code="device-code-123",
-            user_code="HDFC-LQRT",
-            verification_uri="https://test.auth0.com/activate",
-            verification_uri_complete=None,
-            expires_in=900,
-            interval=0,
-        )
-
-        # First response: pending, second: success
+    def test_poll_for_token_continues_on_authorization_pending(
+        self, oidc_config: OIDCConfig, device_code: DeviceCodeResponse
+    ):
+        """Given authorization_pending, continues polling until success."""
+        # Arrange
         pending_response = MagicMock()
         pending_response.status_code = 400
         pending_response.json.return_value = {"error": "authorization_pending"}
@@ -452,100 +508,93 @@ class TestDeviceFlow:
 
         flow = DeviceFlow(oidc_config, http_client=mock_client)
 
+        # Act
         with patch("time.sleep"):
             result = flow.poll_for_token(device_code, timeout=10)
 
+        # Assert
         assert result.token.access_token == "access-token-123"
         assert mock_client.post.call_count == 2
 
-    def test_poll_for_token_access_denied(self, oidc_config: OIDCConfig):
-        """Should raise DeviceFlowDeniedError on access_denied."""
-        device_code = DeviceCodeResponse(
-            device_code="device-code-123",
-            user_code="HDFC-LQRT",
-            verification_uri="https://test.auth0.com/activate",
-            verification_uri_complete=None,
-            expires_in=900,
-            interval=0,
-        )
-
+    @pytest.mark.parametrize(
+        ("error_code", "expected_exception"),
+        [
+            ("access_denied", DeviceFlowDeniedError),
+            ("expired_token", DeviceFlowExpiredError),
+        ],
+        ids=["access_denied", "expired_token"],
+    )
+    def test_poll_for_token_raises_on_terminal_error(
+        self,
+        oidc_config: OIDCConfig,
+        device_code: DeviceCodeResponse,
+        error_code: str,
+        expected_exception: type,
+    ):
+        """Given terminal error from Auth0, raises appropriate exception."""
+        # Arrange
         mock_response = MagicMock()
         mock_response.status_code = 400
-        mock_response.json.return_value = {"error": "access_denied"}
+        mock_response.json.return_value = {"error": error_code}
 
         mock_client = MagicMock(spec=httpx.Client)
         mock_client.post.return_value = mock_response
 
         flow = DeviceFlow(oidc_config, http_client=mock_client)
 
+        # Act & Assert
         with patch("time.sleep"):
-            with pytest.raises(DeviceFlowDeniedError):
-                flow.poll_for_token(device_code, timeout=10)
-
-    def test_poll_for_token_expired(self, oidc_config: OIDCConfig):
-        """Should raise DeviceFlowExpiredError on expired_token."""
-        device_code = DeviceCodeResponse(
-            device_code="device-code-123",
-            user_code="HDFC-LQRT",
-            verification_uri="https://test.auth0.com/activate",
-            verification_uri_complete=None,
-            expires_in=900,
-            interval=0,
-        )
-
-        mock_response = MagicMock()
-        mock_response.status_code = 400
-        mock_response.json.return_value = {"error": "expired_token"}
-
-        mock_client = MagicMock(spec=httpx.Client)
-        mock_client.post.return_value = mock_response
-
-        flow = DeviceFlow(oidc_config, http_client=mock_client)
-
-        with patch("time.sleep"):
-            with pytest.raises(DeviceFlowExpiredError):
+            with pytest.raises(expected_exception):
                 flow.poll_for_token(device_code, timeout=10)
 
 
 # ============================================================================
-# DeviceHealthReport Tests
+# Tests: DeviceHealthReport Model
 # ============================================================================
 
 
 class TestDeviceHealthReport:
-    """Tests for DeviceHealthReport model."""
+    """Tests for DeviceHealthReport model and is_healthy logic."""
 
-    def test_is_healthy_all_pass(self):
-        """is_healthy should be True when all checks pass."""
+    @pytest.mark.parametrize(
+        ("disk_encryption", "device_integrity", "expected_healthy"),
+        [
+            ("pass", "pass", True),
+            ("fail", "pass", False),
+            ("pass", "fail", False),
+            ("unknown", "pass", False),
+            ("pass", "unknown", False),
+            ("fail", "fail", False),
+        ],
+        ids=[
+            "both_pass",
+            "disk_fail",
+            "integrity_fail",
+            "disk_unknown",
+            "integrity_unknown",
+            "both_fail",
+        ],
+    )
+    def test_is_healthy_requires_all_pass(
+        self, disk_encryption: str, device_integrity: str, expected_healthy: bool
+    ):
+        """Given check results, is_healthy is True only when all pass."""
+        # Arrange
         report = DeviceHealthReport(
-            disk_encryption="pass",
-            device_integrity="pass",
+            disk_encryption=disk_encryption,  # type: ignore[arg-type]
+            device_integrity=device_integrity,  # type: ignore[arg-type]
             platform="Darwin",
         )
-        assert report.is_healthy is True
 
-    def test_is_healthy_one_fail(self):
-        """is_healthy should be False when any check fails."""
-        report = DeviceHealthReport(
-            disk_encryption="pass",
-            device_integrity="fail",
-            platform="Darwin",
-            errors=["SIP is disabled"],
-        )
-        assert report.is_healthy is False
+        # Act
+        result = report.is_healthy
 
-    def test_is_healthy_unknown_treated_as_unhealthy(self):
-        """is_healthy should be False when any check is unknown (Zero Trust)."""
-        report = DeviceHealthReport(
-            disk_encryption="unknown",
-            device_integrity="pass",
-            platform="Darwin",
-            errors=["Could not determine FileVault status"],
-        )
-        assert report.is_healthy is False
+        # Assert
+        assert result is expected_healthy
 
     def test_to_dict_includes_all_fields(self):
-        """to_dict should include all report fields."""
+        """Given a report, to_dict includes all fields."""
+        # Arrange
         report = DeviceHealthReport(
             disk_encryption="pass",
             device_integrity="fail",
@@ -553,184 +602,626 @@ class TestDeviceHealthReport:
             errors=["SIP is disabled"],
         )
 
+        # Act
         d = report.to_dict()
 
+        # Assert
         assert d["disk_encryption"] == "pass"
         assert d["device_integrity"] == "fail"
         assert d["platform"] == "Darwin"
         assert d["is_healthy"] is False
         assert "SIP is disabled" in d["errors"]
 
-    def test_str_representation(self):
-        """__str__ should provide human-readable output."""
+    def test_str_shows_health_status(self):
+        """Given a healthy report, __str__ shows HEALTHY."""
+        # Arrange
         report = DeviceHealthReport(
             disk_encryption="pass",
             device_integrity="pass",
             platform="Darwin",
         )
 
+        # Act
         s = str(report)
+
+        # Assert
         assert "HEALTHY" in s
         assert "Darwin" in s
 
 
 # ============================================================================
-# Device Health Check Tests (with mocked subprocess)
+# Tests: Device Health Checks (with mocked subprocess)
 # ============================================================================
 
 
 class TestDeviceHealthChecks:
-    """Tests for device health check functions."""
+    """Tests for device health check functions with mocked subprocess."""
 
-    def test_check_device_health_non_darwin_fails(self):
-        """Should fail on non-Darwin platforms."""
+    def test_non_darwin_platform_fails(self):
+        """Given non-Darwin platform, returns unhealthy with error."""
+        # Arrange & Act
         with patch("platform.system", return_value="Linux"):
             report = check_device_health()
 
+        # Assert
         assert report.is_healthy is False
         assert report.disk_encryption == "fail"
         assert report.device_integrity == "fail"
         assert "macOS" in report.errors[0]
 
-    def test_check_device_health_filevault_on(self):
-        """Should pass when FileVault is enabled."""
+    def test_filevault_on_and_sip_enabled_passes(self):
+        """Given FileVault On and SIP enabled, returns healthy."""
+        # Arrange
+        fv_result = MagicMock()
+        fv_result.returncode = 0
+        fv_result.stdout = "FileVault is On."
+
+        sip_result = MagicMock()
+        sip_result.returncode = 0
+        sip_result.stdout = "System Integrity Protection status: enabled."
+
+        # Act
         with patch("platform.system", return_value="Darwin"):
-            with patch("subprocess.run") as mock_run:
-                # FileVault check
-                fv_result = MagicMock()
-                fv_result.returncode = 0
-                fv_result.stdout = "FileVault is On."
-
-                # SIP check
-                sip_result = MagicMock()
-                sip_result.returncode = 0
-                sip_result.stdout = "System Integrity Protection status: enabled."
-
-                mock_run.side_effect = [fv_result, sip_result]
-
+            with patch("subprocess.run", side_effect=[fv_result, sip_result]):
                 report = check_device_health()
 
+        # Assert
         assert report.disk_encryption == "pass"
         assert report.device_integrity == "pass"
         assert report.is_healthy is True
 
-    def test_check_device_health_filevault_off(self):
-        """Should fail when FileVault is disabled."""
+    def test_filevault_off_fails(self):
+        """Given FileVault Off, returns unhealthy."""
+        # Arrange
+        fv_result = MagicMock()
+        fv_result.returncode = 0
+        fv_result.stdout = "FileVault is Off."
+
+        sip_result = MagicMock()
+        sip_result.returncode = 0
+        sip_result.stdout = "System Integrity Protection status: enabled."
+
+        # Act
         with patch("platform.system", return_value="Darwin"):
-            with patch("subprocess.run") as mock_run:
-                fv_result = MagicMock()
-                fv_result.returncode = 0
-                fv_result.stdout = "FileVault is Off."
-
-                sip_result = MagicMock()
-                sip_result.returncode = 0
-                sip_result.stdout = "System Integrity Protection status: enabled."
-
-                mock_run.side_effect = [fv_result, sip_result]
-
+            with patch("subprocess.run", side_effect=[fv_result, sip_result]):
                 report = check_device_health()
 
+        # Assert
         assert report.disk_encryption == "fail"
         assert report.is_healthy is False
         assert "FileVault is disabled" in report.errors
 
-    def test_check_device_health_sip_disabled(self):
-        """Should fail when SIP is disabled."""
+    def test_sip_disabled_fails(self):
+        """Given SIP disabled, returns unhealthy."""
+        # Arrange
+        fv_result = MagicMock()
+        fv_result.returncode = 0
+        fv_result.stdout = "FileVault is On."
+
+        sip_result = MagicMock()
+        sip_result.returncode = 0
+        sip_result.stdout = "System Integrity Protection status: disabled."
+
+        # Act
         with patch("platform.system", return_value="Darwin"):
-            with patch("subprocess.run") as mock_run:
-                fv_result = MagicMock()
-                fv_result.returncode = 0
-                fv_result.stdout = "FileVault is On."
-
-                sip_result = MagicMock()
-                sip_result.returncode = 0
-                sip_result.stdout = "System Integrity Protection status: disabled."
-
-                mock_run.side_effect = [fv_result, sip_result]
-
+            with patch("subprocess.run", side_effect=[fv_result, sip_result]):
                 report = check_device_health()
 
+        # Assert
         assert report.device_integrity == "fail"
         assert report.is_healthy is False
         assert "SIP is disabled" in report.errors
 
-    def test_check_device_health_command_timeout(self):
-        """Should return unknown on command timeout."""
-        import subprocess
-
+    def test_command_timeout_returns_unknown(self):
+        """Given command timeout, returns unknown (treated as unhealthy)."""
+        # Act
         with patch("platform.system", return_value="Darwin"):
-            with patch("subprocess.run") as mock_run:
-                mock_run.side_effect = subprocess.TimeoutExpired("fdesetup", 5)
-
+            with patch(
+                "subprocess.run",
+                side_effect=subprocess.TimeoutExpired("fdesetup", 5),
+            ):
                 report = check_device_health()
 
+        # Assert
         assert report.disk_encryption == "unknown"
         assert report.is_healthy is False
 
 
 # ============================================================================
-# JWTValidator Tests (basic - full tests need JWKS mock)
+# Tests: JWTValidator (basic - full tests need JWKS mock)
 # ============================================================================
 
 
 class TestJWTValidatorBasic:
-    """Basic tests for JWTValidator (without JWKS mocking)."""
+    """Basic tests for JWTValidator (without JWKS endpoint mocking)."""
 
-    def test_normalize_audience_string(self, oidc_config: OIDCConfig):
-        """Should normalize string audience to list."""
+    @pytest.mark.parametrize(
+        ("input_aud", "expected"),
+        [
+            ("single-audience", ["single-audience"]),
+            (["aud1", "aud2"], ["aud1", "aud2"]),
+        ],
+        ids=["string", "list"],
+    )
+    def test_normalize_audience(self, oidc_config: OIDCConfig, input_aud: str | list, expected: list):
+        """Given audience as string or list, normalizes to list."""
+        # Arrange
         validator = JWTValidator(oidc_config)
 
-        result = validator._normalize_audience("single-audience")
-        assert result == ["single-audience"]
+        # Act
+        result = validator._normalize_audience(input_aud)
 
-    def test_normalize_audience_list(self, oidc_config: OIDCConfig):
-        """Should pass through list audience."""
+        # Assert
+        assert result == expected
+
+    def test_decode_without_validation_extracts_claims(self, oidc_config: OIDCConfig, valid_jwt: str):
+        """Given valid JWT, decode_without_validation extracts claims."""
+        # Arrange
         validator = JWTValidator(oidc_config)
 
-        result = validator._normalize_audience(["aud1", "aud2"])
-        assert result == ["aud1", "aud2"]
-
-    def test_decode_without_validation(self, oidc_config: OIDCConfig, valid_jwt: str):
-        """Should decode token without validating signature."""
-        validator = JWTValidator(oidc_config)
-
+        # Act
         claims = validator.decode_without_validation(valid_jwt)
 
+        # Assert
         assert claims["sub"] == "auth0|12345"
         assert claims["iss"] == oidc_config.issuer
         assert claims["aud"] == oidc_config.audience
 
-    def test_decode_without_validation_malformed_token(self, oidc_config: OIDCConfig):
-        """Should raise AuthenticationError for malformed token."""
+    def test_decode_without_validation_raises_on_malformed(self, oidc_config: OIDCConfig):
+        """Given malformed token, raises AuthenticationError."""
+        # Arrange
         validator = JWTValidator(oidc_config)
 
+        # Act & Assert
         with pytest.raises(AuthenticationError, match="Failed to decode"):
             validator.decode_without_validation("not-a-valid-jwt")
 
-    def test_clear_cache(self, oidc_config: OIDCConfig):
-        """Should clear JWKS cache."""
+    def test_clear_cache_removes_cached_jwks(self, oidc_config: OIDCConfig):
+        """Given cached JWKS, clear_cache removes it."""
+        # Arrange
         validator = JWTValidator(oidc_config)
-        validator._jwks_cache = MagicMock()  # Simulate cached value
+        validator._jwks_cache = MagicMock()
 
+        # Act
         validator.clear_cache()
 
+        # Assert
         assert validator._jwks_cache is None
 
 
 # ============================================================================
-# Integration: create_token_storage factory
+# Tests: create_token_storage Factory
 # ============================================================================
 
 
 class TestCreateTokenStorage:
-    """Tests for create_token_storage factory."""
+    """Tests for create_token_storage factory function."""
 
     def test_returns_encrypted_file_when_keyring_unavailable(self):
-        """Should return EncryptedFileStorage when keyring not available."""
+        """Given keyring unavailable, returns EncryptedFileStorage."""
+        # Arrange & Act
         with patch(
             "mcp_acp_extended.security.auth.token_storage._is_keyring_available",
             return_value=False,
         ):
             storage = create_token_storage()
 
+        # Assert
         assert isinstance(storage, EncryptedFileStorage)
+
+
+# ============================================================================
+# Tests: OIDCIdentityProvider
+# ============================================================================
+
+
+class TestOIDCIdentityProvider:
+    """Tests for OIDCIdentityProvider."""
+
+    async def test_get_identity_raises_when_no_token(self, oidc_config: OIDCConfig):
+        """Given no stored token, raises AuthenticationError."""
+        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
+
+        # Arrange: Mock storage with no token
+        mock_storage = MagicMock()
+        mock_storage.load.return_value = None
+
+        provider = OIDCIdentityProvider(
+            config=oidc_config,
+            token_storage=mock_storage,
+        )
+
+        # Act & Assert
+        with pytest.raises(AuthenticationError, match="Not authenticated"):
+            await provider.get_identity()
+
+    async def test_get_identity_returns_cached_identity(self, oidc_config: OIDCConfig):
+        """Given cached identity, returns from cache without reloading."""
+        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
+        from mcp_acp_extended.pips.auth.oidc_provider import _CachedIdentity
+        import time
+
+        # Arrange: Provider with pre-populated cache
+        mock_storage = MagicMock()
+        mock_validator = MagicMock()
+
+        provider = OIDCIdentityProvider(
+            config=oidc_config,
+            token_storage=mock_storage,
+            jwt_validator=mock_validator,
+        )
+
+        # Set up cache with valid identity
+        from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
+
+        cached_identity = SubjectIdentity(
+            subject_id="auth0|cached-user",
+            subject_claims={"auth_type": "oidc"},
+        )
+        cached_token = ValidatedToken(
+            subject_id="auth0|cached-user",
+            issuer=oidc_config.issuer,
+            audience=[oidc_config.audience],
+            scopes=frozenset(["openid", "profile"]),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            issued_at=datetime.now(timezone.utc),
+            auth_time=None,
+            claims={},
+        )
+        provider._cache = _CachedIdentity(
+            identity=cached_identity,
+            validated_token=cached_token,
+            cached_at=time.monotonic(),  # Fresh cache
+        )
+
+        # Act
+        identity = await provider.get_identity()
+
+        # Assert: Returns cached identity, storage not called
+        assert identity.subject_id == "auth0|cached-user"
+        mock_storage.load.assert_not_called()
+        mock_validator.validate.assert_not_called()
+
+    async def test_get_identity_validates_token_when_cache_expired(
+        self, oidc_config: OIDCConfig, stored_token: StoredToken
+    ):
+        """Given expired cache, reloads and validates token."""
+        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
+        from mcp_acp_extended.pips.auth.oidc_provider import _CachedIdentity, IDENTITY_CACHE_TTL_SECONDS
+        import time
+
+        # Arrange
+        mock_storage = MagicMock()
+        mock_storage.load.return_value = stored_token
+
+        mock_validator = MagicMock()
+        mock_validator.validate.return_value = ValidatedToken(
+            subject_id="auth0|fresh-user",
+            issuer=oidc_config.issuer,
+            audience=[oidc_config.audience],
+            scopes=frozenset(["openid"]),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            issued_at=datetime.now(timezone.utc),
+            auth_time=None,
+            claims={},
+        )
+
+        provider = OIDCIdentityProvider(
+            config=oidc_config,
+            token_storage=mock_storage,
+            jwt_validator=mock_validator,
+        )
+
+        # Set up expired cache (older than TTL)
+        from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
+
+        old_identity = SubjectIdentity(subject_id="old-user")
+        old_token = ValidatedToken(
+            subject_id="old-user",
+            issuer=oidc_config.issuer,
+            audience=[oidc_config.audience],
+            scopes=frozenset(),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            issued_at=datetime.now(timezone.utc),
+            auth_time=None,
+            claims={},
+        )
+        provider._cache = _CachedIdentity(
+            identity=old_identity,
+            validated_token=old_token,
+            cached_at=time.monotonic() - IDENTITY_CACHE_TTL_SECONDS - 1,  # Expired
+        )
+
+        # Act
+        identity = await provider.get_identity()
+
+        # Assert: Fresh identity from validation
+        assert identity.subject_id == "auth0|fresh-user"
+        mock_storage.load.assert_called_once()
+        mock_validator.validate.assert_called_once()
+
+    def test_is_authenticated_returns_true_when_token_exists(self, oidc_config: OIDCConfig):
+        """Given stored token, is_authenticated returns True."""
+        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
+
+        # Arrange
+        mock_storage = MagicMock()
+        mock_storage.exists.return_value = True
+
+        provider = OIDCIdentityProvider(
+            config=oidc_config,
+            token_storage=mock_storage,
+        )
+
+        # Act & Assert
+        assert provider.is_authenticated is True
+
+    def test_is_authenticated_returns_false_when_no_token(self, oidc_config: OIDCConfig):
+        """Given no stored token, is_authenticated returns False."""
+        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
+
+        # Arrange
+        mock_storage = MagicMock()
+        mock_storage.exists.return_value = False
+
+        provider = OIDCIdentityProvider(
+            config=oidc_config,
+            token_storage=mock_storage,
+        )
+
+        # Act & Assert
+        assert provider.is_authenticated is False
+
+    def test_clear_cache_invalidates_cached_identity(self, oidc_config: OIDCConfig):
+        """Given cached identity, clear_cache removes it."""
+        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
+        from mcp_acp_extended.pips.auth.oidc_provider import _CachedIdentity
+        import time
+
+        # Arrange
+        provider = OIDCIdentityProvider(
+            config=oidc_config,
+            token_storage=MagicMock(),
+        )
+
+        from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
+
+        provider._cache = _CachedIdentity(
+            identity=SubjectIdentity(subject_id="test"),
+            validated_token=MagicMock(),
+            cached_at=time.monotonic(),
+        )
+
+        # Act
+        provider.clear_cache()
+
+        # Assert
+        assert provider._cache is None
+
+    def test_logout_clears_storage_and_cache(self, oidc_config: OIDCConfig):
+        """Given active session, logout clears everything."""
+        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
+
+        # Arrange
+        mock_storage = MagicMock()
+        provider = OIDCIdentityProvider(
+            config=oidc_config,
+            token_storage=mock_storage,
+        )
+        provider._cache = MagicMock()  # Simulate cached state
+
+        # Act
+        provider.logout()
+
+        # Assert
+        mock_storage.delete.assert_called_once()
+        assert provider._cache is None
+
+
+# ============================================================================
+# Tests: Claims Utilities
+# ============================================================================
+
+
+class TestClaimsUtilities:
+    """Tests for claims-to-Subject mapping utilities."""
+
+    def test_build_subject_from_validated_token(self, oidc_config: OIDCConfig):
+        """Given ValidatedToken, builds Subject with full OIDC claims."""
+        from mcp_acp_extended.pips.auth.claims import build_subject_from_validated_token
+        from mcp_acp_extended.context.provenance import Provenance
+
+        # Arrange
+        now = datetime.now(timezone.utc)
+        validated = ValidatedToken(
+            subject_id="auth0|user123",
+            issuer="https://test.auth0.com",
+            audience=["https://api.test.com"],
+            scopes=frozenset(["openid", "profile", "read:data"]),
+            expires_at=now + timedelta(hours=1),
+            issued_at=now - timedelta(minutes=5),
+            auth_time=now - timedelta(hours=1),
+            claims={"azp": "client-app-id"},
+        )
+
+        # Act
+        subject = build_subject_from_validated_token(validated)
+
+        # Assert
+        assert subject.id == "auth0|user123"
+        assert subject.issuer == "https://test.auth0.com"
+        assert subject.audience == ["https://api.test.com"]
+        assert subject.client_id == "client-app-id"
+        assert subject.scopes == frozenset(["openid", "profile", "read:data"])
+        assert subject.auth_time == now - timedelta(hours=1)
+        assert subject.provenance.id == Provenance.TOKEN
+        assert subject.provenance.scopes == Provenance.TOKEN
+
+    def test_build_subject_from_identity_local(self):
+        """Given local identity, builds minimal Subject."""
+        from mcp_acp_extended.pips.auth.claims import build_subject_from_identity
+        from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
+        from mcp_acp_extended.context.provenance import Provenance
+
+        # Arrange
+        identity = SubjectIdentity(
+            subject_id="local-user",
+            subject_claims={"auth_type": "local"},
+        )
+
+        # Act
+        subject = build_subject_from_identity(identity)
+
+        # Assert
+        assert subject.id == "local-user"
+        assert subject.issuer is None
+        assert subject.audience is None
+        assert subject.scopes is None
+        assert subject.provenance.id == Provenance.DERIVED
+
+    def test_build_subject_from_identity_oidc(self):
+        """Given OIDC identity with claims, builds rich Subject."""
+        from mcp_acp_extended.pips.auth.claims import build_subject_from_identity
+        from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
+        from mcp_acp_extended.context.provenance import Provenance
+
+        # Arrange - claims are stored as comma-separated strings
+        identity = SubjectIdentity(
+            subject_id="auth0|user456",
+            subject_claims={
+                "auth_type": "oidc",
+                "issuer": "https://test.auth0.com",
+                "audience": "https://api.test.com",
+                "scopes": "openid,profile",
+            },
+        )
+
+        # Act
+        subject = build_subject_from_identity(identity)
+
+        # Assert
+        assert subject.id == "auth0|user456"
+        assert subject.issuer == "https://test.auth0.com"
+        assert subject.audience == ["https://api.test.com"]
+        assert subject.scopes == frozenset(["openid", "profile"])
+        assert subject.provenance.id == Provenance.TOKEN
+
+
+# ============================================================================
+# Tests: Identity Provider Factory
+# ============================================================================
+
+
+class TestCreateIdentityProvider:
+    """Tests for create_identity_provider factory function."""
+
+    def test_returns_local_provider_when_no_config(self):
+        """Given no config, returns LocalIdentityProvider."""
+        from mcp_acp_extended.security.identity import (
+            create_identity_provider,
+            LocalIdentityProvider,
+        )
+
+        # Act
+        provider = create_identity_provider(config=None)
+
+        # Assert
+        assert isinstance(provider, LocalIdentityProvider)
+
+    def test_returns_local_provider_when_no_auth(self):
+        """Given config without auth, returns LocalIdentityProvider."""
+        from mcp_acp_extended.security.identity import (
+            create_identity_provider,
+            LocalIdentityProvider,
+        )
+        from mcp_acp_extended.config import (
+            AppConfig,
+            LoggingConfig,
+            BackendConfig,
+            StdioTransportConfig,
+        )
+
+        # Arrange
+        config = AppConfig(
+            logging=LoggingConfig(log_dir="/tmp"),
+            backend=BackendConfig(
+                server_name="test",
+                transport="stdio",
+                stdio=StdioTransportConfig(command="echo"),
+            ),
+        )
+
+        # Act
+        provider = create_identity_provider(config=config)
+
+        # Assert
+        assert isinstance(provider, LocalIdentityProvider)
+
+    def test_returns_oidc_provider_when_auth_configured(self):
+        """Given config with auth, returns OIDCIdentityProvider."""
+        from mcp_acp_extended.security.identity import create_identity_provider
+        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
+        from mcp_acp_extended.config import (
+            AppConfig,
+            LoggingConfig,
+            BackendConfig,
+            StdioTransportConfig,
+            AuthConfig,
+            OIDCConfig,
+        )
+
+        # Arrange
+        config = AppConfig(
+            auth=AuthConfig(
+                oidc=OIDCConfig(
+                    issuer="https://test.auth0.com",
+                    client_id="test-client",
+                    audience="https://api.test.com",
+                ),
+            ),
+            logging=LoggingConfig(log_dir="/tmp"),
+            backend=BackendConfig(
+                server_name="test",
+                transport="stdio",
+                stdio=StdioTransportConfig(command="echo"),
+            ),
+        )
+
+        # Act
+        provider = create_identity_provider(config=config, transport="stdio")
+
+        # Assert
+        assert isinstance(provider, OIDCIdentityProvider)
+
+    def test_raises_not_implemented_for_http_transport(self):
+        """Given HTTP transport, raises NotImplementedError (future work)."""
+        from mcp_acp_extended.security.identity import create_identity_provider
+        from mcp_acp_extended.config import (
+            AppConfig,
+            LoggingConfig,
+            BackendConfig,
+            StdioTransportConfig,
+            AuthConfig,
+            OIDCConfig,
+        )
+
+        # Arrange
+        config = AppConfig(
+            auth=AuthConfig(
+                oidc=OIDCConfig(
+                    issuer="https://test.auth0.com",
+                    client_id="test-client",
+                    audience="https://api.test.com",
+                ),
+            ),
+            logging=LoggingConfig(log_dir="/tmp"),
+            backend=BackendConfig(
+                server_name="test",
+                transport="stdio",
+                stdio=StdioTransportConfig(command="echo"),
+            ),
+        )
+
+        # Act & Assert
+        with pytest.raises(NotImplementedError, match="HTTP transport"):
+            create_identity_provider(config=config, transport="http")

@@ -31,8 +31,9 @@ from mcp_acp_extended.constants import (
     DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
     PROTECTED_CONFIG_DIR,
 )
-from mcp_acp_extended.exceptions import AuditFailure, DeviceHealthError
+from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware
+from mcp_acp_extended.pep.applescript import show_auth_error_popup
 from mcp_acp_extended.security import create_identity_provider
 from mcp_acp_extended.security.posture import DeviceHealthMonitor, check_device_health
 from mcp_acp_extended.security.integrity.audit_handler import verify_audit_writable
@@ -246,8 +247,23 @@ def create_proxy(
     # Tested with FastMCP 2.x - verify after upgrades.
     proxy._lifespan = proxy_lifespan
 
-    # Create identity provider (Stage 1: local user via getpass.getuser())
-    identity_provider = create_identity_provider()
+    # Create identity provider
+    # - With auth configured: OIDCIdentityProvider (validates JWT from keychain)
+    # - Without auth: LocalIdentityProvider (development fallback)
+    # Note: transport="stdio" because clients connect via STDIO (Claude Desktop).
+    # transport_type is the BACKEND transport, not client transport.
+    # Future: When HTTP client transport is added, this will need updating.
+    try:
+        identity_provider = create_identity_provider(config, transport="stdio")
+    except AuthenticationError as e:
+        # Show popup on macOS to notify user of auth failure
+        # This helps users understand why Claude Desktop's MCP connection failed
+        show_auth_error_popup(
+            title="Authentication Required",
+            message=str(e),
+            detail="Run 'mcp-acp-extended auth login' to authenticate.",
+        )
+        raise
 
     # Register context middleware (outermost - added first)
     # Sets up request_id, session_id, and tool_context for all downstream middleware
