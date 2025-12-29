@@ -789,6 +789,60 @@ class TestJWTValidatorBasic:
         assert validator._jwks_cache is None
 
 
+class TestJWTValidatorCriticalFailures:
+    """Tests for IdentityVerificationFailure on JWKS failures."""
+
+    def test_raises_identity_verification_failure_when_jwks_unreachable_and_no_cache(
+        self, oidc_config: OIDCConfig
+    ):
+        """Given JWKS unreachable and no cache, raises IdentityVerificationFailure."""
+        from mcp_acp_extended.exceptions import IdentityVerificationFailure
+
+        # Arrange
+        validator = JWTValidator(oidc_config)
+        # Ensure no cache exists
+        validator._jwks_cache = None
+
+        # Mock PyJWKClient to fail
+        with patch("mcp_acp_extended.security.auth.jwt_validator.PyJWKClient") as mock_client:
+            mock_client.return_value.get_jwk_set.side_effect = Exception("Network unreachable")
+
+            # Act & Assert
+            with pytest.raises(
+                IdentityVerificationFailure, match="JWKS endpoint unreachable and cache expired"
+            ):
+                validator._get_jwks_client()
+
+    def test_raises_identity_verification_failure_when_jwks_unreachable_and_cache_expired(
+        self, oidc_config: OIDCConfig
+    ):
+        """Given JWKS unreachable and cache expired, raises IdentityVerificationFailure."""
+        from mcp_acp_extended.exceptions import IdentityVerificationFailure
+        from mcp_acp_extended.security.auth.jwt_validator import _CachedJWKS
+
+        # Arrange
+        validator = JWTValidator(oidc_config)
+
+        # Create an expired cache
+        expired_cache = _CachedJWKS(
+            client=MagicMock(),
+            fetched_at=0,  # Far in the past
+            ttl=1,  # 1 second TTL
+        )
+        validator._jwks_cache = expired_cache
+        assert expired_cache.is_expired  # Verify cache is expired
+
+        # Mock PyJWKClient to fail
+        with patch("mcp_acp_extended.security.auth.jwt_validator.PyJWKClient") as mock_client:
+            mock_client.return_value.get_jwk_set.side_effect = Exception("Connection timeout")
+
+            # Act & Assert
+            with pytest.raises(
+                IdentityVerificationFailure, match="JWKS endpoint unreachable and cache expired"
+            ):
+                validator._get_jwks_client()
+
+
 # ============================================================================
 # Tests: create_token_storage Factory
 # ============================================================================

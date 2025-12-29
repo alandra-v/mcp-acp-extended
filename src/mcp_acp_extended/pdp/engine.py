@@ -23,6 +23,7 @@ from dataclasses import dataclass
 from typing import Literal
 
 from mcp_acp_extended.context import ActionCategory, DecisionContext
+from mcp_acp_extended.exceptions import PolicyEnforcementFailure
 from mcp_acp_extended.pdp.decision import Decision
 from mcp_acp_extended.pdp.matcher import (
     _match_exact_case_insensitive,
@@ -121,36 +122,52 @@ class PolicyEngine:
 
         Returns:
             Decision: ALLOW, DENY, or HITL based on policy evaluation.
+
+        Raises:
+            PolicyEnforcementFailure: If policy evaluation fails unexpectedly.
+                This is a critical security failure requiring proxy shutdown.
         """
-        # Built-in protection - check FIRST, cannot be overridden by policy
-        path = context.resource.resource.path if context.resource.resource else None
-        if self.is_protected_path(path):
-            return Decision.DENY
-
-        # Discovery methods bypass policy entirely
-        if context.action.category == ActionCategory.DISCOVERY:
-            return Decision.ALLOW
-
-        # Collect all matching rules
-        matching_rules = [rule for rule in self.policy.rules if self._rule_matches(rule, context)]
-
-        if not matching_rules:
-            # No rules matched - return default action (DENY)
-            return self._effect_to_decision(self.policy.default_action)
-
-        # Apply combining algorithm: HITL > DENY > ALLOW
-        # HITL has highest priority - let human decide
-        for rule in matching_rules:
-            if rule.effect == "hitl":
-                return Decision.HITL
-
-        # DENY has second priority - security first
-        for rule in matching_rules:
-            if rule.effect == "deny":
+        try:
+            # Built-in protection - check FIRST, cannot be overridden by policy
+            path = context.resource.resource.path if context.resource.resource else None
+            if self.is_protected_path(path):
                 return Decision.DENY
 
-        # All matching rules must be ALLOW
-        return Decision.ALLOW
+            # Discovery methods bypass policy entirely
+            if context.action.category == ActionCategory.DISCOVERY:
+                return Decision.ALLOW
+
+            # Collect all matching rules
+            matching_rules = [rule for rule in self.policy.rules if self._rule_matches(rule, context)]
+
+            if not matching_rules:
+                # No rules matched - return default action (DENY)
+                return self._effect_to_decision(self.policy.default_action)
+
+            # Apply combining algorithm: HITL > DENY > ALLOW
+            # HITL has highest priority - let human decide
+            for rule in matching_rules:
+                if rule.effect == "hitl":
+                    return Decision.HITL
+
+            # DENY has second priority - security first
+            for rule in matching_rules:
+                if rule.effect == "deny":
+                    return Decision.DENY
+
+            # All matching rules must be ALLOW
+            return Decision.ALLOW
+
+        except PolicyEnforcementFailure:
+            # Re-raise our own exceptions
+            raise
+        except Exception as e:
+            # Unexpected error during policy evaluation - critical failure
+            # Cannot trust policy decisions if evaluation crashes
+            raise PolicyEnforcementFailure(
+                f"Policy evaluation failed unexpectedly: {type(e).__name__}: {e}. "
+                "Cannot safely evaluate requests - proxy must shutdown."
+            ) from e
 
     def get_matching_rules(self, context: DecisionContext) -> list[MatchedRule]:
         """Get all rules that match the given context.

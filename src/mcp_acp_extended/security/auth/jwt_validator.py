@@ -18,7 +18,7 @@ import httpx
 import jwt
 from jwt import PyJWKClient, PyJWKClientError
 
-from mcp_acp_extended.exceptions import AuthenticationError
+from mcp_acp_extended.exceptions import AuthenticationError, IdentityVerificationFailure
 
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
@@ -117,13 +117,17 @@ class JWTValidator:
             PyJWKClient configured for the issuer's JWKS endpoint.
 
         Raises:
-            AuthenticationError: If JWKS fetch fails.
+            AuthenticationError: If JWKS fetch fails but cache is still valid.
+            IdentityVerificationFailure: If JWKS fetch fails AND cache is expired.
+                This is a critical failure - cannot verify any identity.
         """
         # Return cached client if still valid
         if self._jwks_cache is not None and not self._jwks_cache.is_expired:
             return self._jwks_cache.client
 
-        # Fetch fresh JWKS
+        # Cache is expired or doesn't exist - must fetch fresh JWKS
+        cache_was_expired = self._jwks_cache is not None and self._jwks_cache.is_expired
+
         try:
             # PyJWKClient handles key caching internally, but we add our own
             # TTL-based cache to control refresh timing
@@ -143,12 +147,20 @@ class JWTValidator:
             )
             return client
 
-        except PyJWKClientError as e:
-            raise AuthenticationError(f"Failed to fetch JWKS from {self._jwks_uri}: {e}") from e
-        except httpx.HTTPError as e:
-            raise AuthenticationError(f"HTTP error fetching JWKS from {self._jwks_uri}: {e}") from e
-        except Exception as e:
-            raise AuthenticationError(f"Unexpected error fetching JWKS: {e}") from e
+        except (PyJWKClientError, httpx.HTTPError, Exception) as e:
+            # JWKS fetch failed - determine severity
+            if cache_was_expired or self._jwks_cache is None:
+                # CRITICAL: No valid cache AND can't fetch new keys
+                # Cannot verify ANY identity - proxy must shutdown
+                raise IdentityVerificationFailure(
+                    f"JWKS endpoint unreachable and cache expired. "
+                    f"Cannot verify user identity. "
+                    f"Endpoint: {self._jwks_uri}, Error: {e}"
+                ) from e
+            else:
+                # Cache still valid - this shouldn't happen given the check above,
+                # but handle gracefully
+                raise AuthenticationError(f"Failed to fetch JWKS from {self._jwks_uri}: {e}") from e
 
     def _normalize_audience(self, aud: str | list[str]) -> list[str]:
         """Normalize audience claim to list.

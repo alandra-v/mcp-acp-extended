@@ -23,6 +23,7 @@ from mcp_acp_extended.context import (
     SubjectProvenance,
     ToolInfo,
 )
+from mcp_acp_extended.exceptions import PolicyEnforcementFailure
 from mcp_acp_extended.pdp import (
     Decision,
     HITLConfig,
@@ -1239,3 +1240,49 @@ class TestPolicyIntegration:
 
         # Assert
         assert decision == Decision.DENY
+
+
+# ============================================================================
+# Tests: Policy Engine - Critical Failures
+# ============================================================================
+
+
+class TestPolicyEngineCriticalFailures:
+    """Tests for PolicyEnforcementFailure on unexpected errors."""
+
+    def test_raises_policy_enforcement_failure_on_unexpected_error(self, make_context, monkeypatch):
+        """Given unexpected exception during evaluation, raises PolicyEnforcementFailure."""
+        # Arrange
+        policy = PolicyConfig(rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="*"))])
+        engine = PolicyEngine(policy)
+        ctx = make_context(tool_name="test")
+
+        # Simulate unexpected error in _rule_matches
+        def raise_error(*args, **kwargs):
+            raise RuntimeError("Unexpected internal error")
+
+        monkeypatch.setattr(engine, "_rule_matches", raise_error)
+
+        # Act & Assert
+        with pytest.raises(PolicyEnforcementFailure, match="Policy evaluation failed unexpectedly"):
+            engine.evaluate(ctx)
+
+    def test_policy_enforcement_failure_includes_original_error(self, make_context, monkeypatch):
+        """Given unexpected exception, PolicyEnforcementFailure includes original error details."""
+        # Arrange
+        policy = PolicyConfig(rules=[PolicyRule(effect="allow", conditions=RuleConditions(tool_name="*"))])
+        engine = PolicyEngine(policy)
+        ctx = make_context(tool_name="test")
+
+        def raise_error(*args, **kwargs):
+            raise ValueError("Bad value in rule matching")
+
+        monkeypatch.setattr(engine, "_rule_matches", raise_error)
+
+        # Act & Assert
+        with pytest.raises(PolicyEnforcementFailure) as exc_info:
+            engine.evaluate(ctx)
+
+        assert "ValueError" in str(exc_info.value)
+        assert "Bad value in rule matching" in str(exc_info.value)
+        assert exc_info.value.__cause__ is not None
