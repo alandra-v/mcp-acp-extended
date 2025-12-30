@@ -25,16 +25,6 @@ from platformdirs import user_config_dir
 PROTECTED_CONFIG_DIR: str = os.path.realpath(user_config_dir("mcp-acp-extended"))
 
 # ============================================================================
-# Recommended Paths
-# ============================================================================
-
-# Recommended log directory shown in init prompts (user can customize)
-RECOMMENDED_LOG_DIR = "~/.mcp-acp-extended"
-
-# Bootstrap log filename (used when config is invalid and log_dir unavailable)
-BOOTSTRAP_LOG_FILENAME = "bootstrap.jsonl"
-
-# ============================================================================
 # Transport Configuration
 # ============================================================================
 
@@ -54,6 +44,15 @@ MAX_HTTP_TIMEOUT_SECONDS: int = 300  # 5 minutes
 HEALTH_CHECK_TIMEOUT_SECONDS: float = 10.0
 
 # ============================================================================
+# mTLS Certificate Monitoring
+# ============================================================================
+
+# Certificate expiry warning thresholds (days)
+# Used by transport.py to warn operators about expiring certificates
+CERT_EXPIRY_WARNING_DAYS: int = 14  # Warning if expires within 14 days
+CERT_EXPIRY_CRITICAL_DAYS: int = 7  # Critical warning if expires within 7 days
+
+# ============================================================================
 # Audit Log Integrity Monitoring
 # ============================================================================
 
@@ -66,6 +65,10 @@ AUDIT_HEALTH_CHECK_INTERVAL_SECONDS: float = 30.0
 # 5 minutes balances responsiveness with minimal overhead
 DEVICE_HEALTH_CHECK_INTERVAL_SECONDS: float = 300.0
 
+# Fail immediately on first health check failure (Zero Trust - fail fast)
+# Transient issues are rare for device posture (FileVault/SIP don't flap)
+DEFAULT_DEVICE_FAILURE_THRESHOLD: int = 1
+
 # ============================================================================
 # OAuth Device Flow (RFC 8628)
 # ============================================================================
@@ -77,6 +80,19 @@ DEVICE_FLOW_POLL_INTERVAL_SECONDS: int = 5
 # Maximum time to wait for user to complete device flow authentication (seconds)
 # 5 minutes is standard for device flows
 DEVICE_FLOW_TIMEOUT_SECONDS: int = 300
+
+# ============================================================================
+# Authentication Caching (Zero Trust with Performance)
+# ============================================================================
+
+# Cache TTL for validated identity (seconds)
+# Re-validates token every 60 seconds for Zero Trust with performance
+IDENTITY_CACHE_TTL_SECONDS: int = 60
+
+# JWKS (JSON Web Key Set) cache TTL (seconds)
+# Shorter TTL reduces window for revoked key acceptance while still avoiding
+# excessive requests to the JWKS endpoint (10 minutes)
+JWKS_CACHE_TTL_SECONDS: int = 600
 
 # ============================================================================
 # Backend Transport Error Detection
@@ -94,25 +110,6 @@ BASE_TRANSPORT_ERRORS: tuple[type[Exception], ...] = (
 # HTTP transport errors (httpx) - added at runtime if httpx is available
 # These are combined with BASE_TRANSPORT_ERRORS into TRANSPORT_ERRORS
 # See: _build_transport_errors() below
-
-# String indicators for error message matching (fallback detection)
-# Based on actual FastMCP, anyio, and httpx error messages
-TRANSPORT_ERROR_INDICATORS: tuple[str, ...] = (
-    # FastMCP client errors (client.py)
-    "server session was closed unexpectedly",
-    "failed to initialize server session",
-    "client failed to connect",
-    # anyio socket errors (_sockets.py)
-    "all connection attempts failed",
-    # STDIO transport errors
-    "broken pipe",
-    "eof",
-    # httpx transport errors
-    "connection refused",
-    "connection reset",
-    "connection closed",
-    "remote disconnected",
-)
 
 
 def _build_transport_errors() -> tuple[type[Exception], ...]:
@@ -180,6 +177,7 @@ MAX_HITL_TIMEOUT_SECONDS: int = 300  # 5 minutes max
 # ============================================================================
 
 # Common path-related argument names to check when extracting file paths
+# Used by context/context.py and utils/logging/extractors.py
 PATH_ARGUMENT_NAMES: tuple[str, ...] = (
     "path",
     "uri",
@@ -188,28 +186,6 @@ PATH_ARGUMENT_NAMES: tuple[str, ...] = (
     "file",
     "filename",
 )
-
-# Content-related argument names to redact during logging
-CONTENT_ARGUMENT_NAMES: tuple[str, ...] = (
-    "content",
-    "data",
-    "text",
-    "body",
-)
-
-# MIME type hints for common file extensions
-MIME_TYPE_HINTS: dict[str, str] = {
-    ".txt": "text/plain",
-    ".md": "text/markdown",
-    ".json": "application/json",
-    ".py": "text/x-python",
-    ".js": "text/javascript",
-    ".html": "text/html",
-    ".css": "text/css",
-    ".xml": "application/xml",
-    ".yaml": "application/yaml",
-    ".yml": "application/yaml",
-}
 
 # ============================================================================
 # MCP Method Classification
@@ -239,55 +215,9 @@ DISCOVERY_METHODS: frozenset[str] = frozenset(
     }
 )
 
-# Action intent mapping - ONLY for methods where intent is a FACT
-# For tools/call, we return None because we can't know what a tool does
-METHOD_INTENTS: dict[str, str] = {
-    "resources/read": "read",
-}
-
 # ============================================================================
 # History Versioning
 # ============================================================================
 
 # Initial version for new history files
 INITIAL_VERSION = "v1"
-
-# ============================================================================
-# Operation Inference Heuristics (UNTRUSTED)
-# ============================================================================
-# These help policy writers but should NOT be relied upon for security.
-# Tool names may lie about what they actually do.
-
-# Tool name patterns for read operation inference
-READ_TOOL_PREFIXES: tuple[str, ...] = ("read_", "get_", "list_", "fetch_", "search_", "find_")
-READ_TOOL_CONTAINS: tuple[str, ...] = ("_read", "_get", "_list", "_fetch", "_search")
-
-# Tool name patterns for delete operation inference
-DELETE_TOOL_PREFIXES: tuple[str, ...] = ("delete_", "remove_", "drop_", "clear_")
-DELETE_TOOL_CONTAINS: tuple[str, ...] = ("_delete", "_remove", "_drop", "_clear")
-
-# Tool name patterns for write operation inference
-WRITE_TOOL_PREFIXES: tuple[str, ...] = (
-    "write_",
-    "create_",
-    "edit_",
-    "update_",
-    "set_",
-    "save_",
-    "put_",
-    "add_",
-    "insert_",
-    "append_",
-)
-WRITE_TOOL_CONTAINS: tuple[str, ...] = (
-    "_write",
-    "_create",
-    "_edit",
-    "_update",
-    "_set",
-    "_save",
-    "_put",
-    "_add",
-    "_insert",
-    "_append",
-)

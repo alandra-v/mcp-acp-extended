@@ -22,7 +22,6 @@ from mcp_acp_extended.config import (
 from mcp_acp_extended.constants import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     HEALTH_CHECK_TIMEOUT_SECONDS,
-    RECOMMENDED_LOG_DIR,
 )
 from mcp_acp_extended.pdp import create_default_policy
 from mcp_acp_extended.utils.policy import get_policy_path, save_policy
@@ -37,6 +36,9 @@ from mcp_acp_extended.utils.history_logging import log_config_created
 from mcp_acp_extended.utils.transport import check_http_health, validate_mtls_config
 
 from ..prompts import prompt_http_config, prompt_stdio_config, prompt_with_retry
+
+# Recommended log directory shown in init prompts (user can customize)
+RECOMMENDED_LOG_DIR = "~/.mcp-acp-extended"
 
 
 def _create_policy_only(config: AppConfig, policy_path: Path) -> None:

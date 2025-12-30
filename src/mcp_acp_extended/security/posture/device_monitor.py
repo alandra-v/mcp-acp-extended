@@ -20,7 +20,10 @@ import asyncio
 import traceback
 from typing import TYPE_CHECKING
 
-from mcp_acp_extended.constants import DEVICE_HEALTH_CHECK_INTERVAL_SECONDS
+from mcp_acp_extended.constants import (
+    DEFAULT_DEVICE_FAILURE_THRESHOLD,
+    DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
+)
 from mcp_acp_extended.exceptions import DeviceHealthError
 from mcp_acp_extended.security.posture.device import DeviceHealthReport, check_device_health
 from mcp_acp_extended.telemetry.models.audit import DeviceHealthChecks
@@ -31,10 +34,6 @@ if TYPE_CHECKING:
     from mcp_acp_extended.telemetry.audit.auth_logger import AuthLogger
 
 _system_logger = get_system_logger()
-
-# Fail immediately on first health check failure (Zero Trust - fail fast)
-# Transient issues are rare for device posture (FileVault/SIP don't flap)
-DEFAULT_FAILURE_THRESHOLD = 1
 
 
 class DeviceHealthMonitor:
@@ -52,7 +51,7 @@ class DeviceHealthMonitor:
         shutdown_coordinator: "ShutdownCoordinator",
         auth_logger: "AuthLogger | None" = None,
         check_interval_seconds: float = DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
-        failure_threshold: int = DEFAULT_FAILURE_THRESHOLD,
+        failure_threshold: int = DEFAULT_DEVICE_FAILURE_THRESHOLD,
     ) -> None:
         """Initialize the device health monitor.
 

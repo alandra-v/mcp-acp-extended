@@ -21,7 +21,6 @@ from pydantic import BaseModel, ConfigDict
 
 from mcp_acp_extended.constants import (
     DISCOVERY_METHODS,
-    METHOD_INTENTS,
     PATH_ARGUMENT_NAMES,
 )
 from mcp_acp_extended.context.tool_side_effects import TOOL_SIDE_EFFECTS
@@ -47,6 +46,12 @@ from mcp_acp_extended.context.parsing import (
 )
 from mcp_acp_extended.pips.auth.claims import build_subject_from_identity
 from mcp_acp_extended.security.identity import IdentityProvider
+
+# Action intent mapping - ONLY for methods where intent is a FACT
+# For tools/call, we return None because we can't know what a tool does
+METHOD_INTENTS: dict[str, str] = {
+    "resources/read": "read",
+}
 
 
 class DecisionContext(BaseModel):

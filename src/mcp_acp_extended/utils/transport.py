@@ -17,7 +17,12 @@ from cryptography import x509
 from fastmcp.client.transports import ClientTransport, StdioTransport, StreamableHttpTransport
 from fastmcp.server.proxy import ProxyClient
 
-from mcp_acp_extended.constants import HEALTH_CHECK_TIMEOUT_SECONDS, TRANSPORT_ERRORS
+from mcp_acp_extended.constants import (
+    CERT_EXPIRY_CRITICAL_DAYS,
+    CERT_EXPIRY_WARNING_DAYS,
+    HEALTH_CHECK_TIMEOUT_SECONDS,
+    TRANSPORT_ERRORS,
+)
 
 if TYPE_CHECKING:
     from mcp.shared._httpx_utils import McpHttpClientFactory
@@ -25,10 +30,6 @@ if TYPE_CHECKING:
     from mcp_acp_extended.config import BackendConfig, HttpTransportConfig, MTLSConfig, StdioTransportConfig
 
 logger = logging.getLogger(__name__)
-
-# Certificate expiry thresholds
-CERT_EXPIRY_WARNING_DAYS = 14  # Warning if expires within 14 days
-CERT_EXPIRY_CRITICAL_DAYS = 7  # Critical warning if expires within 7 days
 
 
 # =============================================================================

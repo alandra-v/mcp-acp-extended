@@ -28,15 +28,33 @@ class ClientInfo:
     protocol_version: str | None = None
 
 
-from mcp_acp_extended.constants import (
-    CONTENT_ARGUMENT_NAMES,
-    MIME_TYPE_HINTS,
-    PATH_ARGUMENT_NAMES,
-)
+from mcp_acp_extended.constants import PATH_ARGUMENT_NAMES
 from mcp_acp_extended.utils.logging.logging_helpers import (
     normalize_file_path,
     sanitize_for_logging,
 )
+
+# Content-related argument names to redact during logging
+CONTENT_ARGUMENT_NAMES: tuple[str, ...] = (
+    "content",
+    "data",
+    "text",
+    "body",
+)
+
+# MIME type hints for common file extensions
+MIME_TYPE_HINTS: dict[str, str] = {
+    ".txt": "text/plain",
+    ".md": "text/markdown",
+    ".json": "application/json",
+    ".py": "text/x-python",
+    ".js": "text/javascript",
+    ".html": "text/html",
+    ".css": "text/css",
+    ".xml": "application/xml",
+    ".yaml": "application/yaml",
+    ".yml": "application/yaml",
+}
 
 
 def extract_file_path(arguments: dict[str, Any], system_logger: logging.Logger | None = None) -> str | None:

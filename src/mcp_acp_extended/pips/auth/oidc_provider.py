@@ -21,6 +21,7 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from mcp_acp_extended.constants import IDENTITY_CACHE_TTL_SECONDS
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth import (
     JWTValidator,
@@ -38,10 +39,6 @@ from mcp_acp_extended.utils.logging.logging_context import get_request_id, get_s
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
     from mcp_acp_extended.telemetry.audit.auth_logger import AuthLogger
-
-# Cache TTL for validated identity (Zero Trust with performance)
-# Re-validates token every 60 seconds
-IDENTITY_CACHE_TTL_SECONDS = 60
 
 
 @dataclass

@@ -16,12 +16,28 @@ import logging
 import sys
 from pathlib import Path
 
-from mcp_acp_extended.constants import (
-    TRANSPORT_ERROR_INDICATORS,
-    TRANSPORT_ERRORS,
-)
+from mcp_acp_extended.constants import TRANSPORT_ERRORS
 from mcp_acp_extended.utils.logging.iso_formatter import ISO8601Formatter
 from mcp_acp_extended.utils.logging.logging_helpers import clean_backend_error
+
+# String indicators for error message matching (fallback detection)
+# Based on actual FastMCP, anyio, and httpx error messages
+TRANSPORT_ERROR_INDICATORS: tuple[str, ...] = (
+    # FastMCP client errors (client.py)
+    "server session was closed unexpectedly",
+    "failed to initialize server session",
+    "client failed to connect",
+    # anyio socket errors (_sockets.py)
+    "all connection attempts failed",
+    # STDIO transport errors
+    "broken pipe",
+    "eof",
+    # httpx transport errors
+    "connection refused",
+    "connection reset",
+    "connection closed",
+    "remote disconnected",
+)
 
 
 class ConsoleFormatter(logging.Formatter):

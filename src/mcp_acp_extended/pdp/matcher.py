@@ -23,15 +23,47 @@ import re
 import sys
 from collections.abc import Sequence
 
-from mcp_acp_extended.constants import (
-    DELETE_TOOL_CONTAINS,
-    DELETE_TOOL_PREFIXES,
-    READ_TOOL_CONTAINS,
-    READ_TOOL_PREFIXES,
-    WRITE_TOOL_CONTAINS,
-    WRITE_TOOL_PREFIXES,
-)
 from mcp_acp_extended.context.resource import SideEffect
+
+# =============================================================================
+# Operation Inference Heuristics (UNTRUSTED)
+# =============================================================================
+# These help policy writers but should NOT be relied upon for security.
+# Tool names may lie about what they actually do.
+
+# Tool name patterns for read operation inference
+READ_TOOL_PREFIXES: tuple[str, ...] = ("read_", "get_", "list_", "fetch_", "search_", "find_")
+READ_TOOL_CONTAINS: tuple[str, ...] = ("_read", "_get", "_list", "_fetch", "_search")
+
+# Tool name patterns for delete operation inference
+DELETE_TOOL_PREFIXES: tuple[str, ...] = ("delete_", "remove_", "drop_", "clear_")
+DELETE_TOOL_CONTAINS: tuple[str, ...] = ("_delete", "_remove", "_drop", "_clear")
+
+# Tool name patterns for write operation inference
+WRITE_TOOL_PREFIXES: tuple[str, ...] = (
+    "write_",
+    "create_",
+    "edit_",
+    "update_",
+    "set_",
+    "save_",
+    "put_",
+    "add_",
+    "insert_",
+    "append_",
+)
+WRITE_TOOL_CONTAINS: tuple[str, ...] = (
+    "_write",
+    "_create",
+    "_edit",
+    "_update",
+    "_set",
+    "_save",
+    "_put",
+    "_add",
+    "_insert",
+    "_append",
+)
 
 # Regex special characters that need escaping in glob-to-regex conversion
 _REGEX_SPECIAL_CHARS = ".^$+{}[]|()"

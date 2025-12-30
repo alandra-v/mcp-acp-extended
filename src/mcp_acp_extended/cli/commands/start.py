@@ -8,7 +8,6 @@ import sys
 import click
 
 from mcp_acp_extended import __version__
-from mcp_acp_extended.constants import BOOTSTRAP_LOG_FILENAME
 from mcp_acp_extended.config import AppConfig
 from mcp_acp_extended.utils.policy import get_policy_path, load_policy
 from mcp_acp_extended.utils.history_logging.policy_logger import (
@@ -28,6 +27,9 @@ from mcp_acp_extended.utils.history_logging import (
     log_config_loaded,
     log_config_validation_failed as log_config_validation_failed_fn,
 )
+
+# Bootstrap log filename (used when config is invalid and log_dir unavailable)
+BOOTSTRAP_LOG_FILENAME = "bootstrap.jsonl"
 
 
 @click.command()
