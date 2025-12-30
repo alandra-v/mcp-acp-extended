@@ -38,11 +38,6 @@ def policy_validate(path: Path | None) -> None:
     """
     policy_path = path or get_policy_path()
 
-    if not policy_path.exists():
-        click.echo(f"✗ Policy file not found: {policy_path}", err=True)
-        click.echo("Run 'mcp-acp-extended init' to create a policy file.", err=True)
-        sys.exit(1)
-
     try:
         policy_config = load_policy(policy_path)
         rule_count = len(policy_config.rules)
@@ -50,7 +45,7 @@ def policy_validate(path: Path | None) -> None:
         click.echo(f"  {rule_count} rule{'s' if rule_count != 1 else ''} defined")
         click.echo(f"  Default action: {policy_config.default_action}")
         click.echo(f"  HITL timeout: {policy_config.hitl.timeout_seconds}s")
-    except ValueError as e:
+    except (FileNotFoundError, ValueError) as e:
         click.echo(f"✗ {e}", err=True)
         sys.exit(1)
 

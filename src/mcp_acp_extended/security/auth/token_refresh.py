@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING
 
 import httpx
 
+from mcp_acp_extended.constants import OAUTH_CLIENT_TIMEOUT_SECONDS
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth.token_storage import StoredToken
 
@@ -55,7 +56,7 @@ def refresh_tokens(
         TokenRefreshExpiredError: If refresh token has expired (user must re-login).
         TokenRefreshError: For other refresh failures.
     """
-    client = http_client or httpx.Client(timeout=30)
+    client = http_client or httpx.Client(timeout=OAUTH_CLIENT_TIMEOUT_SECONDS)
     owns_client = http_client is None
 
     try:

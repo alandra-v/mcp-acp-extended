@@ -73,6 +73,10 @@ DEFAULT_DEVICE_FAILURE_THRESHOLD: int = 1
 # OAuth Device Flow (RFC 8628)
 # ============================================================================
 
+# Timeout for OAuth HTTP requests (device code, token polling, refresh)
+# Used by device_flow.py and token_refresh.py
+OAUTH_CLIENT_TIMEOUT_SECONDS: int = 30
+
 # Default polling interval for device flow (seconds)
 # Auth0 typically returns 5 in the device code response
 DEVICE_FLOW_POLL_INTERVAL_SECONDS: int = 5
@@ -171,6 +175,18 @@ DEFAULT_HITL_TIMEOUT_SECONDS: int = 30
 # HITL timeout validation range (seconds)
 MIN_HITL_TIMEOUT_SECONDS: int = 5  # Minimum time for user to read and respond
 MAX_HITL_TIMEOUT_SECONDS: int = 300  # 5 minutes max
+
+# ============================================================================
+# Approval Caching (HITL Fatigue Reduction)
+# ============================================================================
+
+# Default TTL for cached HITL approvals (seconds)
+# After approval, user won't see dialog for same operation until TTL expires
+DEFAULT_APPROVAL_TTL_SECONDS: int = 600  # 10 minutes
+
+# Approval TTL validation range (seconds)
+MIN_APPROVAL_TTL_SECONDS: int = 300  # 5 minutes minimum
+MAX_APPROVAL_TTL_SECONDS: int = 900  # 15 minutes maximum
 
 # ============================================================================
 # File Metadata Extraction

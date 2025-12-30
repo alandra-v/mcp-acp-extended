@@ -16,12 +16,12 @@ import os
 import tempfile
 from pathlib import Path
 
-from pydantic import ValidationError
-
 from mcp_acp_extended.pdp.policy import PolicyConfig, create_default_policy
 from mcp_acp_extended.utils.file_helpers import (
     compute_file_checksum,
     get_app_dir,
+    load_validated_json,
+    require_file_exists,
     set_secure_permissions,
 )
 
@@ -92,36 +92,13 @@ def load_policy(path: Path | None = None) -> PolicyConfig:
         ValueError: If policy file contains invalid JSON or schema.
     """
     policy_path = path or get_policy_path()
-
-    if not policy_path.exists():
-        raise FileNotFoundError(
-            f"Policy file not found at {policy_path}.\n"
-            "Run 'mcp-acp-extended init' to create a policy file."
-        )
-
-    try:
-        with policy_path.open() as f:
-            data = json.load(f)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Invalid JSON in policy file {policy_path}: {e}") from e
-    except OSError as e:
-        raise ValueError(f"Could not read policy file {policy_path}: {e}") from e
-
-    try:
-        return PolicyConfig.model_validate(data)
-    except ValidationError as e:
-        # Format detailed error messages like AppConfig does
-        errors = []
-        for error in e.errors():
-            loc = ".".join(str(x) for x in error["loc"])
-            msg = error["msg"]
-            errors.append(f"  - {loc}: {msg}")
-
-        raise ValueError(
-            f"Invalid policy configuration in {policy_path}:\n"
-            + "\n".join(errors)
-            + "\n\nEdit the policy file or run 'mcp-acp-extended init' to recreate."
-        ) from e
+    require_file_exists(policy_path, file_type="policy")
+    return load_validated_json(
+        policy_path,
+        PolicyConfig,
+        file_type="policy",
+        recovery_hint="Edit the policy file or run 'mcp-acp-extended init' to recreate.",
+    )
 
 
 def save_policy(policy: PolicyConfig, path: Path | None = None) -> None:

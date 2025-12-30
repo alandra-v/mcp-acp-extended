@@ -15,12 +15,16 @@ import json
 import logging
 import sys
 from pathlib import Path
-from typing import NamedTuple
+from typing import NamedTuple, TypeVar
 
 import click
+from pydantic import BaseModel, ValidationError
 
 from mcp_acp_extended.constants import INITIAL_VERSION
 from mcp_acp_extended.utils.logging.logger_setup import setup_jsonl_logger
+
+# Type variable for Pydantic models
+T = TypeVar("T", bound=BaseModel)
 
 __all__ = [
     # App directory
@@ -28,6 +32,8 @@ __all__ = [
     # File operations
     "compute_file_checksum",
     "set_secure_permissions",
+    "require_file_exists",
+    "load_validated_json",
     # History versioning
     "VersionInfo",
     "get_next_version",
@@ -100,6 +106,76 @@ def set_secure_permissions(path: Path, *, is_directory: bool = False) -> None:
         path.chmod(mode)
     except OSError:
         pass  # Permission changes might fail on some systems
+
+
+def require_file_exists(
+    file_path: Path,
+    file_type: str = "file",
+    init_hint: bool = True,
+) -> None:
+    """Raise FileNotFoundError with helpful message if file doesn't exist.
+
+    Args:
+        file_path: Path to check.
+        file_type: Description for error message (e.g., "configuration", "policy").
+        init_hint: If True, suggest running 'mcp-acp-extended init'.
+
+    Raises:
+        FileNotFoundError: If file doesn't exist.
+    """
+    if file_path.exists():
+        return
+
+    hint = f"\nRun 'mcp-acp-extended init' to create a {file_type} file." if init_hint else ""
+    raise FileNotFoundError(f"{file_type.capitalize()} file not found at {file_path}.{hint}")
+
+
+def load_validated_json(
+    file_path: Path,
+    model_class: type[T],
+    file_type: str = "file",
+    recovery_hint: str | None = None,
+    encoding: str | None = None,
+) -> T:
+    """Load JSON file and validate against Pydantic model.
+
+    Combines file reading, JSON parsing, and Pydantic validation with
+    consistent error messages.
+
+    Args:
+        file_path: Path to JSON file.
+        model_class: Pydantic model class to validate against.
+        file_type: Description for error messages (e.g., "config", "policy").
+        recovery_hint: Optional hint appended to validation errors.
+        encoding: File encoding. If None, uses system default.
+
+    Returns:
+        Validated Pydantic model instance.
+
+    Raises:
+        ValueError: If JSON is invalid or validation fails.
+    """
+    try:
+        with open(file_path, "r", encoding=encoding) as f:
+            data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in {file_type} file {file_path}: {e}") from e
+    except OSError as e:
+        raise ValueError(f"Could not read {file_type} file {file_path}: {e}") from e
+
+    try:
+        return model_class.model_validate(data)
+    except ValidationError as e:
+        errors = []
+        for error in e.errors():
+            loc = ".".join(str(x) for x in error["loc"])
+            msg = error["msg"]
+            errors.append(f"  - {loc}: {msg}")
+
+        hint = f"\n\n{recovery_hint}" if recovery_hint else ""
+        raise ValueError(
+            f"Invalid {file_type} configuration in {file_path}:\n" + "\n".join(errors) + hint
+        ) from e
 
 
 # -----------------------------------------------------------------------------

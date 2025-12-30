@@ -265,11 +265,6 @@ def config_validate(path: Path | None) -> None:
     """
     config_file_path = path or get_config_path()
 
-    if not config_file_path.exists():
-        click.echo(f"✗ Config file not found: {config_file_path}", err=True)
-        click.echo("Run 'mcp-acp-extended init' to create configuration.", err=True)
-        sys.exit(1)
-
     try:
         AppConfig.load_from_files(config_file_path)
         click.echo(f"✓ Config valid: {config_file_path}")

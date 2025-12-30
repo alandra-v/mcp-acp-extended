@@ -128,6 +128,11 @@ def create_proxy(
         AuditFailure: If audit logs cannot be written at startup.
         DeviceHealthError: If device health checks fail at startup.
     """
+    # =========================================================================
+    # PHASE 1: Startup Validation
+    # Verify all prerequisites before accepting any requests (Zero Trust)
+    # =========================================================================
+
     # Configure system logger file handler with user's log_dir
     configure_system_logger_file(get_system_log_path(config))
 
@@ -160,6 +165,11 @@ def create_proxy(
             detail=f"{device_health}\n\nEnable FileVault and ensure SIP is enabled.",
         )
         raise DeviceHealthError(str(device_health))
+
+    # =========================================================================
+    # PHASE 2: Security Infrastructure
+    # Create fail-closed shutdown system and background health monitors
+    # =========================================================================
 
     # Create shutdown coordinator for fail-closed behavior
     log_dir = get_log_dir(config)
@@ -205,6 +215,11 @@ def create_proxy(
         check_interval_seconds=DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
     )
 
+    # =========================================================================
+    # PHASE 3: Backend Connection
+    # Establish connection to backend MCP server and create proxy
+    # =========================================================================
+
     # Create backend transport (handles detection, validation, health checks)
     # Pass mTLS config for client certificate authentication to HTTP backends
     mtls_config = config.auth.mtls if config.auth else None
@@ -231,8 +246,11 @@ def create_proxy(
     # Sessions use format <user_id>:<session_id> per MCP spec
     session_manager = SessionManager()
 
-    # Create lifespan context manager for health monitors and session logging
-    # This starts monitors when the proxy starts and stops them on shutdown
+    # =========================================================================
+    # PHASE 4: Lifecycle Management
+    # Define proxy lifespan: start/stop monitors, manage sessions
+    # =========================================================================
+
     @asynccontextmanager
     async def proxy_lifespan(app: FastMCP) -> AsyncIterator[None]:
         """Manage proxy lifecycle: start/stop health monitors, log session."""
@@ -312,7 +330,6 @@ def create_proxy(
         finally:
             await device_monitor.stop()
             await audit_monitor.stop()
-
             # Log session_ended with bound session ID and MCP session for correlation
             if bound_session_id:
                 auth_logger.log_session_ended(
@@ -347,6 +364,11 @@ def create_proxy(
     # Tested with FastMCP 2.x - verify after upgrades.
     proxy._lifespan = proxy_lifespan
 
+    # =========================================================================
+    # PHASE 5: Identity Provider
+    # Create authentication provider for Zero Trust identity verification
+    # =========================================================================
+
     # Create identity provider (Zero Trust - auth is mandatory)
     # OIDCIdentityProvider validates JWT from keychain
     # Raises AuthenticationError if auth not configured (no fallback)
@@ -363,6 +385,11 @@ def create_proxy(
             detail="Run in terminal:\n  mcp-acp-extended init\n\nThen restart your MCP client.",
         )
         raise
+
+    # =========================================================================
+    # PHASE 6: Middleware Chain
+    # Register middleware in order: Context → Audit → Client → Enforcement
+    # =========================================================================
 
     # Register context middleware (outermost - added first)
     # Sets up request_id, session_id, and tool_context for all downstream middleware

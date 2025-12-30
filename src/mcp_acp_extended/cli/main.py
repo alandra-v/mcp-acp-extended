@@ -3,11 +3,11 @@
 Defines the CLI group and registers all subcommands.
 
 Commands:
-    auth    - Authentication commands (login, logout, status)
-    config  - Configuration management (show, path, edit, validate)
-    init    - Initialize proxy configuration (interactive or with flags)
-    policy  - Policy management (validate, path)
-    start   - Start the proxy server manually (for testing)
+    auth     - Authentication commands (login, logout, status)
+    config   - Configuration management (show, path, edit, validate)
+    init     - Initialize proxy configuration (interactive or with flags)
+    policy   - Policy management (validate, path)
+    start    - Start the proxy server manually (for testing)
 
 Usage:
     mcp-acp-extended -h, --help         Show help message

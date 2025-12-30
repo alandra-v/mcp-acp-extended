@@ -16,13 +16,14 @@ import json
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import BaseModel, Field
 
 from mcp_acp_extended.constants import (
     DEFAULT_HTTP_TIMEOUT_SECONDS,
     MAX_HTTP_TIMEOUT_SECONDS,
     MIN_HTTP_TIMEOUT_SECONDS,
 )
+from mcp_acp_extended.utils.file_helpers import load_validated_json, require_file_exists
 
 
 # =============================================================================
@@ -232,31 +233,11 @@ class AppConfig(BaseModel):
             FileNotFoundError: If config file doesn't exist.
             ValueError: If config file is invalid or missing required fields.
         """
-        if not config_path.exists():
-            raise FileNotFoundError(
-                f"Configuration not found at {config_path}.\n"
-                "Run 'mcp-acp-extended init' to create a configuration file."
-            )
-
-        try:
-            with open(config_path, "r", encoding="utf-8") as f:
-                config_data = json.load(f)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in config file {config_path}: {e}") from e
-        except OSError as e:
-            raise ValueError(f"Could not read config file {config_path}: {e}") from e
-
-        try:
-            return cls.model_validate(config_data)
-        except ValidationError as e:
-            errors = []
-            for error in e.errors():
-                loc = ".".join(str(x) for x in error["loc"])
-                msg = error["msg"]
-                errors.append(f"  - {loc}: {msg}")
-
-            raise ValueError(
-                f"Invalid configuration in {config_path}:\n"
-                + "\n".join(errors)
-                + "\n\nRun 'mcp-acp-extended init' to reconfigure."
-            ) from e
+        require_file_exists(config_path, file_type="configuration")
+        return load_validated_json(
+            config_path,
+            cls,
+            file_type="config",
+            recovery_hint="Run 'mcp-acp-extended init' to reconfigure.",
+            encoding="utf-8",
+        )

@@ -25,6 +25,7 @@ import httpx
 from mcp_acp_extended.constants import (
     DEVICE_FLOW_POLL_INTERVAL_SECONDS,
     DEVICE_FLOW_TIMEOUT_SECONDS,
+    OAUTH_CLIENT_TIMEOUT_SECONDS,
 )
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth.token_storage import StoredToken
@@ -125,7 +126,7 @@ class DeviceFlow:
             http_client: Optional httpx client (for testing).
         """
         self._config = config
-        self._client = http_client or httpx.Client(timeout=30)
+        self._client = http_client or httpx.Client(timeout=OAUTH_CLIENT_TIMEOUT_SECONDS)
         self._owns_client = http_client is None
 
         # Build endpoints from issuer
