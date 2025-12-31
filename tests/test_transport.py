@@ -279,7 +279,7 @@ class TestMTLSClientFactory:
     def test_create_factory_returns_callable(self, mtls_config: MTLSConfig, cert_files: dict[str, Path]):
         """Factory creation succeeds with valid certificate paths."""
         # Act - skip actual SSL validation since test certs are not real
-        with patch("mcp_acp_extended.utils.transport._validate_certificates"):
+        with patch("mcp_acp_extended.security.mtls._validate_certificates"):
             factory = create_mtls_client_factory(mtls_config)
 
         # Assert
@@ -290,9 +290,9 @@ class TestMTLSClientFactory:
         # Act - mock validation, ssl context, and httpx client creation
         mock_ssl_ctx = MagicMock()
         with (
-            patch("mcp_acp_extended.utils.transport._validate_certificates"),
-            patch("mcp_acp_extended.utils.transport.ssl.create_default_context", return_value=mock_ssl_ctx),
-            patch("mcp_acp_extended.utils.transport.httpx.AsyncClient") as mock_client_cls,
+            patch("mcp_acp_extended.security.mtls._validate_certificates"),
+            patch("mcp_acp_extended.security.mtls.ssl.create_default_context", return_value=mock_ssl_ctx),
+            patch("mcp_acp_extended.security.mtls.httpx.AsyncClient") as mock_client_cls,
         ):
             factory = create_mtls_client_factory(mtls_config)
             factory()
@@ -379,7 +379,7 @@ class TestMTLSClientFactory:
         )
 
         # Act - skip validation
-        with patch("mcp_acp_extended.utils.transport._validate_certificates"):
+        with patch("mcp_acp_extended.security.mtls._validate_certificates"):
             factory = create_mtls_client_factory(config)
 
         # Assert
@@ -420,7 +420,7 @@ class TestTransportWithMTLS:
         # Act
         with (
             patch("mcp_acp_extended.utils.transport.check_http_health"),
-            patch("mcp_acp_extended.utils.transport._validate_certificates"),
+            patch("mcp_acp_extended.security.mtls._validate_certificates"),
         ):
             transport, transport_type = create_backend_transport(config, mtls_config)
 
@@ -465,7 +465,7 @@ class TestTransportWithMTLS:
         # Act
         with (
             patch("mcp_acp_extended.utils.transport.check_http_health") as mock_health,
-            patch("mcp_acp_extended.utils.transport._validate_certificates"),
+            patch("mcp_acp_extended.security.mtls._validate_certificates"),
         ):
             create_backend_transport(config, mtls_config)
 

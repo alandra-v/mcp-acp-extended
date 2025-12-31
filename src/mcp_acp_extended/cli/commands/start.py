@@ -93,7 +93,16 @@ def start() -> None:
         )
 
         # Display actual transport used (after detection)
-        click.echo(f"Backend transport: {actual_transport}", err=True)
+        # mTLS only applies to HTTPS URLs with streamablehttp transport
+        uses_mtls = (
+            actual_transport == "streamablehttp"
+            and loaded_config.auth
+            and loaded_config.auth.mtls
+            and loaded_config.backend.http
+            and loaded_config.backend.http.url.lower().startswith("https://")
+        )
+        mtls_suffix = " with mTLS" if uses_mtls else ""
+        click.echo(f"Backend transport: {actual_transport}{mtls_suffix}", err=True)
         click.echo("-" * 50, err=True)
 
         click.echo("Proxy server ready - listening on STDIO", err=True)

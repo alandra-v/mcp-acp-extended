@@ -35,7 +35,7 @@ from mcp_acp_extended.utils.config import (
 from mcp_acp_extended.utils.history_logging import log_config_created
 from mcp_acp_extended.utils.transport import check_http_health, validate_mtls_config
 
-from ..prompts import prompt_http_config, prompt_stdio_config, prompt_with_retry
+from ..prompts import prompt_auth_config, prompt_http_config, prompt_stdio_config, prompt_with_retry
 
 # Recommended log directory shown in init prompts (user can customize)
 RECOMMENDED_LOG_DIR = "~/.mcp-acp-extended"
@@ -143,98 +143,6 @@ def _create_and_save_config(
     click.echo("\nRun 'mcp-acp-extended start' to test the proxy manually.")
 
 
-def _prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
-    """Prompt for authentication configuration.
-
-    Args:
-        http_config: HTTP config if using HTTP transport.
-
-    Returns:
-        AuthConfig with user-provided values.
-    """
-    click.echo("\n--- Authentication ---")
-    click.echo("Configure Auth0/OIDC for user authentication.\n")
-
-    # OIDC settings
-    issuer = prompt_with_retry("OIDC issuer URL (e.g., https://your-tenant.auth0.com)")
-    client_id = prompt_with_retry("Auth0 client ID")
-    audience = prompt_with_retry("API audience (e.g., https://your-api.example.com)")
-
-    oidc_config = OIDCConfig(
-        issuer=issuer,
-        client_id=client_id,
-        audience=audience,
-    )
-
-    # mTLS settings (only for HTTPS backends)
-    mtls_config: MTLSConfig | None = None
-    if http_config and http_config.url.startswith("https://"):
-        click.echo("\n--- mTLS (Mutual TLS) ---")
-        click.echo("HTTPS backend detected. mTLS allows the proxy to authenticate")
-        click.echo("itself to the backend using a client certificate.\n")
-        click.echo("You need 3 PEM files (get from IT team or generate for testing):")
-        click.echo("  - Client certificate: proves proxy identity to backend")
-        click.echo("  - Client private key: must match certificate (keep secure)")
-        click.echo("  - CA bundle: verifies backend server's certificate\n")
-        click.echo("Skip if your backend doesn't require client certificates.")
-        click.echo("See 'docs/auth.md' for how to generate test certificates.\n")
-
-        if click.confirm("Configure mTLS?", default=False):
-            click.echo("\n  (Paths support ~ expansion, e.g., ~/.mcp-certs/client.pem)")
-
-            while True:
-                client_cert = prompt_with_retry("Client certificate path")
-                client_key = prompt_with_retry("Client private key path")
-                ca_bundle = prompt_with_retry("CA bundle path")
-
-                # Validate certificates
-                click.echo("\nValidating certificates...")
-                errors = validate_mtls_config(client_cert, client_key, ca_bundle)
-
-                if not errors:
-                    click.echo(click.style("  Certificates valid!", fg="green"))
-                    mtls_config = MTLSConfig(
-                        client_cert_path=client_cert,
-                        client_key_path=client_key,
-                        ca_bundle_path=ca_bundle,
-                    )
-                    break
-
-                # Show errors
-                click.echo(click.style("\n  Certificate validation failed:", fg="red"))
-                for error in errors:
-                    click.echo(f"    - {error}")
-                click.echo()
-
-                # Ask what to do
-                choice = click.prompt(
-                    "What would you like to do?",
-                    type=click.Choice(["retry", "skip", "continue"]),
-                    default="retry",
-                    show_choices=True,
-                )
-
-                if choice == "skip":
-                    click.echo("  Skipping mTLS configuration.")
-                    break
-                elif choice == "continue":
-                    click.echo("  Saving config with invalid certificates (will fail at startup).")
-                    mtls_config = MTLSConfig(
-                        client_cert_path=client_cert,
-                        client_key_path=client_key,
-                        ca_bundle_path=ca_bundle,
-                    )
-                    break
-                # else retry - loop continues
-
-    click.echo("\nNote: Device health (disk encryption, firewall) is checked at startup.")
-
-    return AuthConfig(
-        oidc=oidc_config,
-        mtls=mtls_config,
-    )
-
-
 def _run_interactive_init(
     log_dir: str | None,
     log_level: str,
@@ -292,7 +200,7 @@ def _run_interactive_init(
         http_config = prompt_http_config()
 
     # Authentication settings
-    auth_config = _prompt_auth_config(http_config)
+    auth_config = prompt_auth_config(http_config)
 
     return log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config
 
