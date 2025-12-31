@@ -62,6 +62,11 @@ from mcp_acp_extended.security.rate_limiter import (
     SessionRateTracker,
     create_rate_tracker,
 )
+from mcp_acp_extended.security.sanitizer import (
+    MAX_DESCRIPTION_LENGTH,
+    SanitizationResult,
+    sanitize_description,
+)
 
 __all__ = [
     # Authentication (security/auth/)
@@ -105,6 +110,10 @@ __all__ = [
     "RateLimitConfig",
     "SessionRateTracker",
     "create_rate_tracker",
+    # Sanitization
+    "MAX_DESCRIPTION_LENGTH",
+    "SanitizationResult",
+    "sanitize_description",
     # Exceptions (re-exported from mcp_acp_extended.exceptions)
     "CriticalSecurityFailure",
     "AuditFailure",

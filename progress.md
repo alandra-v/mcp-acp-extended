@@ -259,11 +259,16 @@ Simplified scope focusing on real risks (FastMCP already handles JSON-RPC valida
   - HITL dialog on breach (user decides if activity is legitimate)
   - Integrated with `PolicyEnforcementMiddleware`
 
-- [ ] **Tool description sanitization**
+- [x] **Tool description sanitization** (Complete)
   - Sanitize `tools/list` responses from backends
-  - Cap length, strip markup, normalize Unicode
-  - Filter prompt injection patterns
-  - `pep/sanitizer.py`
+  - Sanitizes both `tool.description` and `inputSchema.properties.*.description`
+  - Cap length (500 chars), strip markdown links, strip HTML tags
+  - Normalize Unicode (NFKC), remove control characters
+  - Detect suspicious patterns (prompt injection) - logged as warnings
+  - `security/sanitizer.py` - pure sanitization functions
+  - Integrated into `PolicyEnforcementMiddleware` (in-place, documented)
+  - Fail-open on errors (logs error, returns unsanitized)
+  - Sanitization events logged to `decisions.jsonl`, warnings to `system.jsonl`
 
 ---
 

@@ -25,7 +25,7 @@ from fastmcp.server.middleware import Middleware
 from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
 
 from mcp.shared.exceptions import McpError
-from mcp.types import ErrorData, INTERNAL_ERROR
+from mcp.types import ErrorData, INTERNAL_ERROR, ListToolsResult
 
 from mcp_acp_extended.context import ActionCategory, DecisionContext, build_decision_context
 from mcp_acp_extended.pdp import Decision, PolicyEngine
@@ -35,6 +35,7 @@ from mcp_acp_extended.api.routes.approvals import register_approval_store
 from mcp_acp_extended.pep.hitl import HITLHandler, HITLOutcome
 from mcp_acp_extended.security.identity import IdentityProvider
 from mcp_acp_extended.security.rate_limiter import SessionRateTracker
+from mcp_acp_extended.security.sanitizer import sanitize_description
 from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallback
 from mcp_acp_extended.utils.logging.extractors import extract_client_info
 from mcp_acp_extended.telemetry.models.decision import DecisionEvent
@@ -319,6 +320,143 @@ class PolicyEnforcementMiddleware(Middleware):
 
         return matched_rules, final_rule
 
+    def _sanitize_input_schema(
+        self,
+        schema: dict[str, Any] | None,
+        tool_name: str,
+        request_id: str,
+        session_id: str,
+    ) -> None:
+        """Sanitize descriptions in inputSchema properties.
+
+        Modifies schema in place. Property descriptions can also contain
+        prompt injection attempts, so we sanitize them too.
+
+        Args:
+            schema: The inputSchema dict to sanitize (modified in place).
+            tool_name: Tool name for logging.
+            request_id: Request correlation ID.
+            session_id: Session ID.
+        """
+        if not schema or "properties" not in schema:
+            return
+
+        properties = schema.get("properties", {})
+        if not isinstance(properties, dict):
+            return
+
+        for prop_name, prop_def in properties.items():
+            if not isinstance(prop_def, dict) or "description" not in prop_def:
+                continue
+
+            prop_desc = prop_def.get("description")
+            if not isinstance(prop_desc, str):
+                continue
+
+            sanitization = sanitize_description(prop_desc)
+            prop_def["description"] = sanitization.text
+
+            if sanitization.modifications or sanitization.suspicious_patterns:
+                self._logger.info(
+                    {
+                        "event": "input_schema_sanitized",
+                        "tool_name": tool_name,
+                        "property": prop_name,
+                        "modifications": sanitization.modifications,
+                        "suspicious_patterns": sanitization.suspicious_patterns,
+                        "request_id": request_id,
+                        "session_id": session_id,
+                    }
+                )
+
+                if sanitization.suspicious_patterns:
+                    _system_logger.warning(
+                        {
+                            "event": "suspicious_input_schema",
+                            "message": f"Tool '{tool_name}' property '{prop_name}' contains suspicious patterns",
+                            "tool_name": tool_name,
+                            "property": prop_name,
+                            "patterns": sanitization.suspicious_patterns,
+                            "request_id": request_id,
+                            "session_id": session_id,
+                        }
+                    )
+
+    def _sanitize_tools_list(
+        self,
+        result: ListToolsResult,
+        request_id: str,
+        session_id: str,
+    ) -> ListToolsResult:
+        """Sanitize tool descriptions in tools/list response.
+
+        Protects against prompt injection by sanitizing descriptions from
+        untrusted backend servers.
+
+        IMPORTANT: This method modifies Tool objects IN PLACE for simplicity.
+        This is acceptable because:
+        - FastMCP creates fresh ListToolsResult per request (no caching)
+        - We own this middleware and control the data flow
+        - Creating new Tool objects would add complexity for little benefit
+
+        Risk: If FastMCP ever caches ListToolsResult, this would corrupt the
+        cache. If that happens, refactor to create new Tool objects instead.
+
+        Sanitizes:
+        - tool.description
+        - tool.inputSchema.properties.*.description
+
+        Args:
+            result: The ListToolsResult from the backend (modified in place).
+            request_id: Request correlation ID for logging.
+            session_id: Session ID for logging.
+
+        Returns:
+            The same result object with sanitized descriptions.
+        """
+        for tool in result.tools:
+            # Sanitize main description
+            if tool.description:
+                sanitization = sanitize_description(tool.description)
+                tool.description = sanitization.text
+
+                if sanitization.modifications or sanitization.suspicious_patterns:
+                    self._logger.info(
+                        {
+                            "event": "tool_description_sanitized",
+                            "tool_name": tool.name,
+                            "modifications": sanitization.modifications,
+                            "suspicious_patterns": sanitization.suspicious_patterns,
+                            "original_length": sanitization.original_length,
+                            "sanitized_length": len(sanitization.text),
+                            "request_id": request_id,
+                            "session_id": session_id,
+                        }
+                    )
+
+                    if sanitization.suspicious_patterns:
+                        _system_logger.warning(
+                            {
+                                "event": "suspicious_tool_description",
+                                "message": f"Tool '{tool.name}' description contains suspicious patterns",
+                                "tool_name": tool.name,
+                                "patterns": sanitization.suspicious_patterns,
+                                "request_id": request_id,
+                                "session_id": session_id,
+                            }
+                        )
+
+            # Sanitize inputSchema property descriptions
+            if tool.inputSchema:
+                self._sanitize_input_schema(
+                    tool.inputSchema,
+                    tool.name,
+                    request_id,
+                    session_id,
+                )
+
+        return result
+
     async def _handle_rate_breach(
         self,
         *,
@@ -533,7 +671,38 @@ class PolicyEnforcementMiddleware(Middleware):
                 final_rule=final_rule,
                 policy_eval_ms=eval_duration_ms,
             )
-            return await call_next(context)
+            result = await call_next(context)
+
+            # Sanitize tools/list responses to protect against prompt injection
+            if method == "tools/list":
+                if isinstance(result, ListToolsResult):
+                    try:
+                        result = self._sanitize_tools_list(result, request_id, session_id)
+                    except Exception as e:
+                        # Fail-open: return unsanitized rather than failing the request
+                        # This prioritizes availability over security for this defense layer
+                        _system_logger.error(
+                            {
+                                "event": "sanitization_failed",
+                                "message": f"Failed to sanitize tools/list response: {e}",
+                                "error_type": type(e).__name__,
+                                "request_id": request_id,
+                                "session_id": session_id,
+                            }
+                        )
+                else:
+                    # Unexpected result type - log for debugging
+                    _system_logger.debug(
+                        {
+                            "event": "sanitization_skipped",
+                            "message": f"tools/list returned unexpected type: {type(result).__name__}",
+                            "result_type": type(result).__name__,
+                            "request_id": request_id,
+                            "session_id": session_id,
+                        }
+                    )
+
+            return result
 
         elif decision == Decision.DENY:
             # Log and deny
