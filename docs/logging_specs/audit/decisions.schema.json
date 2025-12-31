@@ -180,6 +180,19 @@
       ],
       "default": null,
       "title": "Hitl Outcome"
+    },
+    "hitl_cache_hit": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "True if approval was from cache, False if user prompted, None if not HITL",
+      "title": "Hitl Cache Hit"
     }
   },
   "required": [

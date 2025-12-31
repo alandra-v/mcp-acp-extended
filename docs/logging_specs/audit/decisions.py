@@ -48,6 +48,10 @@ class DecisionEvent(BaseModel):
 
     # --- HITL-specific fields (only when decision == "hitl") ---
     hitl_outcome: Optional[Literal["user_allowed", "user_denied", "timeout"]] = None
+    hitl_cache_hit: Optional[bool] = Field(
+        None,
+        description="True if approval was from cache, False if user prompted, None if not HITL",
+    )
 
     class Config:
         extra = "forbid"

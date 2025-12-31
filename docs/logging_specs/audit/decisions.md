@@ -35,3 +35,4 @@ session_id — optional, MCP session ID (may not exist during initialize)
 
 ## HITL (only when decision == "hitl")
 hitl_outcome — "user_allowed" | "user_denied" | "timeout"
+hitl_cache_hit — true if approval was from cache, false if user was prompted

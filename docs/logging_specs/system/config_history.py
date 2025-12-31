@@ -57,7 +57,7 @@ class ConfigHistoryEvent(BaseModel):
     checksum: str  # e.g. "sha256:abcd1234..."
 
     # --- snapshot ---
-    snapshot_format: Literal["yaml", "json"] = "json"
+    snapshot_format: Literal["json"] = "json"
     snapshot: Optional[str] = None  # full config content (optional for load events)
 
     # --- change details (for update events) ---

@@ -27,7 +27,7 @@ source — optional, e.g. "cli_init", "cli_update", "proxy_startup"
 checksum — e.g. "sha256:abcd1234..."
 
 ## Snapshot
-snapshot_format — "yaml" | "json" (default: "json")
+snapshot_format — "json"
 snapshot — optional, full config content
 
 ## Change details (for update events)

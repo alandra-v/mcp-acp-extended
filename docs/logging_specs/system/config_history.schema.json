@@ -106,11 +106,8 @@
       "type": "string"
     },
     "snapshot_format": {
+      "const": "json",
       "default": "json",
-      "enum": [
-        "yaml",
-        "json"
-      ],
       "title": "Snapshot Format",
       "type": "string"
     },
