@@ -23,11 +23,13 @@ import os
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 
+import uvicorn
 from fastmcp import FastMCP
 
 from mcp_acp_extended.config import AppConfig
 from mcp_acp_extended.constants import (
     AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
+    DEFAULT_API_PORT,
     DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
     PROTECTED_CONFIG_DIR,
 )
@@ -274,6 +276,8 @@ def create_proxy(
             raise
 
         # Validate identity and create user-bound session
+        api_server: uvicorn.Server | None = None
+        api_task: asyncio.Task | None = None
         try:
             session_identity = await identity_provider.get_identity()
             # Create session bound to user identity (format: <user_id>:<session_id>)
@@ -283,6 +287,27 @@ def create_proxy(
             auth_logger.log_session_started(
                 bound_session_id=bound_session_id,
                 subject=session_identity,
+            )
+
+            # Start management API server (shares memory for sessions/approvals)
+            # Lazy import to avoid circular import (proxy -> api -> cli -> proxy)
+            from mcp_acp_extended.api.server import create_api_app
+
+            api_app = create_api_app()
+            api_config = uvicorn.Config(
+                api_app,
+                host="127.0.0.1",
+                port=DEFAULT_API_PORT,
+                log_level="warning",  # Quiet - don't spam proxy logs
+            )
+            api_server = uvicorn.Server(api_config)
+            api_task = asyncio.create_task(api_server.serve())
+            system_logger.info(
+                {
+                    "event": "api_server_started",
+                    "port": DEFAULT_API_PORT,
+                    "url": f"http://127.0.0.1:{DEFAULT_API_PORT}",
+                }
             )
         except AuthenticationError as e:
             # Auth failed at startup - log with placeholder (no user to bind to)
@@ -328,6 +353,18 @@ def create_proxy(
             )
             raise
         finally:
+            # Stop API server first (graceful shutdown)
+            if api_server is not None:
+                api_server.should_exit = True
+                if api_task is not None:
+                    try:
+                        await asyncio.wait_for(api_task, timeout=5.0)
+                    except asyncio.TimeoutError:
+                        api_task.cancel()
+                    except asyncio.CancelledError:
+                        pass
+                system_logger.info({"event": "api_server_stopped"})
+
             await device_monitor.stop()
             await audit_monitor.stop()
             # Log session_ended with bound session ID and MCP session for correlation

@@ -45,7 +45,8 @@ __all__ = [
 class HITLOutcome(Enum):
     """Outcome of HITL approval request."""
 
-    USER_ALLOWED = "user_allowed"
+    USER_ALLOWED = "user_allowed"  # User allowed AND wants to cache
+    USER_ALLOWED_ONCE = "user_allowed_once"  # User allowed but no cache
     USER_DENIED = "user_denied"
     TIMEOUT = "timeout"
 
@@ -115,6 +116,7 @@ class HITLHandler:
         self,
         context: "DecisionContext",
         matched_rule: str | None = None,
+        will_cache: bool = True,
     ) -> HITLResult:
         """Request user approval for an operation.
 
@@ -124,6 +126,9 @@ class HITLHandler:
         Args:
             context: Decision context with operation details.
             matched_rule: The rule ID that triggered HITL (for user context).
+            will_cache: Whether approval will be cached. If True, shows 3 buttons
+                (Allow cached, Allow once, Deny). If False, shows 2 buttons
+                (Allow, Deny) since caching isn't possible anyway.
 
         Returns:
             HITLResult with user's decision and response time.
@@ -141,7 +146,7 @@ class HITLHandler:
             queue_position = self._pending_count
 
         try:
-            return await self._do_request_approval(context, matched_rule, queue_position)
+            return await self._do_request_approval(context, matched_rule, queue_position, will_cache)
         finally:
             with self._pending_lock:
                 self._pending_count -= 1
@@ -151,6 +156,7 @@ class HITLHandler:
         context: "DecisionContext",
         matched_rule: str | None,
         queue_position: int,
+        will_cache: bool,
     ) -> HITLResult:
         """Internal method to perform the actual approval request."""
         start_time = time.perf_counter()
@@ -194,7 +200,13 @@ class HITLHandler:
         # Timeout warning and keyboard hints
         message_parts.append("")  # Empty line for spacing
         message_parts.append(f"Auto-deny in {timeout_seconds}s")
-        message_parts.append("[Return] Allow  •  [Esc] Deny")
+        if will_cache:
+            ttl_min = self.config.approval_ttl_seconds // 60
+            # Legend matches button order (left to right): Deny, Allow (Xm), Allow once
+            message_parts.append(f"[Esc] Deny | Allow ({ttl_min}m) | [Return] Allow once")
+        else:
+            # Legend matches button order: Deny, Allow
+            message_parts.append("[Esc] Deny | [Return] Allow")
 
         # Escape each part individually, then join with AppleScript return syntax
         # This ensures user input is escaped but the return keyword works
@@ -202,7 +214,7 @@ class HITLHandler:
         safe_message = '" & return & "'.join(escaped_parts)
 
         # Show dialog and get response
-        outcome = self._show_macos_dialog(safe_message, request_id, queue_position)
+        outcome = self._show_macos_dialog(safe_message, request_id, queue_position, will_cache)
 
         response_time_ms = (time.perf_counter() - start_time) * 1000
 
@@ -213,6 +225,7 @@ class HITLHandler:
         message: str,
         request_id: str | None,
         queue_position: int,
+        will_cache: bool,
     ) -> HITLOutcome:
         """Show macOS approval dialog via osascript.
 
@@ -220,6 +233,7 @@ class HITLHandler:
             message: Message to display in dialog (parts pre-escaped, joined with return).
             request_id: Request correlation ID for logging.
             queue_position: Position in approval queue (1 = first, plays sound).
+            will_cache: Whether caching is possible. If True, shows 3 buttons.
 
         Returns:
             HITLOutcome based on user response or timeout.
@@ -229,19 +243,35 @@ class HITLHandler:
         # Build osascript command
         # Play Funk sound only for first request (queue_position == 1)
         # No sound for queued requests since user is already engaged
-        # Buttons are listed right-to-left in the dialog, so "Allow" appears on the right
-        # default button "Allow" = Return/Enter activates Allow
-        # cancel button "Deny" = Escape activates Deny (returns exit code 1, "User canceled")
-        # The message uses AppleScript string concatenation with return for newlines
         sound_cmd = (
             'do shell script "afplay /System/Library/Sounds/Funk.aiff &"' if queue_position == 1 else ""
         )
+
+        # Button configuration depends on whether caching is possible
+        # Buttons appear left-to-right as listed in the array
+        # default button = Return/Enter activates it
+        # cancel button = Escape activates it (returns exit code 1, "User canceled")
+        if will_cache:
+            # 3 buttons (left to right): Deny, Allow (Xm), Allow once
+            ttl_minutes = self.config.approval_ttl_seconds // 60
+            allow_cached_button = f"Allow ({ttl_minutes}m)"
+            allow_once_button = "Allow once"
+            # Buttons appear: [Deny] [Allow (Xm)] [Allow once]
+            buttons_str = f'{{"Deny", "{allow_cached_button}", "{allow_once_button}"}}'
+            default_button = allow_once_button  # Return = Allow once (safer default)
+        else:
+            # 2 buttons: Deny, Allow (caching not possible for this tool)
+            allow_cached_button = None
+            allow_once_button = "Allow"
+            buttons_str = f'{{"Deny", "{allow_once_button}"}}'
+            default_button = allow_once_button
+
         script = f"""
             {sound_cmd}
             display dialog ("{message}") \
                 with title "MCP-ACP: Approval Required" \
-                buttons {{"Deny", "Allow"}} \
-                default button "Allow" \
+                buttons {buttons_str} \
+                default button "{default_button}" \
                 cancel button "Deny" \
                 with icon caution \
                 giving up after {timeout_seconds}
@@ -258,9 +288,7 @@ class HITLHandler:
             # Check returncode first - non-zero means error or user cancelled
             if result.returncode != 0:
                 # returncode 1 with "User canceled" means Escape was pressed (Deny)
-                # This is the expected path when user presses Escape due to cancel button "Deny"
                 if result.returncode == 1 and "User canceled" in result.stderr:
-                    # Normal path - user pressed Escape to deny, no need to log
                     return HITLOutcome.USER_DENIED
 
                 # Other error
@@ -281,7 +309,6 @@ class HITLHandler:
             try:
                 parsed = _parse_applescript_record(output)
             except Exception as e:
-                # If parsing fails for any reason, default to deny
                 self._system_logger.warning(
                     {
                         "event": "hitl_parse_error",
@@ -307,8 +334,10 @@ class HITLHandler:
 
             # Check button pressed
             button = parsed.get("button returned")
-            if button == "Allow":
-                return HITLOutcome.USER_ALLOWED
+            if will_cache and button == allow_cached_button:
+                return HITLOutcome.USER_ALLOWED  # Allow + cache
+            elif button == allow_once_button:
+                return HITLOutcome.USER_ALLOWED_ONCE  # Allow without cache
             elif button == "Deny":
                 return HITLOutcome.USER_DENIED
             else:
@@ -336,7 +365,6 @@ class HITLHandler:
             return HITLOutcome.TIMEOUT
 
         except FileNotFoundError:
-            # osascript not available (not macOS)
             self._system_logger.error(
                 {
                     "event": "hitl_osascript_not_found",

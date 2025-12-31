@@ -32,8 +32,11 @@ from typing import Literal, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mcp_acp_extended.constants import (
+    DEFAULT_APPROVAL_TTL_SECONDS,
     DEFAULT_HITL_TIMEOUT_SECONDS,
+    MAX_APPROVAL_TTL_SECONDS,
     MAX_HITL_TIMEOUT_SECONDS,
+    MIN_APPROVAL_TTL_SECONDS,
     MIN_HITL_TIMEOUT_SECONDS,
 )
 from mcp_acp_extended.context.resource import SideEffect
@@ -134,6 +137,11 @@ class HITLConfig(BaseModel):
         timeout_seconds: How long to wait for user response (default: 30s).
             Must be between 5-300 seconds.
         default_on_timeout: What to do if user doesn't respond (always "deny").
+        approval_ttl_seconds: How long cached approvals remain valid (default: 600s).
+            Must be between 300-900 seconds (5-15 minutes).
+        cache_side_effects: Side effects that are allowed to be cached.
+            If None (default), tools with ANY side effect are never cached.
+            Set to a list of SideEffects to allow caching for those effects.
 
     Important:
         The timeout should be shorter than your MCP client's request timeout.
@@ -147,6 +155,14 @@ class HITLConfig(BaseModel):
         le=MAX_HITL_TIMEOUT_SECONDS,
     )
     default_on_timeout: Literal["deny"] = "deny"
+
+    # Approval caching (reduces HITL fatigue)
+    approval_ttl_seconds: int = Field(
+        default=DEFAULT_APPROVAL_TTL_SECONDS,
+        ge=MIN_APPROVAL_TTL_SECONDS,
+        le=MAX_APPROVAL_TTL_SECONDS,
+    )
+    cache_side_effects: list[SideEffect] | None = None
 
     model_config = ConfigDict(frozen=True)
 

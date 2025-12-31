@@ -16,7 +16,6 @@ from mcp_acp_extended.utils.history_logging.policy_logger import (
 )
 from mcp_acp_extended.cli.startup_alerts import show_startup_error_popup
 from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
-from mcp_acp_extended.proxy import create_proxy
 from mcp_acp_extended.utils.config import (
     ensure_directories,
     get_config_history_path,
@@ -84,6 +83,9 @@ def start() -> None:
         click.echo(f"Backend: {loaded_config.backend.server_name}", err=True)
 
         # Create proxy (detects/validates transport)
+        # Lazy import to avoid circular import (cli -> proxy -> cli.startup_alerts -> cli)
+        from mcp_acp_extended.proxy import create_proxy
+
         proxy, actual_transport = create_proxy(
             loaded_config,
             config_version=config_version,

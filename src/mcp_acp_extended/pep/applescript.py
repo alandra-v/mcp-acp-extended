@@ -68,12 +68,16 @@ def parse_applescript_record(output: str) -> dict[str, str]:
 
     # Match key:value pairs where value is either quoted or unquoted
     # Pattern handles: key:"quoted value" or key:unquoted_value
-    pattern = r'(\w+(?:\s+\w+)*)\s*:\s*(?:"([^"]*)"|(\w+))'
+    # Unquoted values can contain word chars, spaces, and parentheses (e.g., "Allow (10m)")
+    # Values are terminated by comma or end of record (})
+    pattern = r'(\w+(?:\s+\w+)*)\s*:\s*(?:"([^"]*)"|([^,}]+))'
 
     for match in re.finditer(pattern, output):
         key = match.group(1)
         # Value is either in group 2 (quoted) or group 3 (unquoted)
         value = match.group(2) if match.group(2) is not None else match.group(3)
+        if value:
+            value = value.strip()  # Clean up whitespace from unquoted values
         result[key] = value
 
     return result

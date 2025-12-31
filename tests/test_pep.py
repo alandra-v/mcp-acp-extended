@@ -1100,3 +1100,468 @@ class TestProtectedPaths:
 
         result = engine.evaluate(context)
         assert result == Decision.ALLOW
+
+
+# =============================================================================
+# Approval Caching Tests
+# =============================================================================
+
+
+class TestApprovalCaching:
+    """Tests for HITL approval caching in middleware."""
+
+    @pytest.fixture
+    def mock_policy_with_caching(self) -> MagicMock:
+        """Create mock PolicyConfig with caching settings."""
+        policy = MagicMock()
+        policy.hitl.timeout_seconds = 30
+        policy.hitl.default_on_timeout = "deny"
+        policy.hitl.approval_ttl_seconds = 600
+        policy.hitl.cache_side_effects = None  # Default: never cache side effects
+        return policy
+
+    @pytest.fixture
+    def mock_identity_provider(self) -> MagicMock:
+        """Create mock IdentityProvider."""
+        provider = MagicMock()
+        provider.get_identity = AsyncMock(return_value=MagicMock(subject_id="test_user"))
+        return provider
+
+    @pytest.fixture
+    def mock_logger(self) -> MagicMock:
+        """Create mock logger."""
+        return MagicMock(spec=logging.Logger)
+
+    @pytest.fixture
+    def mock_middleware_context(self) -> MagicMock:
+        """Create mock MiddlewareContext."""
+        context = MagicMock()
+        context.method = "tools/call"
+        context.message = MagicMock()
+        context.message.model_dump.return_value = {
+            "name": "list_files",
+            "arguments": {"path": "/test"},
+        }
+        return context
+
+    @pytest.fixture
+    def middleware_with_caching(
+        self,
+        mock_policy_with_caching: MagicMock,
+        mock_identity_provider: MagicMock,
+        mock_logger: MagicMock,
+    ) -> PolicyEnforcementMiddleware:
+        """Create middleware with caching enabled."""
+        return PolicyEnforcementMiddleware(
+            policy=mock_policy_with_caching,
+            protected_dirs=(),
+            identity_provider=mock_identity_provider,
+            backend_id="test-server",
+            logger=mock_logger,
+            policy_version="v1",
+        )
+
+    def test_approval_store_property_exists(
+        self,
+        middleware_with_caching: PolicyEnforcementMiddleware,
+    ) -> None:
+        """Middleware should expose approval_store property."""
+        from mcp_acp_extended.pep.approval_store import ApprovalStore
+
+        assert hasattr(middleware_with_caching, "approval_store")
+        assert isinstance(middleware_with_caching.approval_store, ApprovalStore)
+
+    def test_approval_store_uses_config_ttl(
+        self,
+        middleware_with_caching: PolicyEnforcementMiddleware,
+    ) -> None:
+        """Approval store should use TTL from policy config."""
+        assert middleware_with_caching.approval_store.ttl_seconds == 600
+
+    @pytest.mark.asyncio
+    async def test_cached_approval_skips_hitl_dialog(
+        self,
+        middleware_with_caching: PolicyEnforcementMiddleware,
+        mock_middleware_context: MagicMock,
+    ) -> None:
+        """Cached approval should skip HITL dialog and allow request."""
+        # Arrange
+        call_next = AsyncMock(return_value={"result": "success"})
+
+        # Mock tool
+        mock_tool = MagicMock()
+        mock_tool.name = "list_files"
+        mock_tool.side_effects = None
+
+        # Mock decision context
+        mock_decision_context = MagicMock()
+        mock_decision_context.resource.tool = mock_tool
+        mock_decision_context.resource.resource.path = "/test"
+        mock_decision_context.resource.resource.uri = None
+        mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.subject.id = "test_user"
+        mock_decision_context.action.mcp_method = "tools/call"
+        mock_decision_context.action.category = MagicMock()
+        mock_decision_context.environment.request_id = "req123"
+        mock_decision_context.environment.session_id = "sess456"
+
+        # Pre-populate cache
+        middleware_with_caching.approval_store.store(
+            subject_id="test_user",
+            tool_name="list_files",
+            path="/test",
+            request_id="prev_req",
+        )
+
+        with patch.object(
+            middleware_with_caching,
+            "_build_context",
+            new_callable=AsyncMock,
+            return_value=mock_decision_context,
+        ):
+            with patch.object(middleware_with_caching._engine, "evaluate", return_value=Decision.HITL):
+                with patch.object(middleware_with_caching._engine, "get_matching_rules", return_value=[]):
+                    with patch.object(
+                        middleware_with_caching._hitl_handler,
+                        "request_approval",
+                        new_callable=AsyncMock,
+                    ) as mock_hitl:
+                        with patch("mcp_acp_extended.pep.middleware.get_request_id", return_value="req123"):
+                            with patch(
+                                "mcp_acp_extended.pep.middleware.get_session_id",
+                                return_value="sess456",
+                            ):
+                                # Act
+                                result = await middleware_with_caching.on_message(
+                                    mock_middleware_context, call_next
+                                )
+
+        # Assert - HITL dialog NOT called (cached approval used)
+        mock_hitl.assert_not_called()
+        call_next.assert_called_once()
+        assert result == {"result": "success"}
+
+    @pytest.mark.asyncio
+    async def test_no_cache_hit_shows_dialog(
+        self,
+        middleware_with_caching: PolicyEnforcementMiddleware,
+        mock_middleware_context: MagicMock,
+    ) -> None:
+        """Without cached approval, HITL dialog should be shown."""
+        # Arrange
+        call_next = AsyncMock(return_value={"result": "success"})
+        hitl_result = HITLResult(outcome=HITLOutcome.USER_ALLOWED, response_time_ms=1500.0)
+
+        # Mock tool
+        mock_tool = MagicMock()
+        mock_tool.name = "list_files"
+        mock_tool.side_effects = None
+
+        # Mock decision context
+        mock_decision_context = MagicMock()
+        mock_decision_context.resource.tool = mock_tool
+        mock_decision_context.resource.resource.path = "/test"
+        mock_decision_context.resource.resource.uri = None
+        mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.subject.id = "test_user"
+        mock_decision_context.action.mcp_method = "tools/call"
+        mock_decision_context.action.category = MagicMock()
+        mock_decision_context.environment.request_id = "req123"
+        mock_decision_context.environment.session_id = "sess456"
+
+        with patch.object(
+            middleware_with_caching,
+            "_build_context",
+            new_callable=AsyncMock,
+            return_value=mock_decision_context,
+        ):
+            with patch.object(middleware_with_caching._engine, "evaluate", return_value=Decision.HITL):
+                with patch.object(middleware_with_caching._engine, "get_matching_rules", return_value=[]):
+                    with patch.object(
+                        middleware_with_caching._hitl_handler,
+                        "request_approval",
+                        new_callable=AsyncMock,
+                        return_value=hitl_result,
+                    ) as mock_hitl:
+                        with patch("mcp_acp_extended.pep.middleware.get_request_id", return_value="req123"):
+                            with patch(
+                                "mcp_acp_extended.pep.middleware.get_session_id",
+                                return_value="sess456",
+                            ):
+                                # Act
+                                result = await middleware_with_caching.on_message(
+                                    mock_middleware_context, call_next
+                                )
+
+        # Assert - HITL dialog called
+        mock_hitl.assert_called_once()
+        call_next.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_approval_stored_after_user_allows_no_side_effects(
+        self,
+        middleware_with_caching: PolicyEnforcementMiddleware,
+        mock_middleware_context: MagicMock,
+    ) -> None:
+        """After user allows, approval should be cached for tools without side effects."""
+        # Arrange
+        call_next = AsyncMock(return_value={"result": "success"})
+        hitl_result = HITLResult(outcome=HITLOutcome.USER_ALLOWED, response_time_ms=1500.0)
+
+        # Tool with no side effects (should be cached)
+        mock_tool = MagicMock()
+        mock_tool.name = "list_files"
+        mock_tool.side_effects = None
+
+        # Mock decision context with tool that has no side effects
+        mock_decision_context = MagicMock()
+        mock_decision_context.resource.tool = mock_tool
+        mock_decision_context.resource.resource.path = "/test"
+        mock_decision_context.resource.resource.uri = None
+        mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.subject.id = "test_user"
+        mock_decision_context.action.mcp_method = "tools/call"
+        mock_decision_context.action.category = MagicMock()
+        mock_decision_context.environment.request_id = "req123"
+        mock_decision_context.environment.session_id = "sess456"
+
+        assert middleware_with_caching.approval_store.count == 0
+
+        with patch.object(
+            middleware_with_caching,
+            "_build_context",
+            new_callable=AsyncMock,
+            return_value=mock_decision_context,
+        ):
+            with patch.object(middleware_with_caching._engine, "evaluate", return_value=Decision.HITL):
+                with patch.object(middleware_with_caching._engine, "get_matching_rules", return_value=[]):
+                    with patch.object(
+                        middleware_with_caching._hitl_handler,
+                        "request_approval",
+                        new_callable=AsyncMock,
+                        return_value=hitl_result,
+                    ):
+                        with patch("mcp_acp_extended.pep.middleware.get_request_id", return_value="req123"):
+                            with patch(
+                                "mcp_acp_extended.pep.middleware.get_session_id",
+                                return_value="sess456",
+                            ):
+                                # Act
+                                await middleware_with_caching.on_message(mock_middleware_context, call_next)
+
+        # Assert - approval was cached (tool had no side effects)
+        assert middleware_with_caching.approval_store.count == 1
+
+    @pytest.mark.asyncio
+    async def test_approval_not_stored_for_side_effect_tools(
+        self,
+        mock_policy_with_caching: MagicMock,
+        mock_identity_provider: MagicMock,
+        mock_logger: MagicMock,
+    ) -> None:
+        """Approvals for tools with side effects should NOT be cached by default."""
+        from mcp_acp_extended.context.resource import SideEffect
+
+        # Create middleware
+        middleware = PolicyEnforcementMiddleware(
+            policy=mock_policy_with_caching,
+            protected_dirs=(),
+            identity_provider=mock_identity_provider,
+            backend_id="test-server",
+            logger=mock_logger,
+            policy_version="v1",
+        )
+
+        # Arrange
+        call_next = AsyncMock(return_value={"result": "success"})
+        hitl_result = HITLResult(outcome=HITLOutcome.USER_ALLOWED, response_time_ms=1500.0)
+
+        # Create mock context for tool with side effects
+        mock_context = MagicMock()
+        mock_context.method = "tools/call"
+        mock_context.message = MagicMock()
+        mock_context.message.model_dump.return_value = {
+            "name": "write_file",
+            "arguments": {"path": "/test/file.txt"},
+        }
+
+        # Mock tool with side effects
+        mock_tool = MagicMock()
+        mock_tool.name = "write_file"
+        mock_tool.side_effects = frozenset({SideEffect.FS_WRITE})
+
+        # Mock decision context
+        mock_decision_context = MagicMock()
+        mock_decision_context.resource.tool = mock_tool
+        mock_decision_context.resource.resource.path = "/test/file.txt"
+        mock_decision_context.resource.resource.uri = None
+        mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.subject.id = "test_user"
+        mock_decision_context.action.mcp_method = "tools/call"
+        mock_decision_context.action.category = MagicMock()
+        mock_decision_context.environment.request_id = "req123"
+        mock_decision_context.environment.session_id = "sess456"
+
+        assert middleware.approval_store.count == 0
+
+        with patch.object(
+            middleware, "_build_context", new_callable=AsyncMock, return_value=mock_decision_context
+        ):
+            with patch.object(middleware._engine, "evaluate", return_value=Decision.HITL):
+                with patch.object(middleware._engine, "get_matching_rules", return_value=[]):
+                    with patch.object(
+                        middleware._hitl_handler,
+                        "request_approval",
+                        new_callable=AsyncMock,
+                        return_value=hitl_result,
+                    ):
+                        with patch("mcp_acp_extended.pep.middleware.get_request_id", return_value="req123"):
+                            with patch(
+                                "mcp_acp_extended.pep.middleware.get_session_id",
+                                return_value="sess456",
+                            ):
+                                # Act
+                                await middleware.on_message(mock_context, call_next)
+
+        # Assert - approval was NOT cached (tool has side effects)
+        assert middleware.approval_store.count == 0
+
+    @pytest.mark.asyncio
+    async def test_configurable_side_effects_can_be_cached(
+        self,
+        mock_identity_provider: MagicMock,
+        mock_logger: MagicMock,
+    ) -> None:
+        """When cache_side_effects is configured, those effects can be cached."""
+        from mcp_acp_extended.context.resource import SideEffect
+
+        # Create policy allowing FS_READ caching
+        mock_policy = MagicMock()
+        mock_policy.hitl.timeout_seconds = 30
+        mock_policy.hitl.default_on_timeout = "deny"
+        mock_policy.hitl.approval_ttl_seconds = 600
+        mock_policy.hitl.cache_side_effects = [SideEffect.FS_READ]
+
+        # Create middleware
+        middleware = PolicyEnforcementMiddleware(
+            policy=mock_policy,
+            protected_dirs=(),
+            identity_provider=mock_identity_provider,
+            backend_id="test-server",
+            logger=mock_logger,
+            policy_version="v1",
+        )
+
+        # Arrange
+        call_next = AsyncMock(return_value={"result": "success"})
+        hitl_result = HITLResult(outcome=HITLOutcome.USER_ALLOWED, response_time_ms=1500.0)
+
+        # Create mock context
+        mock_context = MagicMock()
+        mock_context.method = "tools/call"
+        mock_context.message = MagicMock()
+        mock_context.message.model_dump.return_value = {
+            "name": "read_file",
+            "arguments": {"path": "/test/file.txt"},
+        }
+
+        # Mock tool with FS_READ side effect (allowed to cache)
+        mock_tool = MagicMock()
+        mock_tool.name = "read_file"
+        mock_tool.side_effects = frozenset({SideEffect.FS_READ})
+
+        # Mock decision context
+        mock_decision_context = MagicMock()
+        mock_decision_context.resource.tool = mock_tool
+        mock_decision_context.resource.resource.path = "/test/file.txt"
+        mock_decision_context.resource.resource.uri = None
+        mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.subject.id = "test_user"
+        mock_decision_context.action.mcp_method = "tools/call"
+        mock_decision_context.action.category = MagicMock()
+        mock_decision_context.environment.request_id = "req123"
+        mock_decision_context.environment.session_id = "sess456"
+
+        assert middleware.approval_store.count == 0
+
+        with patch.object(
+            middleware, "_build_context", new_callable=AsyncMock, return_value=mock_decision_context
+        ):
+            with patch.object(middleware._engine, "evaluate", return_value=Decision.HITL):
+                with patch.object(middleware._engine, "get_matching_rules", return_value=[]):
+                    with patch.object(
+                        middleware._hitl_handler,
+                        "request_approval",
+                        new_callable=AsyncMock,
+                        return_value=hitl_result,
+                    ):
+                        with patch("mcp_acp_extended.pep.middleware.get_request_id", return_value="req123"):
+                            with patch(
+                                "mcp_acp_extended.pep.middleware.get_session_id",
+                                return_value="sess456",
+                            ):
+                                # Act
+                                await middleware.on_message(mock_context, call_next)
+
+        # Assert - approval WAS cached (FS_READ is allowed)
+        assert middleware.approval_store.count == 1
+
+    @pytest.mark.asyncio
+    async def test_user_allowed_once_does_not_cache(
+        self,
+        middleware_with_caching: PolicyEnforcementMiddleware,
+        mock_middleware_context: MagicMock,
+    ) -> None:
+        """USER_ALLOWED_ONCE should allow but NOT cache the approval."""
+        # Arrange
+        call_next = AsyncMock(return_value={"result": "success"})
+        # User clicked "Allow once" instead of "Allow (cached)"
+        hitl_result = HITLResult(outcome=HITLOutcome.USER_ALLOWED_ONCE, response_time_ms=1500.0)
+
+        # Tool with no side effects (would normally be cached)
+        mock_tool = MagicMock()
+        mock_tool.name = "list_files"
+        mock_tool.side_effects = None
+
+        # Mock decision context
+        mock_decision_context = MagicMock()
+        mock_decision_context.resource.tool = mock_tool
+        mock_decision_context.resource.resource.path = "/test"
+        mock_decision_context.resource.resource.uri = None
+        mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.subject.id = "test_user"
+        mock_decision_context.action.mcp_method = "tools/call"
+        mock_decision_context.action.category = MagicMock()
+        mock_decision_context.environment.request_id = "req123"
+        mock_decision_context.environment.session_id = "sess456"
+
+        assert middleware_with_caching.approval_store.count == 0
+
+        with patch.object(
+            middleware_with_caching,
+            "_build_context",
+            new_callable=AsyncMock,
+            return_value=mock_decision_context,
+        ):
+            with patch.object(middleware_with_caching._engine, "evaluate", return_value=Decision.HITL):
+                with patch.object(middleware_with_caching._engine, "get_matching_rules", return_value=[]):
+                    with patch.object(
+                        middleware_with_caching._hitl_handler,
+                        "request_approval",
+                        new_callable=AsyncMock,
+                        return_value=hitl_result,
+                    ):
+                        with patch("mcp_acp_extended.pep.middleware.get_request_id", return_value="req123"):
+                            with patch(
+                                "mcp_acp_extended.pep.middleware.get_session_id",
+                                return_value="sess456",
+                            ):
+                                # Act
+                                result = await middleware_with_caching.on_message(
+                                    mock_middleware_context, call_next
+                                )
+
+        # Assert - request succeeded but approval NOT cached
+        call_next.assert_called_once()
+        assert result == {"result": "success"}
+        assert middleware_with_caching.approval_store.count == 0  # NOT cached

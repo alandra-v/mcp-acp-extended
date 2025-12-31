@@ -24,6 +24,7 @@ Note: PermissionDeniedError is defined in mcp_acp_extended.exceptions
 """
 
 from mcp_acp_extended.exceptions import PERMISSION_DENIED_CODE, PermissionDeniedError
+from mcp_acp_extended.pep.approval_store import ApprovalStore, CachedApproval
 from mcp_acp_extended.pep.context_middleware import ContextMiddleware, create_context_middleware
 from mcp_acp_extended.pep.hitl import HITLHandler, HITLOutcome, HITLResult
 from mcp_acp_extended.pep.middleware import (
@@ -35,6 +36,9 @@ __all__ = [
     # Errors
     "PermissionDeniedError",
     "PERMISSION_DENIED_CODE",
+    # Approval caching
+    "ApprovalStore",
+    "CachedApproval",
     # HITL
     "HITLHandler",
     "HITLOutcome",

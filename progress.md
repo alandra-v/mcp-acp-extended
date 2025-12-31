@@ -233,13 +233,48 @@ See [docs/auth.md](docs/auth.md) for configuration details.
 
 ---
 
-## Phase 10: Context Enhancements
+## Phase 10: Security Hardening
 
-- [ ] Approval context (HITL tracking)
-- [ ] Data inspection (regex-based secret/PII detection)
-- [ ] Tool registry with side effects
-- [ ] Environment context conditions (mcp_client_name, time windows)
-- [ ] Provenance tracking with confidence levels
+**Status: In Progress**
+
+- [x] **HITL approval caching** (Complete)
+  - `ApprovalStore` caches approvals by (subject_id, tool_name, path)
+  - Configurable TTL (default 10 minutes, min 5, max 15)
+  - 3-button dialog: Deny, Allow (Xm), Allow once
+  - CODE_EXEC tools never cached (security)
+  - Unknown side effects treated as unsafe (not cached)
+  - API endpoints for cache visibility (`/api/approvals`)
+  - Embedded uvicorn server for shared memory access
+  - See `docs/roadmap.md` section 2.7 for future policy-exposed approval conditions
+
+- [ ] **Rate/burst anomaly detection**
+  - Per-session sliding window rate tracking
+  - Configurable thresholds per tool
+  - HITL on breach (catch runaway LLM loops, exfiltration attempts)
+  - `security/rate_limiter.py`
+
+- [ ] **JSON-RPC/MCP schema validation**
+  - Validate all backend → proxy messages
+  - Check jsonrpc version, required fields, correct types
+  - Close connection on malformed messages
+  - `security/message_validator.py`
+
+- [ ] **Basic size & message limits**
+  - Max message size (5 MB)
+  - Max messages per second per backend
+  - Max pending requests
+  - `security/message_limits.py`
+
+- [ ] **Input validation hardening**
+  - Max path length (4096), max string length (64 KB)
+  - Max list items (1000), max recursion depth (50)
+  - `security/input_validator.py`
+
+- [ ] **Tool description sanitization**
+  - Sanitize `tools/list` responses from backends
+  - Cap length, strip markup, normalize Unicode
+  - Filter prompt injection patterns
+  - `pep/sanitizer.py`
 
 ---
 

@@ -232,6 +232,14 @@ DISCOVERY_METHODS: frozenset[str] = frozenset(
 )
 
 # ============================================================================
+# Management API Server
+# ============================================================================
+
+# Default port for the management API server (serves UI and /api endpoints)
+# Runs inside the proxy process to share memory (sessions, approval cache)
+DEFAULT_API_PORT: int = 8080
+
+# ============================================================================
 # History Versioning
 # ============================================================================
 

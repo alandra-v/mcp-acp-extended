@@ -11,6 +11,11 @@ Middleware order: Context (outer) → Audit → ClientLogger → Enforcement (in
 
 from __future__ import annotations
 
+__all__ = [
+    "PolicyEnforcementMiddleware",
+    "create_enforcement_middleware",
+]
+
 import logging
 import time
 from pathlib import Path
@@ -25,6 +30,8 @@ from mcp.types import ErrorData, INTERNAL_ERROR
 from mcp_acp_extended.context import ActionCategory, DecisionContext, build_decision_context
 from mcp_acp_extended.pdp import Decision, PolicyEngine
 from mcp_acp_extended.exceptions import PermissionDeniedError
+from mcp_acp_extended.pep.approval_store import ApprovalStore
+from mcp_acp_extended.api.routes.approvals import register_approval_store
 from mcp_acp_extended.pep.hitl import HITLHandler, HITLOutcome
 from mcp_acp_extended.security.identity import IdentityProvider
 from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallback
@@ -92,8 +99,18 @@ class PolicyEnforcementMiddleware(Middleware):
         self._logger = logger
         self._policy_version = policy_version
         self._hitl_handler = HITLHandler(policy.hitl)
+        self._hitl_config = policy.hitl  # For cache settings
+        # Approval cache for reducing HITL dialog fatigue
+        self._approval_store = ApprovalStore(ttl_seconds=policy.hitl.approval_ttl_seconds)
+        # Register with API for debugging visibility
+        register_approval_store(self._approval_store)
         # Client name extracted from initialize request
         self._client_name: str | None = None
+
+    @property
+    def approval_store(self) -> ApprovalStore:
+        """Get the approval store for cache management."""
+        return self._approval_store
 
     def _extract_client_name(self, context: MiddlewareContext[Any]) -> None:
         """Extract and cache client name from initialize request.
@@ -172,6 +189,7 @@ class PolicyEnforcementMiddleware(Middleware):
         policy_eval_ms: float,
         hitl_outcome: HITLOutcome | None = None,
         policy_hitl_ms: float | None = None,
+        hitl_cache_hit: bool | None = None,
     ) -> None:
         """Log policy decision to decisions.jsonl with fallback chain.
 
@@ -186,6 +204,7 @@ class PolicyEnforcementMiddleware(Middleware):
             policy_eval_ms: Policy rule evaluation time.
             hitl_outcome: HITL outcome if applicable.
             policy_hitl_ms: HITL wait time if applicable.
+            hitl_cache_hit: True if approval from cache, False if user prompted.
 
         Raises:
             McpError: If primary logging fails (after logging to fallbacks).
@@ -207,6 +226,14 @@ class PolicyEnforcementMiddleware(Middleware):
         # Calculate total time (eval + HITL, excludes context)
         policy_total_ms = policy_eval_ms + (policy_hitl_ms or 0.0)
 
+        # Map USER_ALLOWED_ONCE to user_allowed for logging (same outcome, different caching)
+        hitl_outcome_value: str | None = None
+        if hitl_outcome:
+            if hitl_outcome == HITLOutcome.USER_ALLOWED_ONCE:
+                hitl_outcome_value = "user_allowed"
+            else:
+                hitl_outcome_value = hitl_outcome.value
+
         event = DecisionEvent(
             decision=decision.value,
             matched_rules=matched_rules,
@@ -225,7 +252,8 @@ class PolicyEnforcementMiddleware(Middleware):
             policy_total_ms=round(policy_total_ms, 2),
             request_id=decision_context.environment.request_id,
             session_id=decision_context.environment.session_id,
-            hitl_outcome=hitl_outcome.value if hitl_outcome else None,
+            hitl_outcome=hitl_outcome_value,
+            hitl_cache_hit=hitl_cache_hit,
         )
 
         # Log with fallback chain
@@ -380,14 +408,83 @@ class PolicyEnforcementMiddleware(Middleware):
             )
 
         elif decision == Decision.HITL:
-            # Request user approval, passing the rule that triggered HITL
+            # Extract context for caching
+            tool = decision_context.resource.tool
+            tool_name = tool.name if tool else None
+            path = decision_context.resource.resource.path if decision_context.resource.resource else None
+            subject_id = decision_context.subject.id
+
+            # Determine if this tool's approval can be cached (for dialog buttons)
+            tool_side_effects = tool.side_effects if tool else None
+            will_cache = ApprovalStore.should_cache(
+                tool_side_effects=tool_side_effects,
+                allowed_effects=self._hitl_config.cache_side_effects,
+            )
+
+            # Check approval cache first (reduces HITL dialog fatigue)
+            cached_approval = self._approval_store.lookup(
+                subject_id=subject_id,
+                tool_name=tool_name or "unknown",
+                path=path,
+            )
+
+            if cached_approval is not None:
+                # Cached approval found - skip dialog and allow
+                cache_age_s = self._approval_store.get_age_seconds(cached_approval)
+                _system_logger.debug(
+                    {
+                        "event": "hitl_cache_hit",
+                        "message": f"Using cached approval for {tool_name}",
+                        "tool_name": tool_name,
+                        "path": path,
+                        "subject_id": subject_id,
+                        "cache_age_s": round(cache_age_s, 1),
+                        "original_request_id": cached_approval.request_id,
+                        "request_id": request_id,
+                    }
+                )
+                self._log_decision(
+                    decision=decision,
+                    decision_context=decision_context,
+                    matched_rules=matched_rules,
+                    final_rule=final_rule,
+                    policy_eval_ms=eval_duration_ms,
+                    hitl_outcome=HITLOutcome.USER_ALLOWED,
+                    policy_hitl_ms=0.0,  # No wait time - used cache
+                    hitl_cache_hit=True,
+                )
+                return await call_next(context)
+
+            # No cached approval - show dialog
+            # Pass will_cache so dialog shows appropriate buttons
             hitl_result = await self._hitl_handler.request_approval(
                 decision_context,
                 matched_rule=final_rule,
+                will_cache=will_cache,
             )
 
-            if hitl_result.outcome == HITLOutcome.USER_ALLOWED:
-                # User approved - log and allow
+            if hitl_result.outcome in (HITLOutcome.USER_ALLOWED, HITLOutcome.USER_ALLOWED_ONCE):
+                # User approved - cache only if USER_ALLOWED (not USER_ALLOWED_ONCE)
+                if hitl_result.outcome == HITLOutcome.USER_ALLOWED and will_cache:
+                    self._approval_store.store(
+                        subject_id=subject_id,
+                        tool_name=tool_name or "unknown",
+                        path=path,
+                        request_id=request_id,
+                    )
+                    _system_logger.debug(
+                        {
+                            "event": "hitl_approval_cached",
+                            "message": f"Cached approval for {tool_name}",
+                            "tool_name": tool_name,
+                            "path": path,
+                            "subject_id": subject_id,
+                            "ttl_seconds": self._hitl_config.approval_ttl_seconds,
+                            "request_id": request_id,
+                        }
+                    )
+
+                # Log and allow
                 self._log_decision(
                     decision=decision,
                     decision_context=decision_context,
@@ -396,6 +493,7 @@ class PolicyEnforcementMiddleware(Middleware):
                     policy_eval_ms=eval_duration_ms,
                     hitl_outcome=hitl_result.outcome,
                     policy_hitl_ms=hitl_result.response_time_ms,
+                    hitl_cache_hit=False,  # User was prompted
                 )
                 return await call_next(context)
             else:
@@ -408,10 +506,8 @@ class PolicyEnforcementMiddleware(Middleware):
                     policy_eval_ms=eval_duration_ms,
                     hitl_outcome=hitl_result.outcome,
                     policy_hitl_ms=hitl_result.response_time_ms,
+                    hitl_cache_hit=False,  # User was prompted
                 )
-
-                tool_name = decision_context.resource.tool.name if decision_context.resource.tool else None
-                path = decision_context.resource.resource.path if decision_context.resource.resource else None
 
                 reason = (
                     "User denied" if hitl_result.outcome == HITLOutcome.USER_DENIED else "Approval timeout"
