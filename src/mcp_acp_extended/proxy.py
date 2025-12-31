@@ -25,6 +25,7 @@ from typing import AsyncIterator, Literal
 
 import uvicorn
 from fastmcp import FastMCP
+from fastmcp.server.middleware.rate_limiting import RateLimitingMiddleware
 
 from mcp_acp_extended.config import AppConfig
 from mcp_acp_extended.constants import (
@@ -493,5 +494,20 @@ def create_proxy(
         rate_tracker=rate_tracker,
     )
     proxy.add_middleware(enforcement_middleware)
+
+    # DoS protection: FastMCP's rate limiter as outermost layer
+    # Token bucket: 10 req/s sustained, 50 burst capacity
+    # This catches request flooding before any processing
+    #
+    # NOTE: Both rate limiters (this + SessionRateTracker) are unidirectional
+    # (client → proxy only). Backend → proxy notifications bypass middleware
+    # via ProxyClient handlers. Risk is low since backend can only spam during
+    # active requests, and a malicious backend is a larger threat than spam.
+    dos_rate_limiter = RateLimitingMiddleware(
+        max_requests_per_second=10.0,
+        burst_capacity=50,
+        global_limit=True,  # Single limit for STDIO proxy
+    )
+    proxy.add_middleware(dos_rate_limiter)
 
     return proxy, transport_type
