@@ -31,6 +31,9 @@ dependencies = [
     "PyJWT>=2.8.0",
     "cryptography>=41.0.0",
     "keyring>=24.0.0",
+    # API server
+    "fastapi>=0.104.0",
+    "uvicorn>=0.24.0",
 ]
 
 [project.optional-dependencies]
