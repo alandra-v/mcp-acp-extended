@@ -6,7 +6,6 @@ Commands:
     auth status - Show authentication status
 """
 
-import sys
 import webbrowser
 
 import click
@@ -197,6 +196,8 @@ def logout() -> None:
     try:
         storage.delete()
         click.echo(click.style("Credentials cleared.", fg="green"))
+        click.echo()
+        click.echo("Note: Any running proxy will need to be restarted.")
         click.echo()
         click.echo("Run 'mcp-acp-extended auth login' to authenticate again.")
     except AuthenticationError as e:
