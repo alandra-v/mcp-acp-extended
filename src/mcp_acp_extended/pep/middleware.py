@@ -34,6 +34,7 @@ from mcp_acp_extended.pep.approval_store import ApprovalStore
 from mcp_acp_extended.api.routes.approvals import register_approval_store
 from mcp_acp_extended.pep.hitl import HITLHandler, HITLOutcome
 from mcp_acp_extended.security.identity import IdentityProvider
+from mcp_acp_extended.security.rate_limiter import SessionRateTracker
 from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallback
 from mcp_acp_extended.utils.logging.extractors import extract_client_info
 from mcp_acp_extended.telemetry.models.decision import DecisionEvent
@@ -82,6 +83,7 @@ class PolicyEnforcementMiddleware(Middleware):
         backend_id: str,
         logger: logging.Logger,
         policy_version: str | None = None,
+        rate_tracker: SessionRateTracker | None = None,
     ) -> None:
         """Initialize enforcement middleware.
 
@@ -92,6 +94,7 @@ class PolicyEnforcementMiddleware(Middleware):
             backend_id: Backend server ID (from config.backend.server_name).
             logger: Logger for decision events.
             policy_version: Policy version for audit logging.
+            rate_tracker: Optional rate tracker for detecting runaway loops.
         """
         self._engine = PolicyEngine(policy, protected_dirs=protected_dirs)
         self._identity_provider = identity_provider
@@ -106,6 +109,8 @@ class PolicyEnforcementMiddleware(Middleware):
         register_approval_store(self._approval_store)
         # Client name extracted from initialize request
         self._client_name: str | None = None
+        # Rate limiting for detecting runaway loops
+        self._rate_tracker = rate_tracker
 
     @property
     def approval_store(self) -> ApprovalStore:
@@ -314,6 +319,132 @@ class PolicyEnforcementMiddleware(Middleware):
 
         return matched_rules, final_rule
 
+    async def _handle_rate_breach(
+        self,
+        *,
+        tool_name: str,
+        rate_count: int,
+        threshold: int,
+        session_id: str,
+        request_id: str,
+    ) -> None:
+        """Handle rate limit breach by triggering HITL.
+
+        If user approves, returns normally so caller can continue with policy evaluation.
+        If user denies or times out, raises PermissionDeniedError.
+
+        Args:
+            tool_name: Tool that exceeded rate limit.
+            rate_count: Current call count in window.
+            threshold: Threshold that was exceeded.
+            session_id: Session identifier.
+            request_id: Request identifier.
+
+        Raises:
+            PermissionDeniedError: If user denied or timeout.
+        """
+        _system_logger.warning(
+            {
+                "event": "rate_limit_exceeded",
+                "message": f"Rate limit exceeded for {tool_name}: {rate_count}/{threshold} calls",
+                "tool_name": tool_name,
+                "count": rate_count,
+                "threshold": threshold,
+                "session_id": session_id,
+                "request_id": request_id,
+            }
+        )
+
+        # Show HITL dialog for rate breach
+        # Build a minimal decision context for the dialog
+        try:
+            decision_context = await self._build_context(
+                method="tools/call",
+                arguments={"name": tool_name},
+                request_id=request_id,
+                session_id=session_id,
+            )
+        except Exception:
+            # If context building fails, deny by default
+            raise PermissionDeniedError(
+                f"Rate limit exceeded: {rate_count} calls to {tool_name} in {int(self._rate_tracker.window_seconds)}s",
+                decision=Decision.DENY,
+                tool_name=tool_name,
+                matched_rules=["rate_limit"],
+                final_rule="rate_limit_breach",
+            )
+
+        # Show approval dialog
+        hitl_result = await self._hitl_handler.request_approval(
+            decision_context,
+            matched_rule="rate_limit_breach",
+            will_cache=False,  # Never cache rate limit approvals
+        )
+
+        if hitl_result.outcome in (HITLOutcome.USER_ALLOWED, HITLOutcome.USER_ALLOWED_ONCE):
+            # User allowed - reset rate counter to avoid immediate re-trigger
+            self._rate_tracker.reset_tool(session_id, tool_name)
+
+            # Log to decisions.jsonl for audit trail
+            self._log_decision(
+                decision=Decision.ALLOW,  # User override
+                decision_context=decision_context,
+                matched_rules=["rate_limit_breach"],
+                final_rule="rate_limit_breach",
+                policy_eval_ms=0.0,  # No policy eval - rate limit check
+                hitl_outcome=hitl_result.outcome,
+                policy_hitl_ms=hitl_result.response_time_ms,
+                hitl_cache_hit=False,  # Rate limits never cached
+            )
+
+            _system_logger.info(
+                {
+                    "event": "rate_limit_approved",
+                    "message": f"User approved rate limit breach for {tool_name}",
+                    "tool_name": tool_name,
+                    "count": rate_count,
+                    "hitl_outcome": hitl_result.outcome.value,
+                    "session_id": session_id,
+                    "request_id": request_id,
+                }
+            )
+            # Return normally - caller will continue with policy evaluation
+            return
+        else:
+            # User denied or timeout
+            reason = "User denied" if hitl_result.outcome == HITLOutcome.USER_DENIED else "Approval timeout"
+
+            # Log to decisions.jsonl for audit trail
+            self._log_decision(
+                decision=Decision.DENY,
+                decision_context=decision_context,
+                matched_rules=["rate_limit_breach"],
+                final_rule="rate_limit_breach",
+                policy_eval_ms=0.0,  # No policy eval - rate limit check
+                hitl_outcome=hitl_result.outcome,
+                policy_hitl_ms=hitl_result.response_time_ms,
+                hitl_cache_hit=False,  # Rate limits never cached
+            )
+
+            _system_logger.info(
+                {
+                    "event": "rate_limit_denied",
+                    "message": f"{reason} for rate limit breach on {tool_name}",
+                    "tool_name": tool_name,
+                    "count": rate_count,
+                    "hitl_outcome": hitl_result.outcome.value,
+                    "session_id": session_id,
+                    "request_id": request_id,
+                }
+            )
+            raise PermissionDeniedError(
+                f"{reason}: Rate limit exceeded ({rate_count} calls to {tool_name})",
+                decision=Decision.DENY,
+                tool_name=tool_name,
+                matched_rules=["rate_limit"],
+                final_rule="rate_limit_breach",
+            )
+
     async def on_message(
         self,
         context: MiddlewareContext[Any],
@@ -344,6 +475,25 @@ class PolicyEnforcementMiddleware(Middleware):
         # Extract arguments
         arguments = self._extract_arguments(context)
         method = context.method or "unknown"
+
+        # Rate limiting check (before policy evaluation for efficiency)
+        if self._rate_tracker and method == "tools/call":
+            tool_name = arguments.get("name") if arguments else None
+            if tool_name:
+                rate_allowed, rate_count = self._rate_tracker.check(session_id, tool_name)
+                if not rate_allowed:
+                    # Rate limit exceeded - trigger HITL
+                    # If user approves, continues to policy evaluation below
+                    # If user denies, raises PermissionDeniedError
+                    await self._handle_rate_breach(
+                        tool_name=tool_name,
+                        rate_count=rate_count,
+                        threshold=self._rate_tracker.per_tool_thresholds.get(
+                            tool_name, self._rate_tracker.default_threshold
+                        ),
+                        session_id=session_id,
+                        request_id=request_id,
+                    )
 
         # Build decision context
         try:
@@ -534,6 +684,7 @@ def create_enforcement_middleware(
     log_path: Path,
     shutdown_callback: Callable[[str], None],
     policy_version: str | None = None,
+    rate_tracker: SessionRateTracker | None = None,
 ) -> PolicyEnforcementMiddleware:
     """Create policy enforcement middleware.
 
@@ -549,6 +700,7 @@ def create_enforcement_middleware(
         log_path: Path to decisions.jsonl file.
         shutdown_callback: Called if audit log integrity check fails.
         policy_version: Policy version for audit logging (e.g., "v1").
+        rate_tracker: Optional rate tracker for detecting runaway loops.
 
     Returns:
         Configured PolicyEnforcementMiddleware.
@@ -562,4 +714,5 @@ def create_enforcement_middleware(
         backend_id=backend_id,
         logger=logger,
         policy_version=policy_version,
+        rate_tracker=rate_tracker,
     )

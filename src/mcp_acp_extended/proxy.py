@@ -37,7 +37,7 @@ from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, Devic
 from mcp_acp_extended.cli.startup_alerts import show_startup_error_popup
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware
 from mcp_acp_extended.pips.auth import SessionManager
-from mcp_acp_extended.security import create_identity_provider
+from mcp_acp_extended.security import create_identity_provider, SessionRateTracker
 from mcp_acp_extended.security.posture import DeviceHealthMonitor, check_device_health
 from mcp_acp_extended.security.integrity.audit_handler import verify_audit_writable
 from mcp_acp_extended.security.integrity.audit_monitor import AuditHealthMonitor
@@ -248,6 +248,11 @@ def create_proxy(
     # Sessions use format <user_id>:<session_id> per MCP spec
     session_manager = SessionManager()
 
+    # Create rate tracker for detecting runaway LLM loops
+    # Uses defaults: 30 calls/tool/minute triggers HITL dialog
+    # Created here so lifespan can cleanup on shutdown
+    rate_tracker = SessionRateTracker()
+
     # =========================================================================
     # PHASE 4: Lifecycle Management
     # Define proxy lifespan: start/stop monitors, manage sessions
@@ -377,6 +382,8 @@ def create_proxy(
                 )
                 # Invalidate session in manager
                 session_manager.invalidate_session(bound_session_id)
+                # Clean up rate tracking data to prevent memory leak
+                rate_tracker.clear()
 
             # Check if monitors crashed - if so, it's a fatal error
             # (Monitors trigger shutdown on crash via ShutdownCoordinator)
@@ -474,6 +481,7 @@ def create_proxy(
         os.path.realpath(log_dir),
     )
 
+    # rate_tracker created earlier (before lifespan) for cleanup access
     enforcement_middleware = create_enforcement_middleware(
         policy=policy,
         protected_dirs=protected_dirs,
@@ -482,6 +490,7 @@ def create_proxy(
         log_path=decisions_path,
         shutdown_callback=on_audit_failure,
         policy_version=policy_version,
+        rate_tracker=rate_tracker,
     )
     proxy.add_middleware(enforcement_middleware)
 

@@ -57,6 +57,11 @@ from mcp_acp_extended.security.shutdown import (
     ShutdownCoordinator,
     sync_emergency_shutdown,
 )
+from mcp_acp_extended.security.rate_limiter import (
+    RateLimitConfig,
+    SessionRateTracker,
+    create_rate_tracker,
+)
 
 __all__ = [
     # Authentication (security/auth/)
@@ -96,6 +101,10 @@ __all__ = [
     # Shutdown coordination
     "ShutdownCoordinator",
     "sync_emergency_shutdown",
+    # Rate limiting
+    "RateLimitConfig",
+    "SessionRateTracker",
+    "create_rate_tracker",
     # Exceptions (re-exported from mcp_acp_extended.exceptions)
     "CriticalSecurityFailure",
     "AuditFailure",

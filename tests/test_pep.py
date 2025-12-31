@@ -1309,9 +1309,11 @@ class TestApprovalCaching:
         hitl_result = HITLResult(outcome=HITLOutcome.USER_ALLOWED, response_time_ms=1500.0)
 
         # Tool with no side effects (should be cached)
+        # Note: side_effects=[] means "no side effects" (cacheable)
+        # side_effects=None means "unknown" (not cacheable for security)
         mock_tool = MagicMock()
         mock_tool.name = "list_files"
-        mock_tool.side_effects = None
+        mock_tool.side_effects = []
 
         # Mock decision context with tool that has no side effects
         mock_decision_context = MagicMock()

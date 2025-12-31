@@ -237,6 +237,8 @@ See [docs/auth.md](docs/auth.md) for configuration details.
 
 **Status: In Progress**
 
+Simplified scope focusing on real risks (FastMCP already handles JSON-RPC validation).
+
 - [x] **HITL approval caching** (Complete)
   - `ApprovalStore` caches approvals by (subject_id, tool_name, path)
   - Configurable TTL (default 10 minutes, min 5, max 15)
@@ -247,28 +249,15 @@ See [docs/auth.md](docs/auth.md) for configuration details.
   - Embedded uvicorn server for shared memory access
   - See `docs/roadmap.md` section 2.7 for future policy-exposed approval conditions
 
-- [ ] **Rate/burst anomaly detection**
-  - Per-session sliding window rate tracking
-  - Configurable thresholds per tool
-  - HITL on breach (catch runaway LLM loops, exfiltration attempts)
-  - `security/rate_limiter.py`
+- [x] **Foundation** (Complete)
+  - Rate limiting integrated directly with `PermissionDeniedError`
 
-- [ ] **JSON-RPC/MCP schema validation**
-  - Validate all backend → proxy messages
-  - Check jsonrpc version, required fields, correct types
-  - Close connection on malformed messages
-  - `security/message_validator.py`
-
-- [ ] **Basic size & message limits**
-  - Max message size (5 MB)
-  - Max messages per second per backend
-  - Max pending requests
-  - `security/message_limits.py`
-
-- [ ] **Input validation hardening**
-  - Max path length (4096), max string length (64 KB)
-  - Max list items (1000), max recursion depth (50)
-  - `security/input_validator.py`
+- [x] **Rate/burst anomaly detection** (Complete)
+  - Per-session, per-tool sliding window rate tracking (`security/rate_limiter.py`)
+  - Default: 30 calls/tool/minute (catches runaway loops in 15-30s)
+  - Configurable per-tool thresholds via `RateLimitConfig`
+  - HITL dialog on breach (user decides if activity is legitimate)
+  - Integrated with `PolicyEnforcementMiddleware`
 
 - [ ] **Tool description sanitization**
   - Sanitize `tools/list` responses from backends
@@ -280,13 +269,33 @@ See [docs/auth.md](docs/auth.md) for configuration details.
 
 ## Phase 11: Policy Enhancements
 
-- [ ] List support for conditions (OR logic)
-- [ ] Trace/explanation in decision logs
-- [ ] Policy IDs with content hash
-- [ ] Subject-based conditions (issuer, audience, scopes, groups)
-- [ ] Multiple path support for data flow policies
-- [ ] Provenance-based conditions
-- [ ] Hot reload via SIGHUP
+Focused on high-value policy improvements for single-user context.
+
+- [ ] **Rule descriptions**
+  - Add optional `description` field to `PolicyRule` for documentation
+  - Self-documenting policies, shows in audit logs and UI
+  - Implementation: `description: str | None = None` in `PolicyRule` model
+
+- [ ] **List/OR logic for conditions**
+  - Allow multiple values per condition field (e.g., `tool_name: ["bash", "rm", "mv"]`)
+  - ANY match = rule applies (OR logic within field, AND across fields)
+  - Makes policies more expressive, fewer redundant rules
+
+- [ ] **Multiple path support (source/destination)**
+  - Add `source_path` and `dest_path` conditions for data flow policies
+  - Enables policies like "allow copy FROM /tmp TO /project"
+  - Extract paths from tool arguments (move_file, copy_file, rename, etc.)
+  - Current `path_pattern` becomes alias for "any path in arguments"
+
+- [ ] **Trace/explanation in decision logs**
+  - Log which rules matched and why
+  - Include matched rule IDs, conditions evaluated, final decision reason
+  - Helps debug policy behavior
+
+- [ ] **Hot reload via SIGHUP**
+  - Reload policy.yaml without restarting proxy
+  - Validate new policy before applying
+  - Log policy reload events
 
 ---
 
@@ -339,7 +348,8 @@ Web UI requests go through proxy → uses same session
 - [x] Documentation (docs/auth.md)
 - [x] E2E testing guide (docs/manual-e2e-testing.md)
 - [x] mTLS for HTTP backend connections
-- [ ] Policy OR logic, trace, IDs
-- [ ] Environment and provenance conditions
+- [ ] Policy OR logic for conditions
+- [ ] Multiple path support (source/destination)
+- [ ] Decision trace in logs
 - [ ] Hot reload via SIGHUP
 - [ ] React web UI
