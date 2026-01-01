@@ -8,6 +8,11 @@ Decision logs are ALWAYS enabled (not controlled by log_level).
 
 from __future__ import annotations
 
+__all__ = [
+    "create_decision_logger",
+    "DecisionEventLogger",
+]
+
 import logging
 from pathlib import Path
 from typing import Callable

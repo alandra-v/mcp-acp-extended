@@ -18,6 +18,10 @@ Security:
 
 from __future__ import annotations
 
+__all__ = [
+    "create_proxy",
+]
+
 import asyncio
 import os
 import signal

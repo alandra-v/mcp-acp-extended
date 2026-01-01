@@ -25,10 +25,19 @@ Usage:
 
 from __future__ import annotations
 
+__all__ = [
+    "HistoryLoggerConfig",
+    "get_last_version_info_for_entity",
+    "log_history_event",
+    "log_entity_created",
+    "log_entity_loaded",
+    "log_entity_validation_failed",
+]
+
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Type
+from typing import Any, Callable
 
 from pydantic import BaseModel
 
@@ -65,7 +74,7 @@ class HistoryLoggerConfig:
     entity_name: str
     entity_name_lower: str
     logger_name: str
-    event_class: Type[BaseModel]
+    event_class: type[BaseModel]
     compute_checksum: Callable[[Path], str]
     created_change_type: str
     manual_change_message: str

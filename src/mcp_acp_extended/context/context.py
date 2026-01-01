@@ -13,6 +13,11 @@ Design principles:
 
 from __future__ import annotations
 
+__all__ = [
+    "DecisionContext",
+    "build_decision_context",
+]
+
 from datetime import datetime, timezone
 from typing import Any
 

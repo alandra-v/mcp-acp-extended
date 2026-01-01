@@ -16,6 +16,10 @@ See docs/design/authentication_implementation.md for architecture details.
 
 from __future__ import annotations
 
+__all__ = [
+    "OIDCIdentityProvider",
+]
+
 import asyncio
 import time
 from dataclasses import dataclass

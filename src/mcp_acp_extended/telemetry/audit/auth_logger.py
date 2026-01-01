@@ -12,6 +12,11 @@ This is a Zero Trust requirement: no operation without audit trail.
 
 from __future__ import annotations
 
+__all__ = [
+    "AuthLogger",
+    "create_auth_logger",
+]
+
 import logging
 from pathlib import Path
 from typing import Callable, Literal

@@ -10,6 +10,11 @@ Logs are written to <log_dir>/mcp_acp_extended_logs/audit/operations.jsonl.
 """
 
 import logging
+
+__all__ = [
+    "AuditLoggingMiddleware",
+    "create_audit_logging_middleware",
+]
 import time
 from pathlib import Path
 from typing import Any, Callable

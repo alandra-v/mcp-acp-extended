@@ -10,6 +10,24 @@ Provides generic utilities for telemetry logging:
 For MCP-specific metadata extraction, see extractors.py.
 """
 
+__all__ = [
+    # Event serialization
+    "serialize_audit_event",
+    # Sanitization & path normalization
+    "sanitize_for_logging",
+    "normalize_file_path",
+    # Payload handling
+    "create_payload_dict",
+    "serialize_result_summary",
+    # Error handling
+    "categorize_error",
+    "extract_error_metadata",
+    "clean_backend_error",
+    # Audit trail hashing
+    "create_arguments_summary",
+    "create_response_summary",
+]
+
 import hashlib
 import json
 import logging

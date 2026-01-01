@@ -67,6 +67,18 @@ Non-Interactive Setup (both transports):
     --args "-y,@modelcontextprotocol/server-filesystem,/tmp" \\
     --url http://localhost:3010/mcp
 
+Non-Interactive Setup (HTTPS with mTLS):
+  mcp-acp-extended init --non-interactive \\
+    --server-name my-server \\
+    --connection-type http \\
+    --url https://backend.example.com/mcp \\
+    --issuer https://auth.example.com/ \\
+    --client-id my-client-id \\
+    --audience https://api.example.com \\
+    --mtls-cert ~/certs/client.pem \\
+    --mtls-key ~/certs/client-key.pem \\
+    --mtls-ca ~/certs/ca-bundle.pem
+
 Connection Types (--connection-type):
   stdio   Spawn local server process (npx, uvx, python)
   http    Connect to remote HTTP server (requires --url)

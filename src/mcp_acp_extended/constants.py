@@ -6,6 +6,52 @@ For user-configurable settings per deployment, see config.py.
 
 import os
 
+__all__ = [
+    # Protected directories
+    "PROTECTED_CONFIG_DIR",
+    # Transport configuration
+    "SUPPORTED_TRANSPORTS",
+    "DEFAULT_HTTP_TIMEOUT_SECONDS",
+    "MIN_HTTP_TIMEOUT_SECONDS",
+    "MAX_HTTP_TIMEOUT_SECONDS",
+    "HEALTH_CHECK_TIMEOUT_SECONDS",
+    "BACKEND_RETRY_MAX_ATTEMPTS",
+    "BACKEND_RETRY_INITIAL_DELAY",
+    "BACKEND_RETRY_BACKOFF_MULTIPLIER",
+    # mTLS certificate monitoring
+    "CERT_EXPIRY_WARNING_DAYS",
+    "CERT_EXPIRY_CRITICAL_DAYS",
+    # Audit log integrity monitoring
+    "AUDIT_HEALTH_CHECK_INTERVAL_SECONDS",
+    "DEVICE_HEALTH_CHECK_INTERVAL_SECONDS",
+    "DEFAULT_DEVICE_FAILURE_THRESHOLD",
+    # OAuth device flow
+    "OAUTH_CLIENT_TIMEOUT_SECONDS",
+    "DEVICE_FLOW_POLL_INTERVAL_SECONDS",
+    "DEVICE_FLOW_TIMEOUT_SECONDS",
+    # Authentication
+    "JWKS_CACHE_TTL_SECONDS",
+    # Backend transport errors
+    "BASE_TRANSPORT_ERRORS",
+    "TRANSPORT_ERRORS",
+    # HITL configuration
+    "DEFAULT_HITL_TIMEOUT_SECONDS",
+    "MIN_HITL_TIMEOUT_SECONDS",
+    "MAX_HITL_TIMEOUT_SECONDS",
+    # Approval caching
+    "DEFAULT_APPROVAL_TTL_SECONDS",
+    "MIN_APPROVAL_TTL_SECONDS",
+    "MAX_APPROVAL_TTL_SECONDS",
+    # File metadata extraction
+    "PATH_ARGUMENT_NAMES",
+    # MCP method classification
+    "DISCOVERY_METHODS",
+    # Management API server
+    "DEFAULT_API_PORT",
+    # History versioning
+    "INITIAL_VERSION",
+]
+
 from platformdirs import user_config_dir
 
 # ============================================================================

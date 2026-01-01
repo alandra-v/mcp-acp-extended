@@ -5,6 +5,10 @@ Starts the proxy server for manual testing.
 
 import sys
 
+__all__ = [
+    "start",
+]
+
 import click
 
 from mcp_acp_extended import __version__
