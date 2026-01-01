@@ -50,7 +50,9 @@ class RuleConditions(BaseModel):
 
     Attributes:
         tool_name: Tool name pattern (glob: *, ?) - case-insensitive
-        path_pattern: Glob pattern for file paths (*, **, ?)
+        path_pattern: Glob pattern for file paths (*, **, ?) - matches ANY path
+        source_path: Glob pattern for source path in move/copy operations
+        dest_path: Glob pattern for destination path in move/copy operations
         operations: List of operations to match (read, write, delete)
         extension: Exact file extension match (e.g., ".key", ".env")
         scheme: Exact URI scheme match (e.g., "file", "db", "s3")
@@ -65,6 +67,10 @@ class RuleConditions(BaseModel):
     tool_name: str | None = None
     path_pattern: str | None = None
     operations: list[Literal["read", "write", "delete"]] | None = None
+
+    # Source/destination path conditions (for move/copy operations)
+    source_path: str | None = None
+    dest_path: str | None = None
 
     # New resource conditions
     extension: str | None = None
@@ -94,6 +100,8 @@ class RuleConditions(BaseModel):
             for v in [
                 self.tool_name,
                 self.path_pattern,
+                self.source_path,
+                self.dest_path,
                 self.operations,
                 self.extension,
                 self.scheme,

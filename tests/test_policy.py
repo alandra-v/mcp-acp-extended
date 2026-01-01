@@ -711,6 +711,159 @@ class TestMatchPathPattern:
 
 
 # ============================================================================
+# Tests: Source/Dest Path Conditions
+# ============================================================================
+
+
+class TestSourceDestPathConditions:
+    """Tests for source_path and dest_path condition matching."""
+
+    def test_source_path_condition_matches(self):
+        """Given source_path condition, matches source path in context."""
+        # Arrange
+        rule = PolicyRule(
+            effect="deny",
+            conditions=RuleConditions(source_path="/secrets/**"),
+        )
+        policy = PolicyConfig(rules=[rule])
+        engine = PolicyEngine(policy)
+
+        context = _make_context_with_paths(
+            source_path="/secrets/key.pem",
+            dest_path="/tmp/key.pem",
+        )
+
+        # Act
+        decision = engine.evaluate(context)
+
+        # Assert
+        assert decision == Decision.DENY
+
+    def test_dest_path_condition_matches(self):
+        """Given dest_path condition, matches destination path in context."""
+        # Arrange
+        rule = PolicyRule(
+            effect="deny",
+            conditions=RuleConditions(dest_path="/secrets/**"),
+        )
+        policy = PolicyConfig(rules=[rule])
+        engine = PolicyEngine(policy)
+
+        context = _make_context_with_paths(
+            source_path="/tmp/key.pem",
+            dest_path="/secrets/key.pem",
+        )
+
+        # Act
+        decision = engine.evaluate(context)
+
+        # Assert
+        assert decision == Decision.DENY
+
+    def test_source_and_dest_both_must_match(self):
+        """Given both source_path and dest_path conditions, both must match (AND)."""
+        # Arrange
+        rule = PolicyRule(
+            effect="allow",
+            conditions=RuleConditions(
+                source_path="/tmp/**",
+                dest_path="/project/**",
+            ),
+        )
+        policy = PolicyConfig(rules=[rule])
+        engine = PolicyEngine(policy)
+
+        # Context where both match
+        context_match = _make_context_with_paths(
+            source_path="/tmp/file.txt",
+            dest_path="/project/file.txt",
+        )
+
+        # Context where only source matches
+        context_no_match = _make_context_with_paths(
+            source_path="/tmp/file.txt",
+            dest_path="/secrets/file.txt",
+        )
+
+        # Act & Assert
+        assert engine.evaluate(context_match) == Decision.ALLOW
+        assert engine.evaluate(context_no_match) == Decision.DENY  # default
+
+    def test_source_path_none_does_not_match(self):
+        """Given source_path condition but no source in context, no match."""
+        # Arrange
+        rule = PolicyRule(
+            effect="allow",
+            conditions=RuleConditions(source_path="/tmp/**"),
+        )
+        policy = PolicyConfig(rules=[rule])
+        engine = PolicyEngine(policy)
+
+        # Context with only path, no source_path
+        context = _make_context_with_paths(path="/tmp/file.txt")
+
+        # Act
+        decision = engine.evaluate(context)
+
+        # Assert - should be DENY (default) since source_path condition not matched
+        assert decision == Decision.DENY
+
+
+def _make_context_with_paths(
+    *,
+    path: str | None = None,
+    source_path: str | None = None,
+    dest_path: str | None = None,
+) -> DecisionContext:
+    """Helper to create a DecisionContext with specific paths."""
+    from mcp_acp_extended.context import (
+        Action,
+        ActionCategory,
+        ActionProvenance,
+        Environment,
+        Provenance,
+        Resource,
+        ResourceInfo,
+        ResourceType,
+        ServerInfo,
+        Subject,
+        SubjectProvenance,
+        ToolInfo,
+    )
+    from datetime import datetime, timezone
+
+    return DecisionContext(
+        subject=Subject(
+            id="test_user",
+            provenance=SubjectProvenance(id=Provenance.DERIVED),
+        ),
+        action=Action(
+            mcp_method="tools/call",
+            name="tools.call",
+            intent=None,
+            category=ActionCategory.ACTION,
+            provenance=ActionProvenance(),
+        ),
+        resource=Resource(
+            type=ResourceType.TOOL,
+            server=ServerInfo(id="test-server", provenance=Provenance.PROXY_CONFIG),
+            tool=ToolInfo(name="move_file", provenance=Provenance.MCP_REQUEST),
+            resource=ResourceInfo(
+                path=path or source_path,
+                source_path=source_path,
+                dest_path=dest_path,
+                provenance=Provenance.MCP_REQUEST,
+            ),
+        ),
+        environment=Environment(
+            timestamp=datetime.now(timezone.utc),
+            request_id="test-req",
+            session_id="test-session",
+        ),
+    )
+
+
+# ============================================================================
 # Tests: Pattern Matcher - Tool Names
 # ============================================================================
 

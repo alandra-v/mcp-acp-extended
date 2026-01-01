@@ -104,6 +104,8 @@ class DecisionEventLogger:
 
         tool_name = tool.name if tool else None
         path = resource.path if resource else None
+        source_path = resource.source_path if resource else None
+        dest_path = resource.dest_path if resource else None
         uri = resource.uri if resource else None
         scheme = resource.scheme if resource else None
 
@@ -140,6 +142,8 @@ class DecisionEventLogger:
             mcp_method=decision_context.action.mcp_method,
             tool_name=tool_name,
             path=path,
+            source_path=source_path,
+            dest_path=dest_path,
             uri=uri,
             scheme=scheme,
             subject_id=decision_context.subject.id,

@@ -135,7 +135,9 @@ class ResourceInfo(BaseModel):
     Attributes:
         uri: Full URI if provided
         scheme: URI scheme (file, http, db, etc.)
-        path: Normalized file path if applicable
+        path: Normalized file path if applicable (first/primary path found)
+        source_path: Source path for move/copy operations
+        dest_path: Destination path for move/copy operations
         filename: Base filename
         extension: File extension
         parent_dir: Parent directory path
@@ -146,6 +148,8 @@ class ResourceInfo(BaseModel):
     uri: str | None = None
     scheme: str | None = None
     path: str | None = None
+    source_path: str | None = None
+    dest_path: str | None = None
     filename: str | None = None
     extension: str | None = None
     parent_dir: str | None = None

@@ -286,11 +286,11 @@ Focused on high-value policy improvements for single-user context.
   - ANY match = rule applies (OR logic within field, AND across fields)
   - Makes policies more expressive, fewer redundant rules
 
-- [ ] **Multiple path support (source/destination)**
-  - Add `source_path` and `dest_path` conditions for data flow policies
+- [x] **Multiple path support (source/destination)** (Complete)
+  - Added `source_path` and `dest_path` conditions for data flow policies
   - Enables policies like "allow copy FROM /tmp TO /project"
-  - Extract paths from tool arguments (move_file, copy_file, rename, etc.)
-  - Current `path_pattern` becomes alias for "any path in arguments"
+  - Extracts paths from tool arguments (source, dest, from, to, etc.)
+  - Current `path_pattern` remains for single-path operations
 
 - [x] **Decision traces in logs** (Complete)
   - Matched rules now include id, effect, and description

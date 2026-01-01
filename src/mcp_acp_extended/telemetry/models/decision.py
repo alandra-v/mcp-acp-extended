@@ -63,6 +63,8 @@ class DecisionEvent(BaseModel):
     mcp_method: str
     tool_name: Optional[str] = None
     path: Optional[str] = None  # File path (from tool arguments)
+    source_path: Optional[str] = None  # Source path for move/copy operations
+    dest_path: Optional[str] = None  # Destination path for move/copy operations
     uri: Optional[str] = None  # Resource URI (from resources/read)
     scheme: Optional[str] = None  # URI scheme (file, https, s3, etc.)
     subject_id: Optional[str] = None  # Optional until auth is fully implemented

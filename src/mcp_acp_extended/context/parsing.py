@@ -10,15 +10,41 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlparse
 
+from mcp_acp_extended.constants import PATH_ARGUMENT_NAMES
 from mcp_acp_extended.context.provenance import Provenance
 from mcp_acp_extended.context.resource import ResourceInfo
 
 __all__ = [
     "parse_path_resource",
     "parse_uri_resource",
+    "extract_resource_info",
 ]
+
+# Source path argument names (for move/copy operations)
+# Matched by tools like move_file(source, destination), copy_path(source, destination)
+_SOURCE_PATH_ARGS: tuple[str, ...] = (
+    "source",
+    "src",
+    "from",
+    "from_path",
+    "source_path",
+    "origin",
+)
+
+# Destination path argument names (for move/copy operations)
+_DEST_PATH_ARGS: tuple[str, ...] = (
+    "destination",
+    "destination_path",
+    "dest",
+    "to",
+    "to_path",
+    "dest_path",
+    "target",
+    "target_path",
+)
 
 
 def parse_path_resource(raw_path: str) -> ResourceInfo:
@@ -91,3 +117,72 @@ def parse_uri_resource(uri: str) -> ResourceInfo:
         return result
     except (ValueError, AttributeError):
         return ResourceInfo(uri=uri, provenance=Provenance.MCP_REQUEST)
+
+
+def extract_resource_info(arguments: dict[str, Any] | None) -> ResourceInfo | None:
+    """Extract resource info from file paths in arguments.
+
+    Extracts:
+    - path: First generic path found (from PATH_ARGUMENT_NAMES)
+    - source_path: Source path for move/copy operations
+    - dest_path: Destination path for move/copy operations
+
+    For tools like move_file(source, destination), both source_path and dest_path
+    will be populated. The 'path' field will contain the first path found
+    (usually source) for backwards compatibility.
+
+    Args:
+        arguments: Request arguments.
+
+    Returns:
+        ResourceInfo if any path found, None otherwise.
+    """
+    if arguments is None:
+        return None
+
+    # Extract source path
+    source_path: str | None = None
+    for key in _SOURCE_PATH_ARGS:
+        if key in arguments and arguments[key]:
+            source_path = str(arguments[key])
+            break
+
+    # Extract destination path
+    dest_path: str | None = None
+    for key in _DEST_PATH_ARGS:
+        if key in arguments and arguments[key]:
+            dest_path = str(arguments[key])
+            break
+
+    # Extract generic path (for backwards compatibility and single-path tools)
+    # Use PATH_ARGUMENT_NAMES but exclude "uri" - URIs handled separately
+    generic_path: str | None = None
+    for key in PATH_ARGUMENT_NAMES:
+        if key == "uri":
+            continue
+        if key in arguments and arguments[key]:
+            generic_path = str(arguments[key])
+            break
+
+    # Determine the primary path (for backwards compat)
+    # Priority: explicit generic path > source_path > dest_path
+    primary_path = generic_path or source_path or dest_path
+
+    if primary_path is None:
+        return None
+
+    # Parse the primary path to get filename, extension, etc.
+    resource_info = parse_path_resource(primary_path)
+
+    # Return with source/dest paths added
+    return ResourceInfo(
+        uri=resource_info.uri,
+        scheme=resource_info.scheme,
+        path=resource_info.path,
+        source_path=source_path,
+        dest_path=dest_path,
+        filename=resource_info.filename,
+        extension=resource_info.extension,
+        parent_dir=resource_info.parent_dir,
+        provenance=resource_info.provenance,
+    )

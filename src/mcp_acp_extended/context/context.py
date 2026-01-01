@@ -19,10 +19,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict
 
-from mcp_acp_extended.constants import (
-    DISCOVERY_METHODS,
-    PATH_ARGUMENT_NAMES,
-)
+from mcp_acp_extended.constants import DISCOVERY_METHODS
 from mcp_acp_extended.context.tool_side_effects import TOOL_SIDE_EFFECTS
 from mcp_acp_extended.context.action import (
     Action,
@@ -41,7 +38,7 @@ from mcp_acp_extended.context.resource import (
 )
 from mcp_acp_extended.context.subject import Subject
 from mcp_acp_extended.context.parsing import (
-    parse_path_resource as _parse_path_resource,
+    extract_resource_info as _extract_resource_info,
     parse_uri_resource as _parse_uri_resource,
 )
 from mcp_acp_extended.pips.auth.claims import build_subject_from_identity
@@ -289,26 +286,3 @@ def _build_mcp_resource(
         server=server,
         resource=resource_info,
     )
-
-
-def _extract_resource_info(arguments: dict[str, Any] | None) -> ResourceInfo | None:
-    """Extract resource info from file path in arguments.
-
-    Args:
-        arguments: Request arguments.
-
-    Returns:
-        ResourceInfo if path found, None otherwise.
-    """
-    if arguments is None:
-        return None
-
-    # Use PATH_ARGUMENT_NAMES but exclude "uri" - URIs handled separately in _build_mcp_resource
-    for key in PATH_ARGUMENT_NAMES:
-        if key == "uri":
-            continue
-        if key in arguments and arguments[key]:
-            raw_path = str(arguments[key])
-            return _parse_path_resource(raw_path)
-
-    return None

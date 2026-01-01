@@ -216,6 +216,8 @@ class PolicyEngine:
         tool_name = context.resource.tool.name if context.resource.tool else None
         tool_side_effects = context.resource.tool.side_effects if context.resource.tool else None
         path = context.resource.resource.path if context.resource.resource else None
+        source_path = context.resource.resource.source_path if context.resource.resource else None
+        dest_path = context.resource.resource.dest_path if context.resource.resource else None
         extension = context.resource.resource.extension if context.resource.resource else None
         scheme = context.resource.resource.scheme if context.resource.resource else None
         backend_id = context.resource.server.id
@@ -228,9 +230,19 @@ class PolicyEngine:
             if not match_tool_name(conditions.tool_name, tool_name):
                 return False
 
-        # Check path_pattern condition (glob with **)
+        # Check path_pattern condition (glob with **) - matches primary path
         if conditions.path_pattern is not None:
             if not match_path_pattern(conditions.path_pattern, path):
+                return False
+
+        # Check source_path condition (glob with **) - for move/copy source
+        if conditions.source_path is not None:
+            if not match_path_pattern(conditions.source_path, source_path):
+                return False
+
+        # Check dest_path condition (glob with **) - for move/copy destination
+        if conditions.dest_path is not None:
+            if not match_path_pattern(conditions.dest_path, dest_path):
                 return False
 
         # Check operations condition (heuristic from tool name)

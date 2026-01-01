@@ -20,6 +20,8 @@ final_rule — rule that determined the outcome (or "default", "discovery_bypass
 mcp_method — MCP method ("tools/call", "resources/read", etc.)
 tool_name — optional, only for tools/call
 path — optional file path (from tool arguments)
+source_path — optional source path for move/copy operations
+dest_path — optional destination path for move/copy operations
 uri — optional resource URI (from resources/read)
 scheme — optional URI scheme (file, https, s3, etc.)
 subject_id — optional, OIDC sub (optional until auth is fully implemented)

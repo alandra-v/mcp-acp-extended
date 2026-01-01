@@ -399,6 +399,54 @@ class TestBuildDecisionContextResources:
         assert ctx.resource.tool.name == "get_weather"
         assert ctx.resource.resource is None
 
+    async def test_move_file_extracts_source_and_dest_paths(self, build_ctx):
+        """Given move_file with source/destination, extracts both paths."""
+        # Act - matches official MCP filesystem server format
+        ctx = await build_ctx(
+            "tools/call",
+            {
+                "name": "move_file",
+                "arguments": {"source": "/tmp/file.txt", "destination": "/home/user/file.txt"},
+            },
+        )
+
+        # Assert
+        assert ctx.resource.resource is not None
+        assert ctx.resource.resource.source_path == "/tmp/file.txt"
+        assert ctx.resource.resource.dest_path == "/home/user/file.txt"
+        # path should be set to source (first found) for backwards compat
+        assert ctx.resource.resource.path == "/tmp/file.txt"
+
+    async def test_copy_path_extracts_source_and_dest_paths(self, build_ctx):
+        """Given copy_path with source/destination, extracts both paths."""
+        # Act - matches cyanheads/filesystem-mcp-server format
+        ctx = await build_ctx(
+            "tools/call",
+            {
+                "name": "copy_path",
+                "arguments": {"source": "/data/backup.db", "destination": "/archive/backup.db"},
+            },
+        )
+
+        # Assert
+        assert ctx.resource.resource is not None
+        assert ctx.resource.resource.source_path == "/data/backup.db"
+        assert ctx.resource.resource.dest_path == "/archive/backup.db"
+
+    async def test_single_path_tool_has_no_source_dest(self, build_ctx):
+        """Given tool with single path, source_path and dest_path are None."""
+        # Act
+        ctx = await build_ctx(
+            "tools/call",
+            {"name": "read_file", "arguments": {"path": "/etc/hosts"}},
+        )
+
+        # Assert
+        assert ctx.resource.resource is not None
+        assert ctx.resource.resource.path == "/etc/hosts"
+        assert ctx.resource.resource.source_path is None
+        assert ctx.resource.resource.dest_path is None
+
     async def test_handles_none_arguments(self, build_ctx):
         """Given None arguments, handles gracefully."""
         # Act
