@@ -8,6 +8,8 @@ event — fixed string "policy_decision"
 
 ## Decision outcome
 decision — "allow" | "deny" | "hitl"
+hitl_outcome — optional, "user_allowed" | "user_denied" | "timeout" (only when decision == "hitl")
+hitl_cache_hit — optional, true if approval was from cache, false if user was prompted (only when decision == "hitl")
 matched_rules — list of all rule IDs that matched (can be empty)
 final_rule — rule that determined the outcome (or "default", "discovery_bypass", "built_in_protected_path")
 
@@ -32,7 +34,3 @@ policy_total_ms — total evaluation time in milliseconds (eval + HITL, excludes
 ## Correlation
 request_id — JSON-RPC request ID (every decision has a request)
 session_id — optional, MCP session ID (may not exist during initialize)
-
-## HITL (only when decision == "hitl")
-hitl_outcome — "user_allowed" | "user_denied" | "timeout"
-hitl_cache_hit — true if approval was from cache, false if user was prompted

@@ -19,49 +19,32 @@ __all__ = [
 import logging
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable, NoReturn
+from typing import TYPE_CHECKING, Any, Callable, NoReturn, assert_never
 
 from fastmcp.server.middleware import Middleware
 from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
 
-from mcp.shared.exceptions import McpError
-from mcp.types import ErrorData, INTERNAL_ERROR, ListToolsResult
+from mcp.types import ListToolsResult
 
 from mcp_acp_extended.context import ActionCategory, DecisionContext, build_decision_context
 from mcp_acp_extended.pdp import Decision, PolicyEngine
-from mcp_acp_extended.exceptions import PermissionDeniedError
+from mcp_acp_extended.exceptions import AuthenticationError, PermissionDeniedError
 from mcp_acp_extended.pep.approval_store import ApprovalStore
 from mcp_acp_extended.api.routes.approvals import register_approval_store
 from mcp_acp_extended.pep.hitl import HITLHandler, HITLOutcome
+from mcp_acp_extended.pep.rate_handler import RateBreachHandler
 from mcp_acp_extended.security.identity import IdentityProvider
 from mcp_acp_extended.security.rate_limiter import SessionRateTracker
-from mcp_acp_extended.security.sanitizer import sanitize_description
-from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallback
+from mcp_acp_extended.security.tool_sanitizer import ToolListSanitizer
 from mcp_acp_extended.utils.logging.extractors import extract_client_info
-from mcp_acp_extended.telemetry.models.decision import DecisionEvent
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
-from mcp_acp_extended.telemetry.audit.decision_logger import create_decision_logger
+from mcp_acp_extended.telemetry.audit.decision_logger import create_decision_logger, DecisionEventLogger
 from mcp_acp_extended.utils.logging.logging_context import get_request_id, get_session_id
 
 if TYPE_CHECKING:
     from mcp_acp_extended.pdp.policy import PolicyConfig
 
 _system_logger = get_system_logger()
-
-
-def _assert_never(value: NoReturn) -> NoReturn:
-    """Assert that a code path is never reached.
-
-    Used for exhaustive pattern matching - the type checker will warn
-    if not all enum values are handled before this is called.
-
-    Args:
-        value: The value that should never exist.
-
-    Raises:
-        AssertionError: Always raised if this code is reached.
-    """
-    raise AssertionError(f"Unexpected value: {value!r}")
 
 
 class PolicyEnforcementMiddleware(Middleware):
@@ -112,6 +95,25 @@ class PolicyEnforcementMiddleware(Middleware):
         self._client_name: str | None = None
         # Rate limiting for detecting runaway loops
         self._rate_tracker = rate_tracker
+        # Tool description sanitizer for prompt injection defense
+        self._tool_sanitizer = ToolListSanitizer(logger, _system_logger)
+        # Decision event logger for audit trail
+        self._decision_logger = DecisionEventLogger(
+            logger=logger,
+            system_logger=_system_logger,
+            backend_id=backend_id,
+            policy_version=policy_version,
+        )
+        # Rate breach handler (only if rate tracking enabled)
+        self._rate_breach_handler: RateBreachHandler | None = None
+        if rate_tracker is not None:
+            self._rate_breach_handler = RateBreachHandler(
+                hitl_handler=self._hitl_handler,
+                rate_tracker=rate_tracker,
+                decision_logger=self._decision_logger,
+                system_logger=_system_logger,
+                context_builder=self._build_context,
+            )
 
     @property
     def approval_store(self) -> ApprovalStore:
@@ -186,101 +188,6 @@ class PolicyEnforcementMiddleware(Middleware):
             pass
         return None
 
-    def _log_decision(
-        self,
-        decision: Decision,
-        decision_context: DecisionContext,
-        matched_rules: list[str],
-        final_rule: str,
-        policy_eval_ms: float,
-        hitl_outcome: HITLOutcome | None = None,
-        policy_hitl_ms: float | None = None,
-        hitl_cache_hit: bool | None = None,
-    ) -> None:
-        """Log policy decision to decisions.jsonl with fallback chain.
-
-        Uses fallback chain: decisions.jsonl -> system.jsonl -> emergency_audit.jsonl.
-        If primary logging fails, logs to fallbacks and raises McpError.
-
-        Args:
-            decision: The policy decision.
-            decision_context: Context used for evaluation.
-            matched_rules: List of rule IDs that matched.
-            final_rule: Rule that determined outcome.
-            policy_eval_ms: Policy rule evaluation time.
-            hitl_outcome: HITL outcome if applicable.
-            policy_hitl_ms: HITL wait time if applicable.
-            hitl_cache_hit: True if approval from cache, False if user prompted.
-
-        Raises:
-            McpError: If primary logging fails (after logging to fallbacks).
-        """
-        # Extract context summary
-        tool = decision_context.resource.tool
-        resource = decision_context.resource.resource
-
-        tool_name = tool.name if tool else None
-        path = resource.path if resource else None
-        uri = resource.uri if resource else None
-        scheme = resource.scheme if resource else None
-
-        # Extract side effects as list of strings
-        side_effects: list[str] | None = None
-        if tool and tool.side_effects:
-            side_effects = [effect.value for effect in tool.side_effects]
-
-        # Calculate total time (eval + HITL, excludes context)
-        policy_total_ms = policy_eval_ms + (policy_hitl_ms or 0.0)
-
-        # Map USER_ALLOWED_ONCE to user_allowed for logging (same outcome, different caching)
-        hitl_outcome_value: str | None = None
-        if hitl_outcome:
-            if hitl_outcome == HITLOutcome.USER_ALLOWED_ONCE:
-                hitl_outcome_value = "user_allowed"
-            else:
-                hitl_outcome_value = hitl_outcome.value
-
-        event = DecisionEvent(
-            decision=decision.value,
-            matched_rules=matched_rules,
-            final_rule=final_rule,
-            mcp_method=decision_context.action.mcp_method,
-            tool_name=tool_name,
-            path=path,
-            uri=uri,
-            scheme=scheme,
-            subject_id=decision_context.subject.id,
-            backend_id=self._backend_id,
-            side_effects=side_effects,
-            policy_version=self._policy_version or "unknown",
-            policy_eval_ms=round(policy_eval_ms, 2),
-            policy_hitl_ms=round(policy_hitl_ms, 2) if policy_hitl_ms else None,
-            policy_total_ms=round(policy_total_ms, 2),
-            request_id=decision_context.environment.request_id,
-            session_id=decision_context.environment.session_id,
-            hitl_outcome=hitl_outcome_value,
-            hitl_cache_hit=hitl_cache_hit,
-        )
-
-        # Log with fallback chain
-        event_data = event.model_dump(exclude={"time"}, exclude_none=True)
-        success, failure_reason = log_with_fallback(
-            primary_logger=self._logger,
-            system_logger=_system_logger,
-            event_data=event_data,
-            event_type="decision",
-            source_file="decisions.jsonl",
-        )
-
-        # If primary audit failed, raise error to client before shutdown
-        if not success:
-            raise McpError(
-                ErrorData(
-                    code=INTERNAL_ERROR,
-                    message="Decision audit log failure - logged to fallback, proxy shutting down",
-                )
-            )
-
     def _get_matched_rules(self, decision_context: DecisionContext) -> tuple[list[str], str]:
         """Get matched rules and final rule for logging.
 
@@ -320,268 +227,254 @@ class PolicyEnforcementMiddleware(Middleware):
 
         return matched_rules, final_rule
 
-    def _sanitize_input_schema(
+    async def _handle_allow_decision(
         self,
-        schema: dict[str, Any] | None,
-        tool_name: str,
+        *,
+        context: MiddlewareContext[Any],
+        call_next: CallNext[Any],
+        decision_context: DecisionContext,
+        matched_rules: list[str],
+        final_rule: str,
+        eval_duration_ms: float,
+        method: str,
         request_id: str,
         session_id: str,
-    ) -> None:
-        """Sanitize descriptions in inputSchema properties.
-
-        Modifies schema in place. Property descriptions can also contain
-        prompt injection attempts, so we sanitize them too.
+    ) -> Any:
+        """Handle ALLOW decision: log decision and forward request.
 
         Args:
-            schema: The inputSchema dict to sanitize (modified in place).
-            tool_name: Tool name for logging.
+            context: Middleware context.
+            call_next: Next middleware in chain.
+            decision_context: Context used for evaluation.
+            matched_rules: List of matched rule IDs.
+            final_rule: Rule that determined outcome.
+            eval_duration_ms: Policy evaluation time.
+            method: MCP method name.
             request_id: Request correlation ID.
             session_id: Session ID.
+
+        Returns:
+            Response from downstream middleware.
         """
-        if not schema or "properties" not in schema:
-            return
+        self._decision_logger.log(
+            decision=Decision.ALLOW,
+            decision_context=decision_context,
+            matched_rules=matched_rules,
+            final_rule=final_rule,
+            policy_eval_ms=eval_duration_ms,
+        )
+        result = await call_next(context)
 
-        properties = schema.get("properties", {})
-        if not isinstance(properties, dict):
-            return
-
-        for prop_name, prop_def in properties.items():
-            if not isinstance(prop_def, dict) or "description" not in prop_def:
-                continue
-
-            prop_desc = prop_def.get("description")
-            if not isinstance(prop_desc, str):
-                continue
-
-            sanitization = sanitize_description(prop_desc)
-            prop_def["description"] = sanitization.text
-
-            if sanitization.modifications or sanitization.suspicious_patterns:
-                self._logger.info(
+        # Sanitize tools/list responses to protect against prompt injection
+        if method == "tools/list":
+            if isinstance(result, ListToolsResult):
+                try:
+                    result = self._tool_sanitizer.sanitize(result, request_id, session_id)
+                except Exception as e:
+                    # Fail-open: return unsanitized rather than failing the request
+                    _system_logger.error(
+                        {
+                            "event": "sanitization_failed",
+                            "message": f"Failed to sanitize tools/list response: {e}",
+                            "error_type": type(e).__name__,
+                            "request_id": request_id,
+                            "session_id": session_id,
+                        }
+                    )
+            else:
+                # Unexpected result type - log for debugging
+                _system_logger.debug(
                     {
-                        "event": "input_schema_sanitized",
-                        "tool_name": tool_name,
-                        "property": prop_name,
-                        "modifications": sanitization.modifications,
-                        "suspicious_patterns": sanitization.suspicious_patterns,
+                        "event": "sanitization_skipped",
+                        "message": f"tools/list returned unexpected type: {type(result).__name__}",
+                        "result_type": type(result).__name__,
                         "request_id": request_id,
                         "session_id": session_id,
                     }
                 )
 
-                if sanitization.suspicious_patterns:
-                    _system_logger.warning(
-                        {
-                            "event": "suspicious_input_schema",
-                            "message": f"Tool '{tool_name}' property '{prop_name}' contains suspicious patterns",
-                            "tool_name": tool_name,
-                            "property": prop_name,
-                            "patterns": sanitization.suspicious_patterns,
-                            "request_id": request_id,
-                            "session_id": session_id,
-                        }
-                    )
-
-    def _sanitize_tools_list(
-        self,
-        result: ListToolsResult,
-        request_id: str,
-        session_id: str,
-    ) -> ListToolsResult:
-        """Sanitize tool descriptions in tools/list response.
-
-        Protects against prompt injection by sanitizing descriptions from
-        untrusted backend servers.
-
-        IMPORTANT: This method modifies Tool objects IN PLACE for simplicity.
-        This is acceptable because:
-        - FastMCP creates fresh ListToolsResult per request (no caching)
-        - We own this middleware and control the data flow
-        - Creating new Tool objects would add complexity for little benefit
-
-        Risk: If FastMCP ever caches ListToolsResult, this would corrupt the
-        cache. If that happens, refactor to create new Tool objects instead.
-
-        Sanitizes:
-        - tool.description
-        - tool.inputSchema.properties.*.description
-
-        Args:
-            result: The ListToolsResult from the backend (modified in place).
-            request_id: Request correlation ID for logging.
-            session_id: Session ID for logging.
-
-        Returns:
-            The same result object with sanitized descriptions.
-        """
-        for tool in result.tools:
-            # Sanitize main description
-            if tool.description:
-                sanitization = sanitize_description(tool.description)
-                tool.description = sanitization.text
-
-                if sanitization.modifications or sanitization.suspicious_patterns:
-                    self._logger.info(
-                        {
-                            "event": "tool_description_sanitized",
-                            "tool_name": tool.name,
-                            "modifications": sanitization.modifications,
-                            "suspicious_patterns": sanitization.suspicious_patterns,
-                            "original_length": sanitization.original_length,
-                            "sanitized_length": len(sanitization.text),
-                            "request_id": request_id,
-                            "session_id": session_id,
-                        }
-                    )
-
-                    if sanitization.suspicious_patterns:
-                        _system_logger.warning(
-                            {
-                                "event": "suspicious_tool_description",
-                                "message": f"Tool '{tool.name}' description contains suspicious patterns",
-                                "tool_name": tool.name,
-                                "patterns": sanitization.suspicious_patterns,
-                                "request_id": request_id,
-                                "session_id": session_id,
-                            }
-                        )
-
-            # Sanitize inputSchema property descriptions
-            if tool.inputSchema:
-                self._sanitize_input_schema(
-                    tool.inputSchema,
-                    tool.name,
-                    request_id,
-                    session_id,
-                )
-
         return result
 
-    async def _handle_rate_breach(
+    def _handle_deny_decision(
         self,
         *,
-        tool_name: str,
-        rate_count: int,
-        threshold: int,
-        session_id: str,
-        request_id: str,
-    ) -> None:
-        """Handle rate limit breach by triggering HITL.
-
-        If user approves, returns normally so caller can continue with policy evaluation.
-        If user denies or times out, raises PermissionDeniedError.
+        decision_context: DecisionContext,
+        matched_rules: list[str],
+        final_rule: str,
+        eval_duration_ms: float,
+        method: str,
+    ) -> NoReturn:
+        """Handle DENY decision: log and raise PermissionDeniedError.
 
         Args:
-            tool_name: Tool that exceeded rate limit.
-            rate_count: Current call count in window.
-            threshold: Threshold that was exceeded.
-            session_id: Session identifier.
-            request_id: Request identifier.
+            decision_context: Context used for evaluation.
+            matched_rules: List of matched rule IDs.
+            final_rule: Rule that determined outcome.
+            eval_duration_ms: Policy evaluation time.
+            method: MCP method name.
 
         Raises:
-            PermissionDeniedError: If user denied or timeout.
+            PermissionDeniedError: Always raised.
         """
-        _system_logger.warning(
-            {
-                "event": "rate_limit_exceeded",
-                "message": f"Rate limit exceeded for {tool_name}: {rate_count}/{threshold} calls",
-                "tool_name": tool_name,
-                "count": rate_count,
-                "threshold": threshold,
-                "session_id": session_id,
-                "request_id": request_id,
-            }
+        self._decision_logger.log(
+            decision=Decision.DENY,
+            decision_context=decision_context,
+            matched_rules=matched_rules,
+            final_rule=final_rule,
+            policy_eval_ms=eval_duration_ms,
         )
 
-        # Show HITL dialog for rate breach
-        # Build a minimal decision context for the dialog
-        try:
-            decision_context = await self._build_context(
-                method="tools/call",
-                arguments={"name": tool_name},
-                request_id=request_id,
-                session_id=session_id,
-            )
-        except Exception:
-            # If context building fails, deny by default
-            raise PermissionDeniedError(
-                f"Rate limit exceeded: {rate_count} calls to {tool_name} in {int(self._rate_tracker.window_seconds)}s",
-                decision=Decision.DENY,
-                tool_name=tool_name,
-                matched_rules=["rate_limit"],
-                final_rule="rate_limit_breach",
-            )
+        tool_name = decision_context.resource.tool.name if decision_context.resource.tool else None
+        path = decision_context.resource.resource.path if decision_context.resource.resource else None
 
-        # Show approval dialog
+        raise PermissionDeniedError(
+            f"Policy denied: {method}" + (f" on {path}" if path else ""),
+            decision=Decision.DENY,
+            tool_name=tool_name,
+            path=path,
+            matched_rules=matched_rules,
+            final_rule=final_rule,
+        )
+
+    async def _handle_hitl_decision(
+        self,
+        *,
+        context: MiddlewareContext[Any],
+        call_next: CallNext[Any],
+        decision_context: DecisionContext,
+        matched_rules: list[str],
+        final_rule: str,
+        eval_duration_ms: float,
+        method: str,
+        request_id: str,
+    ) -> Any:
+        """Handle HITL decision: check cache, show dialog, enforce result.
+
+        Args:
+            context: Middleware context.
+            call_next: Next middleware in chain.
+            decision_context: Context used for evaluation.
+            matched_rules: List of matched rule IDs.
+            final_rule: Rule that determined outcome.
+            eval_duration_ms: Policy evaluation time.
+            method: MCP method name.
+            request_id: Request correlation ID.
+
+        Returns:
+            Response from downstream if user approves.
+
+        Raises:
+            PermissionDeniedError: If user denies or times out.
+        """
+        # Extract context for caching
+        tool = decision_context.resource.tool
+        tool_name = tool.name if tool else None
+        path = decision_context.resource.resource.path if decision_context.resource.resource else None
+        subject_id = decision_context.subject.id
+
+        # Determine if this tool's approval can be cached (for dialog buttons)
+        tool_side_effects = tool.side_effects if tool else None
+        will_cache = ApprovalStore.should_cache(
+            tool_side_effects=tool_side_effects,
+            allowed_effects=self._hitl_config.cache_side_effects,
+        )
+
+        # Check approval cache first (reduces HITL dialog fatigue)
+        cached_approval = self._approval_store.lookup(
+            subject_id=subject_id,
+            tool_name=tool_name or "unknown",
+            path=path,
+        )
+
+        if cached_approval is not None:
+            # Cached approval found - skip dialog and allow
+            cache_age_s = self._approval_store.get_age_seconds(cached_approval)
+            _system_logger.debug(
+                {
+                    "event": "hitl_cache_hit",
+                    "message": f"Using cached approval for {tool_name}",
+                    "tool_name": tool_name,
+                    "path": path,
+                    "subject_id": subject_id,
+                    "cache_age_s": round(cache_age_s, 1),
+                    "original_request_id": cached_approval.request_id,
+                    "request_id": request_id,
+                }
+            )
+            self._decision_logger.log(
+                decision=Decision.HITL,
+                decision_context=decision_context,
+                hitl_outcome=HITLOutcome.USER_ALLOWED,
+                hitl_cache_hit=True,
+                matched_rules=matched_rules,
+                final_rule=final_rule,
+                policy_eval_ms=eval_duration_ms,
+                policy_hitl_ms=0.0,  # No wait time - used cache
+            )
+            return await call_next(context)
+
+        # No cached approval - show dialog
         hitl_result = await self._hitl_handler.request_approval(
             decision_context,
-            matched_rule="rate_limit_breach",
-            will_cache=False,  # Never cache rate limit approvals
+            matched_rule=final_rule,
+            will_cache=will_cache,
         )
 
         if hitl_result.outcome in (HITLOutcome.USER_ALLOWED, HITLOutcome.USER_ALLOWED_ONCE):
-            # User allowed - reset rate counter to avoid immediate re-trigger
-            self._rate_tracker.reset_tool(session_id, tool_name)
+            # User approved - cache only if USER_ALLOWED (not USER_ALLOWED_ONCE)
+            if hitl_result.outcome == HITLOutcome.USER_ALLOWED and will_cache:
+                self._approval_store.store(
+                    subject_id=subject_id,
+                    tool_name=tool_name or "unknown",
+                    path=path,
+                    request_id=request_id,
+                )
+                _system_logger.debug(
+                    {
+                        "event": "hitl_approval_cached",
+                        "message": f"Cached approval for {tool_name}",
+                        "tool_name": tool_name,
+                        "path": path,
+                        "subject_id": subject_id,
+                        "ttl_seconds": self._hitl_config.approval_ttl_seconds,
+                        "request_id": request_id,
+                    }
+                )
 
-            # Log to decisions.jsonl for audit trail
-            self._log_decision(
-                decision=Decision.ALLOW,  # User override
+            # Log and allow
+            self._decision_logger.log(
+                decision=Decision.HITL,
                 decision_context=decision_context,
-                matched_rules=["rate_limit_breach"],
-                final_rule="rate_limit_breach",
-                policy_eval_ms=0.0,  # No policy eval - rate limit check
                 hitl_outcome=hitl_result.outcome,
+                hitl_cache_hit=False,  # User was prompted
+                matched_rules=matched_rules,
+                final_rule=final_rule,
+                policy_eval_ms=eval_duration_ms,
                 policy_hitl_ms=hitl_result.response_time_ms,
-                hitl_cache_hit=False,  # Rate limits never cached
             )
+            return await call_next(context)
 
-            _system_logger.info(
-                {
-                    "event": "rate_limit_approved",
-                    "message": f"User approved rate limit breach for {tool_name}",
-                    "tool_name": tool_name,
-                    "count": rate_count,
-                    "hitl_outcome": hitl_result.outcome.value,
-                    "session_id": session_id,
-                    "request_id": request_id,
-                }
-            )
-            # Return normally - caller will continue with policy evaluation
-            return
-        else:
-            # User denied or timeout
-            reason = "User denied" if hitl_result.outcome == HITLOutcome.USER_DENIED else "Approval timeout"
+        # User denied or timeout - log and deny
+        self._decision_logger.log(
+            decision=Decision.HITL,
+            decision_context=decision_context,
+            hitl_outcome=hitl_result.outcome,
+            hitl_cache_hit=False,  # User was prompted
+            matched_rules=matched_rules,
+            final_rule=final_rule,
+            policy_eval_ms=eval_duration_ms,
+            policy_hitl_ms=hitl_result.response_time_ms,
+        )
 
-            # Log to decisions.jsonl for audit trail
-            self._log_decision(
-                decision=Decision.DENY,
-                decision_context=decision_context,
-                matched_rules=["rate_limit_breach"],
-                final_rule="rate_limit_breach",
-                policy_eval_ms=0.0,  # No policy eval - rate limit check
-                hitl_outcome=hitl_result.outcome,
-                policy_hitl_ms=hitl_result.response_time_ms,
-                hitl_cache_hit=False,  # Rate limits never cached
-            )
-
-            _system_logger.info(
-                {
-                    "event": "rate_limit_denied",
-                    "message": f"{reason} for rate limit breach on {tool_name}",
-                    "tool_name": tool_name,
-                    "count": rate_count,
-                    "hitl_outcome": hitl_result.outcome.value,
-                    "session_id": session_id,
-                    "request_id": request_id,
-                }
-            )
-            raise PermissionDeniedError(
-                f"{reason}: Rate limit exceeded ({rate_count} calls to {tool_name})",
-                decision=Decision.DENY,
-                tool_name=tool_name,
-                matched_rules=["rate_limit"],
-                final_rule="rate_limit_breach",
-            )
+        reason = "User denied" if hitl_result.outcome == HITLOutcome.USER_DENIED else "Approval timeout"
+        raise PermissionDeniedError(
+            f"{reason}: {method}" + (f" on {path}" if path else ""),
+            decision=Decision.HITL,
+            tool_name=tool_name,
+            path=path,
+            matched_rules=matched_rules,
+            final_rule=final_rule,
+        )
 
     async def on_message(
         self,
@@ -615,7 +508,7 @@ class PolicyEnforcementMiddleware(Middleware):
         method = context.method or "unknown"
 
         # Rate limiting check (before policy evaluation for efficiency)
-        if self._rate_tracker and method == "tools/call":
+        if self._rate_breach_handler and method == "tools/call":
             tool_name = arguments.get("name") if arguments else None
             if tool_name:
                 rate_allowed, rate_count = self._rate_tracker.check(session_id, tool_name)
@@ -623,7 +516,7 @@ class PolicyEnforcementMiddleware(Middleware):
                     # Rate limit exceeded - trigger HITL
                     # If user approves, continues to policy evaluation below
                     # If user denies, raises PermissionDeniedError
-                    await self._handle_rate_breach(
+                    await self._rate_breach_handler.handle(
                         tool_name=tool_name,
                         rate_count=rate_count,
                         threshold=self._rate_tracker.per_tool_thresholds.get(
@@ -636,8 +529,23 @@ class PolicyEnforcementMiddleware(Middleware):
         # Build decision context
         try:
             decision_context = await self._build_context(method, arguments, request_id, session_id)
+        except AuthenticationError as e:
+            # Authentication failed - surface the actual message so user knows to re-login
+            _system_logger.error(
+                {
+                    "event": "authentication_failed",
+                    "message": str(e),
+                    "method": method,
+                    "request_id": request_id,
+                    "session_id": session_id,
+                }
+            )
+            raise PermissionDeniedError(
+                str(e),  # Surface actual message: "Not authenticated. Run 'auth login'..."
+                decision=Decision.DENY,
+            ) from e
         except Exception as e:
-            # Log error and deny by default (fail-secure)
+            # Other errors - generic message (fail-secure, don't leak details)
             _system_logger.error(
                 {
                     "event": "context_build_error",
@@ -663,185 +571,41 @@ class PolicyEnforcementMiddleware(Middleware):
 
         # Handle decision
         if decision == Decision.ALLOW:
-            # Log and allow
-            self._log_decision(
-                decision=decision,
+            return await self._handle_allow_decision(
+                context=context,
+                call_next=call_next,
                 decision_context=decision_context,
                 matched_rules=matched_rules,
                 final_rule=final_rule,
-                policy_eval_ms=eval_duration_ms,
+                eval_duration_ms=eval_duration_ms,
+                method=method,
+                request_id=request_id,
+                session_id=session_id,
             )
-            result = await call_next(context)
-
-            # Sanitize tools/list responses to protect against prompt injection
-            if method == "tools/list":
-                if isinstance(result, ListToolsResult):
-                    try:
-                        result = self._sanitize_tools_list(result, request_id, session_id)
-                    except Exception as e:
-                        # Fail-open: return unsanitized rather than failing the request
-                        # This prioritizes availability over security for this defense layer
-                        _system_logger.error(
-                            {
-                                "event": "sanitization_failed",
-                                "message": f"Failed to sanitize tools/list response: {e}",
-                                "error_type": type(e).__name__,
-                                "request_id": request_id,
-                                "session_id": session_id,
-                            }
-                        )
-                else:
-                    # Unexpected result type - log for debugging
-                    _system_logger.debug(
-                        {
-                            "event": "sanitization_skipped",
-                            "message": f"tools/list returned unexpected type: {type(result).__name__}",
-                            "result_type": type(result).__name__,
-                            "request_id": request_id,
-                            "session_id": session_id,
-                        }
-                    )
-
-            return result
 
         elif decision == Decision.DENY:
-            # Log and deny
-            self._log_decision(
-                decision=decision,
+            self._handle_deny_decision(
                 decision_context=decision_context,
                 matched_rules=matched_rules,
                 final_rule=final_rule,
-                policy_eval_ms=eval_duration_ms,
-            )
-
-            tool_name = decision_context.resource.tool.name if decision_context.resource.tool else None
-            path = decision_context.resource.resource.path if decision_context.resource.resource else None
-
-            raise PermissionDeniedError(
-                f"Policy denied: {method}" + (f" on {path}" if path else ""),
-                decision=decision,
-                tool_name=tool_name,
-                path=path,
-                matched_rules=matched_rules,
-                final_rule=final_rule,
+                eval_duration_ms=eval_duration_ms,
+                method=method,
             )
 
         elif decision == Decision.HITL:
-            # Extract context for caching
-            tool = decision_context.resource.tool
-            tool_name = tool.name if tool else None
-            path = decision_context.resource.resource.path if decision_context.resource.resource else None
-            subject_id = decision_context.subject.id
-
-            # Determine if this tool's approval can be cached (for dialog buttons)
-            tool_side_effects = tool.side_effects if tool else None
-            will_cache = ApprovalStore.should_cache(
-                tool_side_effects=tool_side_effects,
-                allowed_effects=self._hitl_config.cache_side_effects,
+            return await self._handle_hitl_decision(
+                context=context,
+                call_next=call_next,
+                decision_context=decision_context,
+                matched_rules=matched_rules,
+                final_rule=final_rule,
+                eval_duration_ms=eval_duration_ms,
+                method=method,
+                request_id=request_id,
             )
-
-            # Check approval cache first (reduces HITL dialog fatigue)
-            cached_approval = self._approval_store.lookup(
-                subject_id=subject_id,
-                tool_name=tool_name or "unknown",
-                path=path,
-            )
-
-            if cached_approval is not None:
-                # Cached approval found - skip dialog and allow
-                cache_age_s = self._approval_store.get_age_seconds(cached_approval)
-                _system_logger.debug(
-                    {
-                        "event": "hitl_cache_hit",
-                        "message": f"Using cached approval for {tool_name}",
-                        "tool_name": tool_name,
-                        "path": path,
-                        "subject_id": subject_id,
-                        "cache_age_s": round(cache_age_s, 1),
-                        "original_request_id": cached_approval.request_id,
-                        "request_id": request_id,
-                    }
-                )
-                self._log_decision(
-                    decision=decision,
-                    decision_context=decision_context,
-                    matched_rules=matched_rules,
-                    final_rule=final_rule,
-                    policy_eval_ms=eval_duration_ms,
-                    hitl_outcome=HITLOutcome.USER_ALLOWED,
-                    policy_hitl_ms=0.0,  # No wait time - used cache
-                    hitl_cache_hit=True,
-                )
-                return await call_next(context)
-
-            # No cached approval - show dialog
-            # Pass will_cache so dialog shows appropriate buttons
-            hitl_result = await self._hitl_handler.request_approval(
-                decision_context,
-                matched_rule=final_rule,
-                will_cache=will_cache,
-            )
-
-            if hitl_result.outcome in (HITLOutcome.USER_ALLOWED, HITLOutcome.USER_ALLOWED_ONCE):
-                # User approved - cache only if USER_ALLOWED (not USER_ALLOWED_ONCE)
-                if hitl_result.outcome == HITLOutcome.USER_ALLOWED and will_cache:
-                    self._approval_store.store(
-                        subject_id=subject_id,
-                        tool_name=tool_name or "unknown",
-                        path=path,
-                        request_id=request_id,
-                    )
-                    _system_logger.debug(
-                        {
-                            "event": "hitl_approval_cached",
-                            "message": f"Cached approval for {tool_name}",
-                            "tool_name": tool_name,
-                            "path": path,
-                            "subject_id": subject_id,
-                            "ttl_seconds": self._hitl_config.approval_ttl_seconds,
-                            "request_id": request_id,
-                        }
-                    )
-
-                # Log and allow
-                self._log_decision(
-                    decision=decision,
-                    decision_context=decision_context,
-                    matched_rules=matched_rules,
-                    final_rule=final_rule,
-                    policy_eval_ms=eval_duration_ms,
-                    hitl_outcome=hitl_result.outcome,
-                    policy_hitl_ms=hitl_result.response_time_ms,
-                    hitl_cache_hit=False,  # User was prompted
-                )
-                return await call_next(context)
-            else:
-                # User denied or timeout - log and deny
-                self._log_decision(
-                    decision=decision,
-                    decision_context=decision_context,
-                    matched_rules=matched_rules,
-                    final_rule=final_rule,
-                    policy_eval_ms=eval_duration_ms,
-                    hitl_outcome=hitl_result.outcome,
-                    policy_hitl_ms=hitl_result.response_time_ms,
-                    hitl_cache_hit=False,  # User was prompted
-                )
-
-                reason = (
-                    "User denied" if hitl_result.outcome == HITLOutcome.USER_DENIED else "Approval timeout"
-                )
-                raise PermissionDeniedError(
-                    f"{reason}: {method}" + (f" on {path}" if path else ""),
-                    decision=decision,
-                    tool_name=tool_name,
-                    path=path,
-                    matched_rules=matched_rules,
-                    final_rule=final_rule,
-                )
 
         # Should never reach here - all Decision enum values are handled above
-        _assert_never(decision)
+        assert_never(decision)
 
 
 def create_enforcement_middleware(

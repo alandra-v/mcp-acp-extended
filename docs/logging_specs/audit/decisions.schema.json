@@ -30,6 +30,36 @@
       "title": "Decision",
       "type": "string"
     },
+    "hitl_outcome": {
+      "anyOf": [
+        {
+          "enum": [
+            "user_allowed",
+            "user_denied",
+            "timeout"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Hitl Outcome"
+    },
+    "hitl_cache_hit": {
+      "anyOf": [
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "True if approval was from cache, False if user prompted, None if not HITL",
+      "title": "Hitl Cache Hit"
+    },
     "matched_rules": {
       "items": {
         "type": "string"
@@ -163,36 +193,6 @@
       ],
       "default": null,
       "title": "Session Id"
-    },
-    "hitl_outcome": {
-      "anyOf": [
-        {
-          "enum": [
-            "user_allowed",
-            "user_denied",
-            "timeout"
-          ],
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Hitl Outcome"
-    },
-    "hitl_cache_hit": {
-      "anyOf": [
-        {
-          "type": "boolean"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "description": "True if approval was from cache, False if user prompted, None if not HITL",
-      "title": "Hitl Cache Hit"
     }
   },
   "required": [

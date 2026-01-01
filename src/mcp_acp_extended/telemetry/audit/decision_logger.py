@@ -6,10 +6,20 @@ Logs are written to <log_dir>/mcp_acp_extended_logs/audit/decisions.jsonl.
 Decision logs are ALWAYS enabled (not controlled by log_level).
 """
 
+from __future__ import annotations
+
 import logging
 from pathlib import Path
 from typing import Callable
 
+from mcp.shared.exceptions import McpError
+from mcp.types import ErrorData, INTERNAL_ERROR
+
+from mcp_acp_extended.context import DecisionContext
+from mcp_acp_extended.pdp import Decision
+from mcp_acp_extended.pep.hitl import HITLOutcome
+from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallback
+from mcp_acp_extended.telemetry.models.decision import DecisionEvent
 from mcp_acp_extended.utils.logging.logger_setup import setup_failclosed_audit_logger
 
 
@@ -32,3 +42,124 @@ def create_decision_logger(
         shutdown_callback=shutdown_callback,
         log_level=logging.INFO,
     )
+
+
+class DecisionEventLogger:
+    """Logs policy decision events to decisions.jsonl with fallback chain.
+
+    Uses fallback chain: decisions.jsonl -> system.jsonl -> emergency_audit.jsonl.
+    If primary logging fails, logs to fallbacks and raises McpError.
+    """
+
+    def __init__(
+        self,
+        *,
+        logger: logging.Logger,
+        system_logger: logging.Logger,
+        backend_id: str,
+        policy_version: str | None,
+    ) -> None:
+        """Initialize decision event logger.
+
+        Args:
+            logger: Primary logger for decision events (decisions.jsonl).
+            system_logger: System logger for fallback logging.
+            backend_id: Backend server ID for audit trail.
+            policy_version: Policy version for audit trail.
+        """
+        self._logger = logger
+        self._system_logger = system_logger
+        self._backend_id = backend_id
+        self._policy_version = policy_version
+
+    def log(
+        self,
+        decision: Decision,
+        decision_context: DecisionContext,
+        matched_rules: list[str],
+        final_rule: str,
+        policy_eval_ms: float,
+        hitl_outcome: HITLOutcome | None = None,
+        policy_hitl_ms: float | None = None,
+        hitl_cache_hit: bool | None = None,
+    ) -> None:
+        """Log policy decision to decisions.jsonl with fallback chain.
+
+        Args:
+            decision: The policy decision.
+            decision_context: Context used for evaluation.
+            matched_rules: List of rule IDs that matched.
+            final_rule: Rule that determined outcome.
+            policy_eval_ms: Policy rule evaluation time.
+            hitl_outcome: HITL outcome if applicable.
+            policy_hitl_ms: HITL wait time if applicable.
+            hitl_cache_hit: True if approval from cache, False if user prompted.
+
+        Raises:
+            McpError: If primary logging fails (after logging to fallbacks).
+        """
+        # Extract context summary
+        tool = decision_context.resource.tool
+        resource = decision_context.resource.resource
+
+        tool_name = tool.name if tool else None
+        path = resource.path if resource else None
+        uri = resource.uri if resource else None
+        scheme = resource.scheme if resource else None
+
+        # Extract side effects as list of strings
+        side_effects: list[str] | None = None
+        if tool and tool.side_effects:
+            side_effects = [effect.value for effect in tool.side_effects]
+
+        # Calculate total time (eval + HITL, excludes context)
+        policy_total_ms = policy_eval_ms + (policy_hitl_ms or 0.0)
+
+        # Map USER_ALLOWED_ONCE to user_allowed for logging (same outcome, different caching)
+        hitl_outcome_value: str | None = None
+        if hitl_outcome:
+            if hitl_outcome == HITLOutcome.USER_ALLOWED_ONCE:
+                hitl_outcome_value = "user_allowed"
+            else:
+                hitl_outcome_value = hitl_outcome.value
+
+        event = DecisionEvent(
+            decision=decision.value,
+            matched_rules=matched_rules,
+            final_rule=final_rule,
+            mcp_method=decision_context.action.mcp_method,
+            tool_name=tool_name,
+            path=path,
+            uri=uri,
+            scheme=scheme,
+            subject_id=decision_context.subject.id,
+            backend_id=self._backend_id,
+            side_effects=side_effects,
+            policy_version=self._policy_version or "unknown",
+            policy_eval_ms=round(policy_eval_ms, 2),
+            policy_hitl_ms=round(policy_hitl_ms, 2) if policy_hitl_ms else None,
+            policy_total_ms=round(policy_total_ms, 2),
+            request_id=decision_context.environment.request_id,
+            session_id=decision_context.environment.session_id,
+            hitl_outcome=hitl_outcome_value,
+            hitl_cache_hit=hitl_cache_hit,
+        )
+
+        # Log with fallback chain
+        event_data = event.model_dump(exclude={"time"}, exclude_none=True)
+        success, failure_reason = log_with_fallback(
+            primary_logger=self._logger,
+            system_logger=self._system_logger,
+            event_data=event_data,
+            event_type="decision",
+            source_file="decisions.jsonl",
+        )
+
+        # If primary audit failed, raise error to client before shutdown
+        if not success:
+            raise McpError(
+                ErrorData(
+                    code=INTERNAL_ERROR,
+                    message="Decision audit log failure - logged to fallback, proxy shutting down",
+                )
+            )

@@ -67,6 +67,7 @@ from mcp_acp_extended.security.sanitizer import (
     SanitizationResult,
     sanitize_description,
 )
+from mcp_acp_extended.security.tool_sanitizer import ToolListSanitizer
 
 __all__ = [
     # Authentication (security/auth/)
@@ -114,6 +115,7 @@ __all__ = [
     "MAX_DESCRIPTION_LENGTH",
     "SanitizationResult",
     "sanitize_description",
+    "ToolListSanitizer",
     # Exceptions (re-exported from mcp_acp_extended.exceptions)
     "CriticalSecurityFailure",
     "AuditFailure",

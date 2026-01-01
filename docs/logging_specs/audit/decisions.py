@@ -21,6 +21,11 @@ class DecisionEvent(BaseModel):
 
     # --- decision outcome ---
     decision: Literal["allow", "deny", "hitl"]
+    hitl_outcome: Optional[Literal["user_allowed", "user_denied", "timeout"]] = None
+    hitl_cache_hit: Optional[bool] = Field(
+        None,
+        description="True if approval was from cache, False if user prompted, None if not HITL",
+    )
     matched_rules: List[str] = Field(default_factory=list)
     final_rule: str  # Rule ID that determined outcome, or "default", "discovery_bypass"
 
@@ -45,13 +50,6 @@ class DecisionEvent(BaseModel):
     # --- correlation ---
     request_id: str  # JSON-RPC request ID (every decision has a request)
     session_id: Optional[str] = None  # May not exist during initialize
-
-    # --- HITL-specific fields (only when decision == "hitl") ---
-    hitl_outcome: Optional[Literal["user_allowed", "user_denied", "timeout"]] = None
-    hitl_cache_hit: Optional[bool] = Field(
-        None,
-        description="True if approval was from cache, False if user prompted, None if not HITL",
-    )
 
     class Config:
         extra = "forbid"
