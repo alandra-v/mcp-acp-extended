@@ -1,5 +1,7 @@
 # Configuration
 
+> **Zero Trust by Default**: Authentication is mandatory. Policy `default_action` is always `deny`. The proxy fails fast on configuration errors rather than falling back to insecure defaults.
+
 ## How to Configure
 
 Configuration is created via the `mcp-acp-extended init` command:
@@ -10,12 +12,21 @@ mcp-acp-extended init
 
 # Non-interactive setup
 mcp-acp-extended init --non-interactive \
+  --oidc-issuer https://your-tenant.auth0.com \
+  --oidc-client-id your-client-id \
+  --oidc-audience your-api-audience \
   --log-dir ~/.mcp-acp-extended \
   --server-name filesystem \
   --connection-type stdio \
   --command npx \
   --args "-y,@modelcontextprotocol/server-filesystem,/tmp"
 ```
+
+**Init options**:
+- `--oidc-issuer`, `--oidc-client-id`, `--oidc-audience` - Authentication (required)
+- `--mtls-cert`, `--mtls-key`, `--mtls-ca` - mTLS for HTTPS backends (optional)
+- `--log-dir`, `--log-level` - Logging configuration
+- `--server-name`, `--connection-type`, `--command`, `--args`, `--url`, `--timeout` - Backend configuration
 
 To edit existing configuration:
 
@@ -57,12 +68,14 @@ Configuration is stored in an OS-specific application directory:
 | Windows | `C:\Users\<user>\AppData\Roaming\mcp-acp-extended\` |
 
 **Files**:
-- `mcp_acp_extended_config.json` - operational settings (logging, backend, proxy)
+- `mcp_acp_extended_config.json` - operational settings (auth, logging, backend, proxy)
 - `policy.json` - security policies (rules, HITL settings)
 
 **Log directory**: User-specified via `--log-dir` during init (stored separately, recommended: `~/.mcp-acp-extended`)
 
 **File permissions**: Config directory is `0o700` (owner only), config files are `0o600`. Writes are atomic to prevent corruption. See [Security](security.md) for details.
+
+**Bootstrap log**: If config is invalid and `log_dir` is unavailable, errors are written to `bootstrap.jsonl` in the config directory.
 
 ---
 
@@ -72,6 +85,18 @@ Configuration is stored in an OS-specific application directory:
 
 ```json
 {
+  "auth": {
+    "oidc": {
+      "issuer": "https://your-tenant.auth0.com",
+      "client_id": "your-client-id",
+      "audience": "your-api-audience"
+    },
+    "mtls": {
+      "client_cert_path": "/path/to/client.crt",
+      "client_key_path": "/path/to/client.key",
+      "ca_bundle_path": "/path/to/ca-bundle.crt"
+    }
+  },
   "logging": {
     "log_dir": "~/.mcp-acp-extended",
     "log_level": "INFO",
@@ -95,6 +120,18 @@ Configuration is stored in an OS-specific application directory:
 }
 ```
 
+### Authentication Settings
+
+| Field | Description |
+|-------|-------------|
+| `auth.oidc.issuer` | OIDC issuer URL (e.g., `https://tenant.auth0.com`) |
+| `auth.oidc.client_id` | Auth0 application client ID |
+| `auth.oidc.audience` | API audience for token validation |
+| `auth.oidc.scopes` | OAuth scopes (default: `["openid", "profile", "email", "offline_access"]`) |
+| `auth.mtls.client_cert_path` | Client certificate path, PEM format (optional, for mTLS backends) |
+| `auth.mtls.client_key_path` | Client private key path, PEM format |
+| `auth.mtls.ca_bundle_path` | CA bundle for server verification, PEM format |
+
 ### Logging Settings
 
 | Field | Description |
@@ -112,7 +149,7 @@ Configuration is stored in an OS-specific application directory:
 | `stdio.command` | Command to spawn backend (e.g., `npx`) |
 | `stdio.args` | Arguments for the command |
 | `http.url` | Backend Streamable HTTP server URL |
-| `http.timeout` | Streamable HTTP connection timeout in seconds (1-300) |
+| `http.timeout` | Streamable HTTP connection timeout in seconds (default: 30, min: 1, max: 300) |
 
 ### Transport Selection
 
@@ -141,9 +178,31 @@ Security policies are configured separately. See [Policies](policies.md) for ful
   "rules": [
     { "id": "allow-reads", "effect": "allow", "conditions": { "operations": ["read"] } }
   ],
-  "hitl": { "timeout_seconds": 30 }
+  "hitl": { "timeout_seconds": 30, "approval_ttl_seconds": 600 }
 }
 ```
+
+HITL timeouts: `timeout_seconds` (default: 30, min: 5, max: 300), `approval_ttl_seconds` (default: 600, min: 300, max: 900).
+
+---
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `EDITOR` | — | Editor for `config edit` (checked first) |
+| `VISUAL` | — | Fallback editor for `config edit` |
+| `MCP_ACP_CORS_ORIGINS` | `http://localhost:3000,http://127.0.0.1:3000` | CORS origins for management API (comma-separated) |
+
+---
+
+## Configuration Validation
+
+- **Syntax**: JSON parsing with clear error messages
+- **Schema**: Pydantic validation of all fields and types
+- **Permissions**: Config directory `0o700`, files `0o600` (Unix)
+- **Atomic writes**: Prevents corruption during saves
+- **Symlink protection**: Paths resolved via `realpath()` to prevent bypass attacks
 
 ---
 
@@ -167,7 +226,7 @@ No CLI flags to override config at runtime. All settings come from config files.
 
 ### Multiple Backend Servers
 
-Only one backend server is supported. Multi-server support planned for future.
+Only one backend server is supported. Multi-server support planned for the future.
 
 ### Client Transport
 

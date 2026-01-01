@@ -4,7 +4,8 @@
 
 - **Python 3.11+**
 - **pip** or **uv** package manager
-- **Node.js 18+** (for MCP servers)
+- **Node.js 18+** (for MCP servers that use npx)
+- **OIDC Provider** (Auth0, Okta, Azure AD, etc.) with Device Flow enabled - see [Auth](auth.md)
 
 ## Install from Source
 
@@ -85,14 +86,4 @@ See: [github.com/cyanheads/filesystem-mcp-server](https://github.com/cyanheads/f
 
 ## Next Steps
 
-After installation, initialize the proxy configuration:
-
-```bash
-# Initialize configuration (interactive)
-mcp-acp-extended init
-
-# Start the proxy
-mcp-acp-extended start
-```
-
-See [Usage](usage.md) for detailed setup instructions.
+See [Usage](usage.md) for first-time setup, CLI commands, and Claude Desktop integration.

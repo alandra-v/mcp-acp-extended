@@ -31,15 +31,29 @@ mcp-acp-extended init [OPTIONS]
 
 Options:
   --non-interactive       Skip prompts, require all options via flags
+  --force                 Overwrite existing config without prompting
+
+  Logging:
   --log-dir PATH          Log directory (recommended: ~/.mcp-acp-extended)
   --log-level [debug|info] Logging level (default: info). debug enables wire logs.
+
+  Backend:
   --server-name TEXT      Backend server name
-  --connection-type [stdio|http|both]  Transport type (stdio=local, http=remote, both=auto-detect)
+  --connection-type [stdio|http|both]  Transport type
   --command TEXT          Backend command for STDIO (e.g., npx)
   --args TEXT             Backend arguments for STDIO (comma-separated)
   --url TEXT              Backend URL for HTTP (e.g., http://localhost:3000/mcp)
-  --timeout INT           Connection timeout for HTTP (default: 30s)
-  --force                 Overwrite existing config without prompting
+  --timeout INT           Connection timeout for HTTP (default: 30, range: 1-300)
+
+  Authentication (required):
+  --oidc-issuer URL       OIDC issuer (e.g., https://tenant.auth0.com)
+  --oidc-client-id TEXT   OAuth client ID
+  --oidc-audience TEXT    API audience for token validation
+
+  mTLS (optional, all three required together):
+  --mtls-cert PATH        Client certificate (PEM)
+  --mtls-key PATH         Client private key (PEM)
+  --mtls-ca PATH          CA bundle (PEM)
 ```
 
 **Config location** (OS-appropriate):
@@ -47,12 +61,7 @@ Options:
 - Linux: `~/.config/mcp-acp-extended/`
 - Windows: `C:\Users\<user>\AppData\Roaming\mcp-acp-extended\`
 
-**Behavior**:
-- **Interactive mode** (default): Prompts for required values
-- **Non-interactive mode**: Requires all options via flags, fails if missing
-- **Already initialized** (without --force): Prompts to confirm overwrite
-- **With --force**: Overwrites existing config without prompting
-- Creates log directory with secure permissions (chmod 700)
+Interactive mode prompts for values; non-interactive requires all flags. Use `--force` to overwrite existing config.
 
 ---
 
@@ -62,15 +71,7 @@ Options:
 mcp-acp-extended start
 ```
 
-No options - all settings come from config file created by `init`.
-
-**Behavior**:
-- Runs in foreground (stop with Ctrl+C)
-- If not initialized, prints error and suggests `mcp-acp-extended init`
-- Loads config from OS-appropriate location
-- Validates config on startup
-- Prints startup banner with configuration summary
-- Normally started by MCP client (e.g., Claude Desktop), not manually
+No options - all settings come from config file. Runs in foreground (Ctrl+C to stop). Normally started by MCP client, not manually.
 
 ---
 
@@ -86,16 +87,83 @@ Show config and policy file locations.
 
 #### `mcp-acp-extended config edit`
 
-Edit the **config file** (not policy) in your editor.
+Edit config file in `$EDITOR` (falls back to `$VISUAL`, then `vi`). Validates after saving. Policy files must be edited manually - see [Policies](policies.md).
 
-**Behavior**:
-- Opens config in `$EDITOR` (falls back to `$VISUAL`, then `vi`)
-- Validates with Pydantic after saving
-- Re-edit loop on validation failure (fix or abort)
-- Creates `.json.bak` backup before save, removes on success
-- Logs `config_updated` event to config history
+#### `mcp-acp-extended config validate`
 
-**Note**: Policy files must be edited manually - see [Policies](policies.md).
+Validate configuration file syntax and schema.
+
+```bash
+mcp-acp-extended config validate [--path FILE]
+```
+
+Returns exit code 0 if valid, 1 if invalid.
+
+---
+
+### `mcp-acp-extended auth` - Authentication
+
+#### `mcp-acp-extended auth login`
+
+Authenticate via OAuth 2.0 Device Flow (browser-based, like `gh auth login`).
+
+```bash
+mcp-acp-extended auth login [--no-browser]
+```
+
+Use `--no-browser` to display code only. Opens browser, displays verification code, polls for completion (5 min timeout), stores tokens in OS keychain.
+
+#### `mcp-acp-extended auth status`
+
+Check authentication state, token validity, user info, and mTLS certificate status.
+
+```bash
+mcp-acp-extended auth status
+```
+
+#### `mcp-acp-extended auth logout`
+
+Clear stored credentials from OS keychain.
+
+```bash
+mcp-acp-extended auth logout
+```
+
+Running proxies need restart after logout.
+
+---
+
+### `mcp-acp-extended policy` - Policy Management
+
+#### `mcp-acp-extended policy path`
+
+Show policy file location.
+
+```bash
+mcp-acp-extended policy path
+```
+
+#### `mcp-acp-extended policy validate`
+
+Validate policy file syntax and schema.
+
+```bash
+mcp-acp-extended policy validate [--path FILE]
+```
+
+Returns exit code 0 if valid, 1 if invalid.
+
+#### `mcp-acp-extended policy reload`
+
+Reload policy in running proxy without restart.
+
+```bash
+mcp-acp-extended policy reload
+```
+
+Validates and applies the current `policy.json`. Requires proxy to be running. Clears cached HITL approvals on reload.
+
+Returns exit code 0 if successful, 1 if failed (validation error, proxy not running).
 
 ---
 
@@ -105,6 +173,19 @@ Edit the **config file** (not policy) in your editor.
 mcp-acp-extended -v, --version
 mcp-acp-extended -h, --help
 ```
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| 0 | Success |
+| 1 | General error (config/policy invalid, missing files, validation failure) |
+| 10 | Audit log failure (log directory not writable) |
+| 12 | Identity verification failure (JWKS endpoint unreachable) |
+| 13 | Authentication error (not authenticated, token expired) |
+| 14 | Device health check failed (FileVault/SIP not enabled on macOS) |
 
 ---
 
@@ -119,24 +200,8 @@ nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
 
 ### Step 2: Update configuration
 
-**If using filesystem server directly (before proxy):**
-
-```json
-{
-  "mcpServers": {
-    "filesystem": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "@modelcontextprotocol/server-filesystem",
-        "/path/to/allowed/dir"
-      ]
-    }
-  }
-}
-```
-
-**Change to use the proxy (after proxy setup):**
+**Instead of using the planned backend server directly:**
+**Only configure the proxy:**
 
 ```json
 {
@@ -148,6 +213,7 @@ nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
   }
 }
 ```
+**And configure the backend server in the proxy config.**
 
 **Finding the full path:**
 
@@ -181,30 +247,16 @@ Future versions may add HTTPS client transport.
 
 ---
 
-## MCP Inspector
-
-For testing with [MCP Inspector](https://github.com/modelcontextprotocol/inspector):
-
-```bash
-# Initialize proxy first
-mcp-acp-extended init
-
-# Run inspector with the proxy
-npx @modelcontextprotocol/inspector mcp-acp-extended start
-```
-
----
-
 ## Example Workflows
 
 ### First-time setup
 
 ```bash
-# 1. Initialize (interactive)
+# 1. Initialize configuration (interactive wizard)
 mcp-acp-extended init
 
-# 2. View config location
-mcp-acp-extended config path
+# 2. Authenticate (required - Zero Trust)
+mcp-acp-extended auth login
 
 # 3. Test proxy manually
 mcp-acp-extended start
@@ -213,56 +265,15 @@ mcp-acp-extended start
 ### Non-interactive setup (for scripting)
 
 ```bash
-# STDIO transport (local command)
-mcp-acp-extended init --non-interactive \
-  --log-dir ~/.mcp-acp-extended \
-  --server-name filesystem \
-  --connection-type stdio \
-  --command npx \
-  --args "-y,@modelcontextprotocol/server-filesystem,/tmp"
-
 # HTTP transport (remote server)
 mcp-acp-extended init --non-interactive \
   --log-dir ~/.mcp-acp-extended \
   --server-name filesystem \
   --connection-type http \
-  --url http://localhost:3000/mcp
-
-# Both transports (auto-detect: prefers HTTP, falls back to STDIO)
-mcp-acp-extended init --non-interactive \
-  --log-dir ~/.mcp-acp-extended \
-  --server-name filesystem \
-  --connection-type both \
-  --command npx \
-  --args "-y,@modelcontextprotocol/server-filesystem,/tmp" \
-  --url http://localhost:3000/mcp
-```
-
-### Debugging
-
-```bash
-# View logs (path depends on --log-dir from init)
-tail -f ~/.mcp-acp-extended/mcp_acp_extended_logs/debug/client_wire.jsonl | jq '.'
-
-# View audit operations
-cat ~/.mcp-acp-extended/mcp_acp_extended_logs/audit/operations.jsonl | jq '.'
-
-# View policy decisions
-cat ~/.mcp-acp-extended/mcp_acp_extended_logs/audit/decisions.jsonl | jq '.'
-```
-
-### Edit policies
-
-Policies are edited manually in the policy file:
-
-```bash
-# Find policy file location
-mcp-acp-extended config path
-
-# Edit policy file
-$EDITOR ~/Library/Application\ Support/mcp-acp-extended/policy.json
-
-# Restart proxy to apply changes
+  --url http://localhost:3000/mcp \
+  --oidc-issuer https://your-tenant.auth0.com \
+  --oidc-client-id YOUR_CLIENT_ID \
+  --oidc-audience https://your-api.example.com
 ```
 
 ---

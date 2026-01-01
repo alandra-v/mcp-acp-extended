@@ -46,6 +46,48 @@ This follows the same pattern as `gh auth login`, `aws sso login`, `gcloud auth 
 
 ---
 
+## CLI Commands
+
+### Quick Reference
+
+```bash
+mcp-acp-extended auth login            # Authenticate via browser
+mcp-acp-extended auth login --no-browser   # Display code only, don't open browser
+mcp-acp-extended auth status           # Check authentication state
+mcp-acp-extended auth logout           # Clear stored credentials
+```
+
+### auth login
+
+Authenticates using OAuth 2.0 Device Flow (RFC 8628):
+
+1. Requests device code from identity provider
+2. Displays user code (e.g., `HDFC-LQRT`) and verification URL
+3. Opens browser automatically (unless `--no-browser`)
+4. Polls for tokens until user completes authentication
+5. Stores tokens in keychain (or encrypted file fallback)
+
+**Timeouts**:
+- Device flow: 5 minutes to complete authentication
+- Polling interval: 5 seconds
+
+### auth status
+
+Displays current authentication state:
+
+- **Storage**: Backend type (keychain or encrypted file)
+- **Token state**: Valid, expired, or missing
+- **Token info**: Expiration time, refresh token availability
+- **User info**: Email, name, subject ID (from ID token)
+- **OIDC config**: Issuer, client ID, audience
+- **mTLS certificates**: Paths and expiry status (Valid/Warning/Critical/Expired)
+
+### auth logout
+
+Removes stored credentials from keychain or encrypted file. Running proxies need restart after logout.
+
+---
+
 ## Token Storage
 
 Tokens are stored securely using OS-native credential storage:
@@ -56,7 +98,19 @@ Tokens are stored securely using OS-native credential storage:
 | Linux | Secret Service | D-Bus Secret Service API |
 | Windows | Credential Locker | Windows Credential Manager |
 
-**Fallback**: If keychain is unavailable (e.g., headless server), uses encrypted file storage with PBKDF2-derived key. File permissions are set to 0600 (owner read/write only).
+**Storage selection**: The proxy automatically selects the best available backend:
+1. Try OS keychain via `keyring` library
+2. If unavailable (e.g., headless server) → fall back to encrypted file
+
+### Encrypted File Fallback
+
+When keychain is unavailable, tokens are stored in an encrypted file:
+
+- **Location**: `~/.config/mcp-acp-extended/tokens.enc` (OS-specific config dir)
+- **Encryption**: Fernet (AES-128-CBC)
+- **Key derivation**: PBKDF2-SHA256 with 100,000 iterations
+- **Key input**: Machine ID + hostname (machine-specific)
+- **File permissions**: `0o600` (owner read/write only)
 
 ### Stored Token Structure
 
@@ -82,10 +136,10 @@ Every request validates the JWT with the following checks:
 
 ### JWKS Caching
 
-JWKS keys are cached for 1 hour per-instance to avoid excessive network calls:
+JWKS keys are cached for 10 minutes per-instance to avoid excessive network calls:
 
 ```python
-JWKS_CACHE_TTL_SECONDS = 3600  # 1 hour
+JWKS_CACHE_TTL_SECONDS = 600  # 10 minutes
 ```
 
 ### Identity Caching
@@ -143,21 +197,6 @@ For STDIO clients (Claude Desktop), tokens are loaded from OS keychain:
 - Validates JWT per-request (60s cache)
 - Auto-refreshes when access_token expires
 
-### Pattern 2: HTTP (Future)
-
-For HTTP clients, tokens come via Bearer header:
-
-```
-┌──────────┐   HTTP+Bearer  ┌─────────────────────┐
-│  Client  │◄──────────────►│       Proxy         │
-│          │   Auth header  │  (FastMCP context)  │
-└──────────┘                └─────────────────────┘
-```
-
-- `HTTPIdentityProvider` uses FastMCP's `get_access_token()`
-- Token extracted from Authorization header by FastMCP
-- Same JWT validation, different token source
-
 ---
 
 ## Configuration
@@ -196,7 +235,21 @@ Authentication is configured via `config.json`:
 | Refresh Token | 30 days | Auto-refresh silently |
 | ID Token | 24 hours | Extract claims for Subject |
 
-When refresh token expires:
+### Automatic Token Refresh
+
+When access token expires, the proxy automatically refreshes:
+
+1. POST to `{issuer}/oauth/token` with `grant_type=refresh_token`
+2. Receive new access token (and optionally new refresh token)
+3. Store updated tokens
+4. Continue operation seamlessly
+
+**Refresh errors**:
+- `TokenRefreshExpiredError`: Refresh token expired → user must re-login
+- `TokenRefreshError`: Network/server error → retry or re-login
+
+### When Refresh Token Expires
+
 1. Proxy shows osascript popup: "Authentication expired"
 2. User runs: `mcp-acp-extended auth login`
 3. User restarts Claude Desktop
@@ -224,33 +277,6 @@ These claims enable fine-grained policies:
 
 ---
 
-## Design Decisions
-
-### Why OS Keychain over Environment Variables?
-
-1. **Security**: Keychain is encrypted at rest, environment variables are not
-2. **User experience**: Single login persists across sessions
-3. **Standard practice**: Follows `gh`, `aws`, `gcloud` patterns
-
-### Why 60-second Cache TTL?
-
-Balance between:
-- **Security**: Re-validate frequently for Zero Trust
-- **Performance**: Avoid network call on every request
-- **Token refresh**: Catch expiration within reasonable window
-
-### Why Comma-separated Strings in SubjectIdentity?
-
-`SubjectIdentity.subject_claims` is typed as `dict[str, str]` for JSON serialization in audit logs. Lists (scopes, audience) are stored as comma-separated strings and parsed back when building the full Subject.
-
-### Why Async get_identity()?
-
-1. **OIDC validation may require network**: JWKS fetch, token refresh
-2. **Concurrency safety**: `asyncio.Lock` prevents cache race conditions
-3. **Future-proof**: HTTP identity providers need async
-
----
-
 ## Security
 
 ### Fail-closed Behavior
@@ -263,6 +289,7 @@ Authentication failures result in proxy shutdown:
 | Token expired + refresh failed | 13 | `auth login` |
 | Invalid signature | 13 | `auth login` |
 | Issuer/audience mismatch | 13 | Check config |
+| JWKS endpoint unreachable | 12 | Check network/issuer URL |
 | Device unhealthy | 14 | Enable FileVault/SIP |
 
 ### Audit Logging
@@ -290,20 +317,7 @@ The proxy uses standard OIDC/OAuth 2.0 protocols and works with any compliant pr
 | OpenID Connect (OIDC) | OIDC Core 1.0 | Identity layer, JWT tokens with user claims |
 | JWKS | RFC 7517 | Public keys for JWT signature verification |
 
-### Compatible Providers
-
-Any provider supporting Device Flow + JWKS:
-
-| Provider | Status | Notes |
-|----------|--------|-------|
-| Auth0 | ✅ Tested | Create Native app, enable Device Code grant |
-| Okta | ✅ Compatible | Enterprise standard |
-| Azure AD / Entra ID | ✅ Compatible | Microsoft identity platform |
-| Google Workspace | ✅ Compatible | Google Cloud Identity |
-| Keycloak | ✅ Compatible | Open source, self-hosted option |
-| AWS Cognito | ✅ Compatible | AWS identity service |
-| OneLogin | ✅ Compatible | |
-| PingIdentity | ✅ Compatible | |
+Any provider supporting Device Flow + JWKS should be compatible.
 
 ### Provider Setup Requirements
 
@@ -444,69 +458,6 @@ mTLS is recommended when:
 - Zero Trust network architecture requires mutual authentication
 - Additional layer of security beyond bearer tokens is needed
 - Compliance requirements mandate mutual TLS
-
-### How to Obtain mTLS Certificates
-
-The process for obtaining certificates depends on your organization:
-
-#### Enterprise / Corporate Environment
-
-Contact your IT or Security team. They typically:
-1. Issue certificates from an internal Certificate Authority (CA)
-2. Provide you with three files:
-   - **Client certificate** (`client.pem`) - Your proxy's identity
-   - **Client private key** (`client-key.pem`) - Keep this secure!
-   - **CA bundle** (`ca-bundle.pem`) - To verify the backend server
-
-Common enterprise PKI systems:
-- Microsoft Active Directory Certificate Services (AD CS)
-- HashiCorp Vault PKI
-- AWS Private CA
-- Google Cloud Certificate Authority Service
-
-#### Cloud / SaaS Backend
-
-Your backend provider may have a certificate provisioning process:
-- Check your provider's documentation for "client certificates" or "mTLS setup"
-- They typically provide a CA bundle and instructions for generating client certs
-- Some providers use their own CLI tools for certificate management
-
-#### Self-Hosted / Development
-
-Generate self-signed certificates for testing:
-
-```bash
-# Create a directory for certificates
-mkdir -p ~/.mcp-certs && cd ~/.mcp-certs
-
-# 1. Generate CA (Certificate Authority)
-openssl genrsa -out ca-key.pem 4096
-openssl req -new -x509 -days 365 -key ca-key.pem -out ca-cert.pem \
-  -subj "/CN=My CA/O=My Organization"
-
-# 2. Generate client certificate for the proxy
-openssl genrsa -out client-key.pem 4096
-openssl req -new -key client-key.pem -out client.csr \
-  -subj "/CN=mcp-proxy/O=My Organization"
-openssl x509 -req -days 365 -in client.csr \
-  -CA ca-cert.pem -CAkey ca-key.pem -CAcreateserial \
-  -out client-cert.pem
-
-# 3. Set secure permissions
-chmod 600 client-key.pem
-
-# 4. Verify certificates
-openssl verify -CAfile ca-cert.pem client-cert.pem
-```
-
-Then configure during init:
-```bash
-mcp-acp-extended init
-# When prompted for mTLS:
-# Client certificate: ~/.mcp-certs/client-cert.pem
-# Client key: ~/.mcp-certs/client-key.pem
-# CA bundle: ~/.mcp-certs/ca-cert.pem
-```
 
 #### Certificate File Formats
 

@@ -71,7 +71,7 @@ Each log entry follows the **Kipling method (5W1H)**: Who (subject), What (metho
 | `file_path`, `file_extension` | File info (for file operations) |
 | `arguments_summary` | Redacted args: `body_hash`, `payload_length` |
 | `config_version` | Active configuration version |
-| `duration` | Operation duration in ms |
+| `duration.duration_ms` | Operation duration in milliseconds |
 | `response_summary` | Response metadata: `size_bytes`, `body_hash` |
 
 ### decisions.jsonl
@@ -81,18 +81,22 @@ Every policy evaluation decision, including HITL outcomes.
 | Field | Description |
 |-------|-------------|
 | `time` | ISO 8601 timestamp |
+| `event` | Always `policy_decision` |
 | `decision` | `allow`, `deny`, or `hitl` |
 | `final_rule` | Rule ID that determined outcome (or `default`, `discovery_bypass`) |
-| `matched_rules` | All rules that matched |
+| `matched_rules` | All rules that matched (with `id`, `effect`, `description`) |
 | `mcp_method`, `tool_name` | Request method and tool |
 | `path`, `uri`, `scheme` | Resource context (file path or URI) |
+| `source_path`, `dest_path` | Source/destination for move/copy operations |
 | `request_id`, `backend_id`, `policy_version` | Correlation and context (required) |
 | `session_id` | Session ID (optional, may not exist during `initialize`) |
 | `subject_id` | User identity (optional until auth implemented) |
 | `side_effects` | Action classification |
-| `duration_ms` | Policy evaluation time |
+| `policy_eval_ms` | Policy rule evaluation time |
+| `policy_hitl_ms` | HITL wait time (only for HITL decisions) |
+| `policy_total_ms` | Total evaluation time (eval + HITL) |
 | `hitl_outcome` | `user_allowed`, `user_denied`, `timeout` (if HITL) |
-| `hitl_response_time_ms` | User response time (if HITL) |
+| `hitl_cache_hit` | `true` if approval from cache, `false` if user prompted |
 
 ### auth.jsonl
 
@@ -131,7 +135,7 @@ Event types: `client_request`, `proxy_response`, `proxy_error`, `proxy_request`,
 
 ## System Logs (`system/`)
 
-Operational events - **only WARNING, ERROR, CRITICAL levels are logged to file** (INFO goes to console only).
+Operational system events - **only WARNING, ERROR, CRITICAL levels are logged to file**.
 
 ### system.jsonl
 
@@ -163,8 +167,12 @@ Events: `config_created`, `config_loaded`, `config_updated`, `manual_change_dete
 | `config_version`, `previous_version` | Version tracking |
 | `change_type` | `initial_load`, `cli_update`, `manual_edit`, `startup_load`, `validation_error` |
 | `component`, `source` | Where change originated |
+| `config_path` | Path to config file on disk |
 | `checksum` | SHA256 for integrity verification |
+| `snapshot_format` | Always `json` |
 | `snapshot` | Full config content (for creation/changes, skipped for loads) |
+| `changes` | Dict of changed fields with old/new values (for updates) |
+| `message` | Human-readable description |
 | `error_type`, `error_message` | For validation failures |
 
 ### policy_history.jsonl
@@ -178,8 +186,12 @@ Events: `policy_created`, `policy_loaded`, `policy_updated`, `manual_change_dete
 | `policy_version`, `previous_version` | Version tracking |
 | `change_type` | `initial_creation`, `startup_load`, `rule_update`, `manual_edit`, `validation_error` |
 | `component`, `source` | Where change originated |
+| `policy_path` | Path to policy file on disk |
 | `checksum` | SHA256 for integrity verification |
+| `snapshot_format` | Always `json` |
 | `snapshot` | Full policy content (for creation/changes, skipped for loads) |
+| `rule_id`, `rule_effect`, `rule_conditions` | For rule update events |
+| `message` | Human-readable description |
 | `error_type`, `error_message` | For validation failures |
 
 ---
@@ -207,16 +219,8 @@ Performance metrics logging is planned but not yet implemented.
 
 ## Correlation IDs
 
-### Current Implementation
-
 - `request_id`: Per request/response pair
 - `session_id`: Per client connection
-
-### Future Capabilities (Not Implemented)
-
-- `connection_id`: Track multiple concurrent connections
-- `span_id`, `parent_span_id`: OpenTelemetry tracing
-- `user_id`, `roles`: From OAuth token claims
 
 ---
 
@@ -262,6 +266,8 @@ The logging design is SIEM-ready:
 ## Security
 
 **Payload redaction**: Arguments are never logged in full - only SHA256 hash and byte length. Full payloads only in debug logs.
+
+**Blocking I/O**: All logging is synchronous. Each log call blocks until the write completes (including `fsync` for audit logs). This is intentional for audit integrity - we guarantee the log is on disk before continuing. Trade-off: adds ~1-5ms latency per logged request. For high-throughput scenarios, for the future we might consider async log forwarding to a SIEM rather than relying on local disk.
 
 **Audit log integrity**: Log files are protected by two layers of monitoring:
 1. **Per-write checks**: Before every write, file identity (device ID + inode) is verified

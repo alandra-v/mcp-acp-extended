@@ -12,15 +12,16 @@ For the full Zero Trust architecture and PEP/PDP design, see [Architecture](arch
 
 ### MCP and Agentic AI Threats
 
-| Threat | How the Proxy Helps | Stage 1 Status |
-|--------|---------------------|----------------|
-| **Tool poisoning** (malicious tool descriptions, metadata, or responses inducing unsafe actions) | Policy gating blocks tool invocations before reaching backend; side effects mapping enables blocking dangerous tool categories by capability | Partially mitigated (no response validation or description sanitization) |
-| **Confused-deputy attacks** (clients/servers tricked into misusing authority, insufficient consent scoping) | Per-request policy evaluation (no cached trust); HITL requires explicit user consent for sensitive operations; no automatic token forwarding | Partially mitigated (no scoped tokens or per-session credential binding) |
-| **Cross-tool contamination** (benign tools chained into exfiltration pathways) | Policy rules can restrict by tool name, path pattern, and side effects; single-server architecture limits cross-server chaining | Minimally mitigated (no flow control or taint tracking) |
-| **Credential theft and misuse** (token impersonation, privilege escalation) | Local identity only; no tokens stored or forwarded | Not addressed (no session validation or anti-replay; planned for Stage 2+) |
-| **Expanded attack surface** (agent integrations multiply entry points) | Default-deny policy restricts callable tools; protected paths block access to proxy internals | Partially mitigated |
-| **Accountability gaps** (unclear attribution for autonomous agent actions) | Immutable audit trail with subject ID, request ID, session ID on every operation and decision | Addressed |
-| **Supply-chain risks** (dependencies on models, libraries, APIs) | Dependencies documented; update guidance provided | Awareness only (no SCA integration) |
+| Threat | How the Proxy Helps |
+|--------|---------------------|
+| **Tool poisoning** (malicious tool descriptions inducing unsafe actions) | Policy gating blocks tool invocations; tool description sanitization strips injection attempts |
+| **Confused-deputy attacks** (clients/servers tricked into misusing authority) | Per-request policy evaluation (no cached trust); HITL requires explicit user consent |
+| **Cross-tool contamination** (benign tools chained into exfiltration) | Policy rules restrict by tool name, path pattern, and side effects |
+| **Credential theft and misuse** (token impersonation, privilege escalation) | Tokens validated per-request; session binding prevents hijacking |
+| **Expanded attack surface** (agent integrations multiply entry points) | Default-deny policy; protected paths block access to proxy internals |
+| **Accountability gaps** (unclear attribution for autonomous agent actions) | Immutable audit trail with subject ID, request ID, session ID |
+| **Runaway LLM loops** (repeated tool calls from confused model) | Per-tool rate limiting triggers HITL when threshold exceeded |
+| **Request flooding** (DoS attacks) | Token bucket rate limiter on all incoming requests |
 
 ---
 
@@ -34,7 +35,6 @@ For the full Zero Trust architecture and PEP/PDP design, see [Architecture](arch
 | **Model behavior** | Cannot guarantee the model will behave benignly or follow instructions correctly. | Implement application-level guardrails |
 | **Out-of-band channels** | Only the MCP channel is proxied. Data exfiltration via other means (network, clipboard if tool allowed) is not detected. | Restrict network access at OS/firewall level |
 | **Backend server vulnerabilities** | The proxy enforces policy on requests, but cannot protect against vulnerabilities in the backend MCP server itself. | Keep backend servers updated; use trusted servers |
-| **Rate limiting / DoS** | No built-in rate limiting yet. An attacker could flood with requests. | Implement rate limiting at infrastructure level |
 | **Memory exhaustion** | No limits on response sizes yet. Large responses could exhaust memory. | Monitor resource usage; set OS-level limits |
 
 ### Dependencies Disclaimer
@@ -124,29 +124,63 @@ This check happens before policy evaluation:
 
 This is a built-in protection that cannot be overridden by user policy.
 
-**Discovery Method Bypass**: Certain MCP methods bypass policy evaluation entirely because they are required for the protocol to function and do not modify state:
-
-- `initialize`, `ping` - connection setup
-- `tools/list`, `resources/list`, `prompts/list`, `resources/templates/list` - capability discovery
-- `notifications/*` - async notifications
+**Discovery Method Bypass**: Certain MCP methods bypass policy evaluation entirely because they are required for the protocol to function and do not modify state. See `DISCOVERY_METHODS` in `constants.py` for the complete list.
 
 These are logged with `final_rule: "discovery_bypass"` for audit trail.
 
 **Important exclusion**: `prompts/get` is NOT in the bypass list because it returns actual prompt content, which may contain secrets or sensitive instructions. Unlike `prompts/list` (which only returns metadata), `prompts/get` fetches the full prompt template and must be subject to policy evaluation.
 
-**Provenance Tracking**: Every security-relevant fact carries its source, enabling future trust-based policies:
+**Provenance Tracking**: Every security-relevant fact carries its source:
 
-```
-TOKEN/MTLS     -> Cryptographically verified (Stage 2+)
-DIRECTORY      -> From identity directory lookup
-PROXY_CONFIG   -> From local config file (operator-controlled)
-MCP_METHOD     -> From MCP method name (protocol-defined)
-MCP_REQUEST    -> From request arguments (client-provided)
-DERIVED        -> Computed from other facts
-CLIENT_HINT    -> Client self-reported (untrusted)
-```
+| Source | Trust Level |
+|--------|-------------|
+| `TOKEN`, `MTLS` | Cryptographically verified |
+| `DIRECTORY` | From identity directory lookup |
+| `PROXY_CONFIG` | Operator-controlled configuration |
+| `MCP_METHOD` | From protocol method name |
+| `MCP_REQUEST` | From request arguments (client-provided) |
+| `DERIVED` | Computed from other facts |
+| `CLIENT_HINT` | Client self-reported (untrusted) |
 
-Currently tracked but not used for policy decisions. Infrastructure for future trust-level requirements (e.g., require TOKEN provenance for sensitive operations).
+Currently tracked for audit purposes. Infrastructure for future trust-level policy requirements.
+
+### Rate Limiting
+
+Two rate limiters protect against different threats:
+
+| Layer | Purpose | Configuration |
+|-------|---------|---------------|
+| **DoS protection** | Prevents request flooding | Token bucket: 10 req/s sustained, 50 burst capacity |
+| **Tool call limiting** | Detects runaway LLM loops | Per-tool sliding window: 30 calls/60s triggers HITL |
+
+**DoS Rate Limiter**: Outermost middleware layer. Catches flooding attacks before any request processing. Uses FastMCP's token bucket algorithm with global limit.
+
+**Tool Call Rate Limiter**: Per-session, per-tool tracking. When a tool exceeds the threshold within the window, triggers HITL approval dialog. If approved, counter resets. Detects:
+- Runaway LLM loops (model repeatedly calling same tool)
+- Data exfiltration attempts (bulk reads)
+- Credential abuse patterns
+
+Both limiters are unidirectional (client → proxy only). Backend notifications bypass rate limiting.
+
+### Tool Description Sanitization
+
+Tool descriptions from untrusted MCP servers are sanitized before being passed to clients:
+
+| Step | Protection |
+|------|------------|
+| Unicode normalization (NFKC) | Collapses homoglyphs (Cyrillic 'а' → Latin 'a') |
+| Control character removal | Strips non-printable characters |
+| Markdown link stripping | Removes URLs, keeps link text |
+| HTML tag stripping | Removes `<tag>` elements |
+| Length truncation | Maximum 500 characters |
+| Suspicious pattern detection | Logs warnings for injection attempts |
+
+**Suspicious patterns detected** (logged but not removed to avoid false positives):
+- Instruction overrides ("ignore previous instructions")
+- Role assumption ("you are", "act as", "pretend")
+- System prompt references
+
+Sanitization also applies to input schema property descriptions (argument hints). All modifications logged to `decisions.jsonl`.
 
 ### Audit and Logging Security
 
@@ -190,7 +224,8 @@ After any fallback, the proxy must shut down because the primary audit trail is 
 | Log injection prevention | Newlines and carriage returns escaped in logged strings; prevents fake JSONL entries via malicious filenames |
 | Append-only mode | Logs opened with `mode="a"`; new entries appended, existing content preserved |
 | Directory permissions (0o700) | Prevent unauthorized access to log directories |
-| File permissions (umask) | Log files created with system umask (not explicit 0o600) |
+| Audit file permissions (0o600) | Audit logs (`operations.jsonl`, `decisions.jsonl`, `auth.jsonl`) have explicit owner-only permissions |
+| Debug file permissions (umask) | Debug logs (`client_wire.jsonl`, `backend_wire.jsonl`) use system umask (non-sensitive, disabled by default) |
 | Never log content | Only hashes and sizes logged; prevents secrets in logs |
 | Content redaction | Sensitive argument values replaced with `[REDACTED - N bytes]` |
 | fsync on writes | Ensures data reaches disk |
@@ -200,10 +235,20 @@ After any fallback, the proxy must shut down because the primary audit trail is 
 | Correlation IDs | request_id and session_id link related events |
 
 **Not implemented** (potential future hardening):
-- Sequence numbers for entry ordering verification
 - Hash chain linking entries for tamper detection
-- CLI verification command to check log integrity
-- Documentation for OS-level protections (e.g., `chattr +a` on Linux)
+- CLI verification command to check log integrity (`mcp-acp-extended logs verify`)
+
+### OS-Level Append-Only Protection
+
+For maximum protection, enable OS-level append-only attributes on audit logs:
+
+| OS | Command | Notes |
+|----|---------|-------|
+| Linux | `sudo chattr +a <path>/audit/*.jsonl` | Requires root |
+| macOS | `chflags uappnd <path>/audit/*.jsonl` | User-level; use `sappnd` for root-only |
+| Windows | Use ACLs or forward to SIEM | No direct equivalent |
+
+**Trade-off**: Append-only prevents log rotation. Remove attribute before rotating, re-apply after. Not enabled by default.
 
 **Path Normalization Strategies**: Three different strategies are used for different security purposes:
 
@@ -302,7 +347,9 @@ On audit failure, a breadcrumb file is written for post-incident analysis:
 |------|---------|--------------|
 | 10 | Audit log integrity failure | File deletion, replacement, or write failure |
 | 11 | Policy enforcement failure | Reserved for future use |
-| 12 | Identity verification failure | Reserved for future use |
+| 12 | Identity verification failure | JWKS endpoint unreachable |
+| 13 | Authentication error | No token, expired token, invalid signature |
+| 14 | Device health check failure | FileVault/SIP not enabled (macOS) |
 
 ### Post-Shutdown Client Behavior
 

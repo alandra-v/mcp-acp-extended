@@ -43,12 +43,12 @@ The proxy builds a `DecisionContext` with four attribute categories:
 
 | Category | Attributes | Source |
 |----------|------------|--------|
-| **Subject** | `user_id`, `hostname`, `client_name` | Local identity provider |
-| **Action** | `mcp_method`, `intent`, `category` | MCP request |
-| **Resource** | `tool_name`, `path`, `extension`, `backend_id`, `side_effects` | MCP request arguments |
-| **Environment** | `timestamp`, `session_id`, `request_id` | Runtime context |
+| **Subject** | `id`, `issuer`, `scopes`, `client_id`, `audience` | OIDC token or local identity |
+| **Action** | `mcp_method`, `name`, `intent`, `category` | MCP request |
+| **Resource** | `tool_name`, `path`, `source_path`, `dest_path`, `extension`, `backend_id`, `side_effects` | MCP request arguments |
+| **Environment** | `timestamp`, `session_id`, `request_id`, `mcp_client_name` | Runtime context |
 
-**No external PIPs**: Currently all context is built from local information (request data, config). No external Policy Information Points (IdP, tool registry, threat feeds) are queried. Future versions may add external PIPs.
+**External PIPs**: When OIDC authentication is configured, the proxy queries the external IdP for JWKS (key validation) and token refresh. Tool side effects use a local mapping (see `tool_side_effects.py`).
 
 ### Policy Engine
 
@@ -68,31 +68,134 @@ Rules are evaluated against the context:
   "version": "1",
   "default_action": "deny",
   "rules": [
-    { "id": "allow-reads", "effect": "allow", "conditions": { "operations": ["read"] } },
-    { "id": "hitl-writes", "effect": "hitl", "conditions": { "operations": ["write"] } }
+    {
+      "id": "allow-reads",
+      "description": "Allow all read operations without prompting",
+      "effect": "allow",
+      "conditions": { "operations": ["read"] }
+    },
+    {
+      "id": "hitl-writes",
+      "description": "Require approval for write operations",
+      "effect": "hitl",
+      "conditions": { "operations": ["write"] }
+    }
   ],
-  "hitl": { "timeout_seconds": 30 }
+  "hitl": {
+    "timeout_seconds": 30,
+    "approval_ttl_seconds": 600,
+    "cache_side_effects": null
+  }
 }
 ```
+
+### Rule Fields
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `id` | No | Unique identifier (auto-generated if not provided) |
+| `description` | No | Human-readable explanation of the rule's purpose |
+| `effect` | Yes | Action when rule matches: `allow`, `deny`, `hitl` |
+| `conditions` | Yes | Matching criteria (AND logic) |
 
 ---
 
 ## Rule Conditions
 
-All conditions in a rule use **AND logic** (all must match):
+All conditions in a rule use **AND logic** (all must match).
+Most conditions support **list values with OR logic** - when a list is provided, the condition matches if ANY value matches.
 
-| Condition | Description | Matching |
-|-----------|-------------|----------|
-| `tool_name` | Tool name pattern | glob, case-insensitive |
-| `path_pattern` | File path pattern | glob with ** |
-| `operations` | Operation types | read/write/delete |
-| `extension` | File extension | case-insensitive |
-| `scheme` | URL scheme | case-insensitive |
-| `backend_id` | Server identifier | case-insensitive |
-| `resource_type` | Resource type | |
-| `mcp_method` | MCP method name | case-sensitive |
-| `subject_id` | User identity | case-sensitive |
-| `side_effects` | Side effect types | ANY logic |
+| Condition | Description | Matching | List Support |
+|-----------|-------------|----------|--------------|
+| `tool_name` | Tool name pattern | glob (*, ?), case-insensitive | ✓ OR logic |
+| `path_pattern` | File path pattern | glob (*, **, ?), case-sensitive | ✓ OR logic |
+| `source_path` | Source path for move/copy operations | glob (*, **, ?), case-sensitive | ✓ OR logic |
+| `dest_path` | Destination path for move/copy operations | glob (*, **, ?), case-sensitive | ✓ OR logic |
+| `operations` | Operation types (heuristic) | exact: read/write/delete | (list only) |
+| `extension` | File extension | exact, case-insensitive | ✓ OR logic |
+| `scheme` | URL scheme | exact, case-insensitive | ✓ OR logic |
+| `backend_id` | Server identifier | glob (*, ?), case-insensitive | ✓ OR logic |
+| `resource_type` | Resource type | exact, case-insensitive | single only |
+| `mcp_method` | MCP method name | glob (*, ?), case-sensitive | ✓ OR logic |
+| `subject_id` | User identity | exact, case-sensitive | ✓ OR logic |
+| `side_effects` | Side effect types | ANY match | (list only) |
+
+### Path Pattern Matching
+
+Path patterns support glob syntax:
+- `*` matches any characters except `/`
+- `**` matches any characters including `/`
+- `?` matches a single character
+
+**Important**: `/path/**` matches both the directory itself and everything under it:
+- `/project/**` matches `/project`, `/project/file`, `/project/src/main.py`
+- This is intuitive for policies - allowing access to `/project/**` includes the directory itself
+
+### List Conditions (OR Logic)
+
+Most conditions accept either a single value or a list of values. When a list is provided, the condition matches if ANY value in the list matches:
+
+```json
+{
+  "id": "deny-dangerous-tools-on-etc",
+  "description": "Block dangerous tools on /etc",
+  "effect": "deny",
+  "conditions": {
+    "tool_name": ["bash", "rm", "mv", "cp", "chmod"],
+    "path_pattern": "/etc/**"
+  }
+}
+```
+
+This matches: (tool is bash OR rm OR mv OR cp OR chmod) AND (path matches /etc/**)
+
+```json
+{
+  "id": "allow-reads-from-safe-dirs",
+  "description": "Allow reads from project or tmp directories",
+  "effect": "allow",
+  "conditions": {
+    "tool_name": "read_*",
+    "path_pattern": ["/project/**", "/tmp/**"]
+  }
+}
+```
+
+This matches: (tool matches read_*) AND (path matches /project/** OR /tmp/**)
+
+**Empty lists** never match - a rule with `tool_name: []` will never apply.
+
+### Source/Destination Path Conditions
+
+For move/copy operations, you can control data flow with `source_path` and `dest_path`:
+
+```json
+{
+  "id": "allow-copy-tmp-to-project",
+  "description": "Allow copying from /tmp to /project",
+  "effect": "allow",
+  "conditions": {
+    "tool_name": "copy_*",
+    "source_path": "/tmp/**",
+    "dest_path": "/project/**"
+  }
+}
+```
+
+```json
+{
+  "id": "deny-copy-to-secrets",
+  "description": "Deny copying anything to /secrets",
+  "effect": "deny",
+  "conditions": {
+    "dest_path": "/secrets/**"
+  }
+}
+```
+
+Supported argument names:
+- **Source**: `source`, `src`, `from`, `from_path`, `source_path`, `origin`
+- **Destination**: `destination`, `destination_path`, `dest`, `to`, `to_path`, `dest_path`, `target`, `target_path`
 
 **Empty conditions are invalid** (rejected by validator - would match everything).
 
@@ -157,16 +260,15 @@ Side effects are currently **manually mapped** per tool. Example mappings:
 - The mapping is based on common tool naming conventions
 - Unknown tools fail-safe: they won't match allow rules with side_effect conditions
 
-Future: Verified Tool Registry
+Possible future: Verified Tool Registry
 
 ---
 
 ## Discovery Bypass
 
-These methods skip policy evaluation entirely:
-- `initialize`, `ping` - connection setup
-- `tools/list`, `resources/list`, `prompts/list` - capability discovery
-- `notifications/*` - async notifications
+Discovery methods skip policy evaluation entirely. These include connection setup (`initialize`, `ping`), capability discovery (`tools/list`, `resources/list`, `prompts/list`), and async notifications.
+
+See `DISCOVERY_METHODS` in `constants.py` for the complete list.
 
 **`prompts/get` is NOT bypassed** - it returns actual content and needs policy evaluation.
 
@@ -193,7 +295,7 @@ Therefore `prompts/get` requires policy evaluation like any other action.
 
 ## Example Policy
 
-A practical policy allowing reads, requiring approval for writes to project directory:
+A practical policy allowing reads from a project directory, requiring approval for writes:
 
 ```json
 {
@@ -205,7 +307,7 @@ A practical policy allowing reads, requiring approval for writes to project dire
       "effect": "allow",
       "conditions": {
         "tool_name": "read*",
-        "path_pattern": "<test-workspace>/**"
+        "path_pattern": "/home/user/projects/**"
       }
     },
     {
@@ -213,7 +315,7 @@ A practical policy allowing reads, requiring approval for writes to project dire
       "effect": "hitl",
       "conditions": {
         "tool_name": "write*",
-        "path_pattern": "<workspace>/**"
+        "path_pattern": "/home/user/projects/**"
       }
     },
     {
@@ -233,16 +335,17 @@ A practical policy allowing reads, requiring approval for writes to project dire
   ],
   "hitl": {
     "timeout_seconds": 30,
-    "default_on_timeout": "deny"
+    "approval_ttl_seconds": 600,
+    "cache_side_effects": ["fs_write"]
   }
 }
 ```
 
 **How this works:**
-- Reads: allowed everywhere
-- Writes to `/Users/*/Projects/**`: HITL approval required
-- Writes elsewhere: denied (rule order matters - more specific rules first)
-- Deletes: denied everywhere
+- Reads from `/home/user/projects/**`: allowed
+- Writes to `/home/user/projects/**`: HITL approval required
+- Any access to `**/secrets/**` or `**/private/**`: denied (deny rules checked first)
+- Everything else: denied (default action)
 
 ---
 
@@ -253,8 +356,6 @@ HITL is triggered **exclusively by policy rules** with `effect: "hitl"`. The sys
 ### Platform Support
 
 Currently **macOS only** via native `osascript` dialogs:
-- GUI popup with "Allow" / "Deny" buttons
-- **Return/Enter** → Allow, **Escape** → Deny
 - Audio notification (`Funk.aiff`) on first dialog
 - Queue indicator shows pending requests
 
@@ -271,109 +372,57 @@ User: <subject_id>
 Queue: #2 pending               (only shown if queue_position > 1)
 
 Auto-deny in 30s
-[Return] Allow  *  [Esc] Deny
+[Esc] Deny | Allow (Xm) | [Return] Allow once
 ```
+
+**Button behavior (when caching enabled - 3 buttons):**
+- **Deny** (Esc): Reject the operation
+- **Allow (Xm)**: Approve and cache for X minutes (based on `approval_ttl_seconds`)
+- **Allow once** (Return): Approve without caching
+
+**Button behavior (when caching disabled - 2 buttons):**
+- **Deny** (Esc): Reject the operation
+- **Allow** (Return): Approve the operation
 
 ### Timeout Configuration
 
-- Default: 30 seconds, range: 5-300 seconds
-- Configurable in `policy.json`:
-  ```json
-  "hitl": { "timeout_seconds": 60 }
-  ```
+- **Dialog timeout**: 30 seconds default, range 5-300 seconds
+- **Approval cache TTL**: 600 seconds default (10 min), range 300-900 seconds (5-15 min)
+
+Configurable in `policy.json`:
+```json
+"hitl": {
+  "timeout_seconds": 60,
+  "approval_ttl_seconds": 600,
+  "cache_side_effects": ["fs_write"]
+}
+```
 
 **Note**: MCP clients have their own request timeouts. Ensure client timeout > HITL timeout to allow user response time.
+
+**Note**: `default_on_timeout` is always `"deny"` (Zero Trust) and cannot be changed.
+
+### Approval Caching
+
+To reduce HITL dialog fatigue, approvals can be cached for repeated operations:
+
+- **Cache key**: `(user, tool, path)` - approvals are path-specific
+- **TTL**: Configurable via `approval_ttl_seconds` (default: 10 minutes)
+- **Buttons**: "Allow (Xm)" caches the approval, "Allow once" does not
+- **Clearing**: Cache is cleared on policy reload
+
+**`cache_side_effects` configuration:**
+- `null` (default): Only cache tools with NO side effects
+- `["fs_write", "fs_read"]`: Also cache tools with these specific side effects
+- Tools with `code_exec` side effect are **never cached** regardless of this setting
+
+**Security**: The cache key does not include tool arguments, so code execution tools (bash, etc.) cannot be safely cached - the same cache key would match different commands.
 
 ### Audit & Security
 
 All HITL decisions are logged to `decisions.jsonl`. See [Logging](logging.md) for details and [Security](security.md) for HITL security design decisions.
 
-### Future Possibilities (Not Implemented)
-
-| Future Capability | Description |
-|-------------------|-------------|
-| Risk-based HITL | Score requests and trigger HITL above threshold |
-| Anomaly detection | Detect unusual patterns (burst access, odd hours) |
-| Content inspection | Trigger HITL if secrets/PII detected in request |
-| Approval state | Re-trigger HITL if previous approval expired |
-
 ---
-
-### Policy DSL Migration Path (Cedar/Rego)
-
-The current JSON policy format is explicitly designed for future migration to a proper policy DSL.
-
-**Current policy model maps to:**
-
-| Current JSON | Cedar Equivalent | Rego Equivalent |
-|--------------|------------------|-----------------|
-| `effect: "allow"` | `permit` | `allow = true` |
-| `effect: "deny"` | `forbid` | `deny = true` |
-| `effect: "hitl"` | Custom action (Cedar doesn't have HITL) | `hitl = true` |
-| `conditions.tool_name` | `resource.tool_name == "..."` | `input.resource.tool_name == "..."` |
-| `conditions.path_pattern` | `resource.path like "..."` | `glob.match(pattern, [], input.resource.path)` |
-| `conditions.operations` | `action in [Action::"read", ...]` | `input.action.intent == allowed[_]` |
-| `conditions.side_effects` | `resource.side_effects.contains(...)` | `input.resource.side_effects[_] == ...` |
-| `default_action: "deny"` | Implicit (no match = deny) | `default allow = false` |
-
-**Why current AND-only is migration-safe:**
-
-```
-Current JSON (AND logic):
-{ "conditions": { "tool_name": "bash", "path_pattern": "/tmp/**" } }
-
-→ Cedar:
-permit(principal, action, resource)
-when { resource.tool_name == "bash" && resource.path like "/tmp/*" };
-
-→ Rego:
-allow {
-    input.resource.tool_name == "bash"
-    glob.match("/tmp/**", [], input.resource.path)
-}
-```
-
-**Adding OR would complicate migration:**
-
-```
-Hypothetical OR JSON:
-{ "or": [{ "tool_name": "bash" }, { "tool_name": "shell" }] }
-
-→ Must translate to:
-allow { input.resource.tool.name == "bash" }
-allow { input.resource.tool.name == "shell" }  # Rego: multiple rule heads = OR
-```
-
-This is still expressible, but nested AND/OR/NOT creates complex AST translation.
-
-**Recommendation for OR support:**
-
-Instead of full boolean logic, add **condition-level alternatives**:
-
-```json
-{
-  "conditions": {
-    "tool_name": ["bash", "shell"],  // Array = OR (match any)
-    "path_pattern": "/tmp/**"         // Still AND with other conditions
-  }
-}
-```
-
-This translates cleanly:
-```rego
-allow {
-    input.resource.tool_name == ["bash", "shell"][_]  # Rego: array iteration = OR
-    glob.match("/tmp/**", [], input.resource.path)
-}
-```
-
-**When to migrate:**
-- When policy complexity exceeds what JSON can express readably
-- When policy testing/simulation tools are needed (Cedar Playground, Rego Playground)
-- When static analysis is needed (Cedar Analyzer, Rego type checking)
-- When policy authoring is by security team, not developers
-
-
 
 ## See Also
 
