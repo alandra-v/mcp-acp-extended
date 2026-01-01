@@ -358,11 +358,12 @@ def create_proxy(
                 error_type=type(e).__name__,
                 error_message=str(e),
             )
-            # Show popup on macOS for users
+            # Show popup on macOS for users (with backoff to prevent restart loops)
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Not authenticated.",
                 detail="Run in terminal:\n  mcp-acp-extended auth login\n\nThen restart your MCP client.",
+                backoff=True,
             )
             raise
 
@@ -463,11 +464,12 @@ def create_proxy(
     try:
         identity_provider = create_identity_provider(config, transport="stdio", auth_logger=auth_logger)
     except AuthenticationError as e:
-        # Show popup on macOS for users
+        # Show popup on macOS for users (with backoff to prevent restart loops)
         show_startup_error_popup(
             title="MCP ACP",
             message="Authentication not configured.",
             detail="Run in terminal:\n  mcp-acp-extended init\n\nThen restart your MCP client.",
+            backoff=True,
         )
         raise
 

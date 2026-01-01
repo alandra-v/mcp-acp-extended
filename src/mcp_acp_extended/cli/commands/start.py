@@ -231,18 +231,21 @@ def start() -> None:
                 title="MCP ACP",
                 message="Not authenticated.",
                 detail="Run in terminal:\n  mcp-acp-extended auth login\n\nThen restart your MCP client.",
+                backoff=True,
             )
         elif "expired" in error_msg:
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Authentication expired.",
                 detail="Run in terminal:\n  mcp-acp-extended auth login\n\nThen restart your MCP client.",
+                backoff=True,
             )
         else:
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Authentication error.",
                 detail=f"{e}\n\nRun 'mcp-acp-extended auth login' to re-authenticate.",
+                backoff=True,
             )
         click.echo(f"\nError: {e}", err=True)
         sys.exit(13)

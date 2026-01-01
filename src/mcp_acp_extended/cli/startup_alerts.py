@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import platform
 import subprocess
+import time
 
 from mcp_acp_extended.pep.applescript import escape_applescript_string
 
@@ -22,11 +23,15 @@ __all__ = [
 # User has 30 seconds to acknowledge the dialog before it auto-closes
 _DIALOG_TIMEOUT_SECONDS = 30
 
+# Delay after showing popup to prevent restart loops (seconds)
+_RESTART_BACKOFF_SECONDS = 30
+
 
 def show_startup_error_popup(
     title: str = "MCP ACP",
     message: str = "Startup failed.",
     detail: str = "Check logs for details.",
+    backoff: bool = False,
 ) -> bool:
     """Show a startup error popup on macOS.
 
@@ -38,6 +43,9 @@ def show_startup_error_popup(
         title: Alert title (default: "MCP ACP").
         message: Main message text describing the failure.
         detail: Additional detail text (e.g., command to run to fix).
+        backoff: If True, sleep after popup to prevent restart loops.
+            Use for errors that won't be fixed by automatic restart
+            (e.g., auth failures where user must run a command).
 
     Returns:
         True if popup was shown, False if not on macOS or osascript failed.
@@ -64,6 +72,10 @@ def show_startup_error_popup(
             capture_output=True,
             timeout=_DIALOG_TIMEOUT_SECONDS,
         )
+        if backoff:
+            # Sleep to prevent rapid restart loops
+            # MCP clients auto-restart crashed servers
+            time.sleep(_RESTART_BACKOFF_SECONDS)
         return True
     except (subprocess.SubprocessError, OSError):
         # osascript failed or not available
