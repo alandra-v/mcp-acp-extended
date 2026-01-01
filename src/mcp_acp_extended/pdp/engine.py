@@ -45,10 +45,12 @@ class MatchedRule:
 
     Attributes:
         id: Rule identifier (from rule.id or auto-generated).
+        description: Optional human-readable description.
         effect: The rule's effect ("allow", "deny", "hitl").
     """
 
     id: str
+    description: str | None
     effect: Literal["allow", "deny", "hitl"]
 
 
@@ -179,14 +181,20 @@ class PolicyEngine:
             context: DecisionContext to match against.
 
         Returns:
-            List of MatchedRule with id and effect for each matching rule.
+            List of MatchedRule with id, description, and effect for each matching rule.
         """
         matched: list[MatchedRule] = []
 
         for idx, rule in enumerate(self.policy.rules):
             if self._rule_matches(rule, context):
                 rule_id = rule.id or f"rule_{idx}"
-                matched.append(MatchedRule(id=rule_id, effect=rule.effect))
+                matched.append(
+                    MatchedRule(
+                        id=rule_id,
+                        description=rule.description,
+                        effect=rule.effect,
+                    )
+                )
 
         return matched
 

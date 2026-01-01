@@ -28,7 +28,7 @@ from mcp_acp_extended.pep.hitl import (
     escape_applescript_string,
 )
 from mcp_acp_extended.pep.middleware import PolicyEnforcementMiddleware
-from mcp_acp_extended.telemetry.models.decision import DecisionEvent
+from mcp_acp_extended.telemetry.models.decision import DecisionEvent, MatchedRuleLog
 
 
 # =============================================================================
@@ -478,7 +478,10 @@ class TestDecisionEvent:
         # Act
         event = DecisionEvent(
             decision="deny",
-            matched_rules=["rule1", "rule2"],
+            matched_rules=[
+                MatchedRuleLog(id="rule1", effect="deny", description="Block sensitive files"),
+                MatchedRuleLog(id="rule2", effect="allow"),
+            ],
             final_rule="rule1",
             mcp_method="tools/call",
             tool_name="read_file",
@@ -499,6 +502,9 @@ class TestDecisionEvent:
 
         # Assert
         assert event.backend_id == "test-server"
+        assert len(event.matched_rules) == 2
+        assert event.matched_rules[0].id == "rule1"
+        assert event.matched_rules[0].description == "Block sensitive files"
         assert event.side_effects == ["FS_READ"]
         assert event.hitl_outcome == "user_allowed"
         assert event.policy_hitl_ms == 1500.0

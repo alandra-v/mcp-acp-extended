@@ -10,7 +10,10 @@ event — fixed string "policy_decision"
 decision — "allow" | "deny" | "hitl"
 hitl_outcome — optional, "user_allowed" | "user_denied" | "timeout" (only when decision == "hitl")
 hitl_cache_hit — optional, true if approval was from cache, false if user was prompted (only when decision == "hitl")
-matched_rules — list of all rule IDs that matched (can be empty)
+matched_rules — list of matched rule objects with decision trace info:
+  - id: rule identifier
+  - effect: "allow" | "deny" | "hitl"
+  - description: optional human-readable description
 final_rule — rule that determined the outcome (or "default", "discovery_bypass", "built_in_protected_path")
 
 ## Context summary

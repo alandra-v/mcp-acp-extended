@@ -27,7 +27,7 @@ from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
 from mcp.types import ListToolsResult
 
 from mcp_acp_extended.context import ActionCategory, DecisionContext, build_decision_context
-from mcp_acp_extended.pdp import Decision, PolicyEngine
+from mcp_acp_extended.pdp import Decision, MatchedRule, PolicyEngine
 from mcp_acp_extended.exceptions import AuthenticationError, PermissionDeniedError
 from mcp_acp_extended.pep.approval_store import ApprovalStore
 from mcp_acp_extended.api.routes.approvals import register_approval_store
@@ -188,7 +188,7 @@ class PolicyEnforcementMiddleware(Middleware):
             pass
         return None
 
-    def _get_matched_rules(self, decision_context: DecisionContext) -> tuple[list[str], str]:
+    def _get_matched_rules(self, decision_context: DecisionContext) -> tuple[list[MatchedRule], str]:
         """Get matched rules and final rule for logging.
 
         Collects all matching rules and determines which one was decisive
@@ -198,7 +198,8 @@ class PolicyEnforcementMiddleware(Middleware):
             decision_context: Context used for evaluation.
 
         Returns:
-            Tuple of (matched_rule_ids, final_rule).
+            Tuple of (matched_rules, final_rule). Matched rules include
+            id, effect, and description for decision trace logging.
         """
         # Check for built-in protected path (checked first in engine)
         path = decision_context.resource.resource.path if decision_context.resource.resource else None
@@ -209,14 +210,11 @@ class PolicyEnforcementMiddleware(Middleware):
         if decision_context.action.category == ActionCategory.DISCOVERY:
             return [], "discovery_bypass"
 
-        # Use public API to get matching rules
+        # Use public API to get matching rules (includes id, effect, description)
         matching = self._engine.get_matching_rules(decision_context)
 
         if not matching:
             return [], "default"
-
-        # Extract rule IDs
-        matched_rules = [m.id for m in matching]
 
         # Determine final rule using combining algorithm: HITL > DENY > ALLOW
         first_hitl = next((m.id for m in matching if m.effect == "hitl"), None)
@@ -225,7 +223,7 @@ class PolicyEnforcementMiddleware(Middleware):
 
         final_rule = first_hitl or first_deny or first_allow or "default"
 
-        return matched_rules, final_rule
+        return matching, final_rule
 
     async def _handle_allow_decision(
         self,
@@ -233,7 +231,7 @@ class PolicyEnforcementMiddleware(Middleware):
         context: MiddlewareContext[Any],
         call_next: CallNext[Any],
         decision_context: DecisionContext,
-        matched_rules: list[str],
+        matched_rules: list[MatchedRule],
         final_rule: str,
         eval_duration_ms: float,
         method: str,
@@ -299,7 +297,7 @@ class PolicyEnforcementMiddleware(Middleware):
         self,
         *,
         decision_context: DecisionContext,
-        matched_rules: list[str],
+        matched_rules: list[MatchedRule],
         final_rule: str,
         eval_duration_ms: float,
         method: str,
@@ -308,7 +306,7 @@ class PolicyEnforcementMiddleware(Middleware):
 
         Args:
             decision_context: Context used for evaluation.
-            matched_rules: List of matched rule IDs.
+            matched_rules: Matched rules with id, effect, description.
             final_rule: Rule that determined outcome.
             eval_duration_ms: Policy evaluation time.
             method: MCP method name.
@@ -332,7 +330,7 @@ class PolicyEnforcementMiddleware(Middleware):
             decision=Decision.DENY,
             tool_name=tool_name,
             path=path,
-            matched_rules=matched_rules,
+            matched_rules=[r.id for r in matched_rules],
             final_rule=final_rule,
         )
 
@@ -342,7 +340,7 @@ class PolicyEnforcementMiddleware(Middleware):
         context: MiddlewareContext[Any],
         call_next: CallNext[Any],
         decision_context: DecisionContext,
-        matched_rules: list[str],
+        matched_rules: list[MatchedRule],
         final_rule: str,
         eval_duration_ms: float,
         method: str,
@@ -354,7 +352,7 @@ class PolicyEnforcementMiddleware(Middleware):
             context: Middleware context.
             call_next: Next middleware in chain.
             decision_context: Context used for evaluation.
-            matched_rules: List of matched rule IDs.
+            matched_rules: Matched rules with id, effect, description.
             final_rule: Rule that determined outcome.
             eval_duration_ms: Policy evaluation time.
             method: MCP method name.
@@ -472,7 +470,7 @@ class PolicyEnforcementMiddleware(Middleware):
             decision=Decision.HITL,
             tool_name=tool_name,
             path=path,
-            matched_rules=matched_rules,
+            matched_rules=[r.id for r in matched_rules],
             final_rule=final_rule,
         )
 

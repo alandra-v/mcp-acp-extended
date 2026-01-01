@@ -16,10 +16,10 @@ from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData, INTERNAL_ERROR
 
 from mcp_acp_extended.context import DecisionContext
-from mcp_acp_extended.pdp import Decision
+from mcp_acp_extended.pdp import Decision, MatchedRule
 from mcp_acp_extended.pep.hitl import HITLOutcome
 from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallback
-from mcp_acp_extended.telemetry.models.decision import DecisionEvent
+from mcp_acp_extended.telemetry.models.decision import DecisionEvent, MatchedRuleLog
 from mcp_acp_extended.utils.logging.logger_setup import setup_failclosed_audit_logger
 
 
@@ -76,7 +76,7 @@ class DecisionEventLogger:
         self,
         decision: Decision,
         decision_context: DecisionContext,
-        matched_rules: list[str],
+        matched_rules: list[MatchedRule],
         final_rule: str,
         policy_eval_ms: float,
         hitl_outcome: HITLOutcome | None = None,
@@ -88,7 +88,7 @@ class DecisionEventLogger:
         Args:
             decision: The policy decision.
             decision_context: Context used for evaluation.
-            matched_rules: List of rule IDs that matched.
+            matched_rules: Matched rules with id, effect, and description.
             final_rule: Rule that determined outcome.
             policy_eval_ms: Policy rule evaluation time.
             hitl_outcome: HITL outcome if applicable.
@@ -123,9 +123,19 @@ class DecisionEventLogger:
             else:
                 hitl_outcome_value = hitl_outcome.value
 
+        # Convert MatchedRule to MatchedRuleLog for logging
+        matched_rules_log = [
+            MatchedRuleLog(
+                id=rule.id,
+                effect=rule.effect,
+                description=rule.description,
+            )
+            for rule in matched_rules
+        ]
+
         event = DecisionEvent(
             decision=decision.value,
-            matched_rules=matched_rules,
+            matched_rules=matched_rules_log,
             final_rule=final_rule,
             mcp_method=decision_context.action.mcp_method,
             tool_name=tool_name,

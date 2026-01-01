@@ -1,4 +1,43 @@
 {
+  "$defs": {
+    "MatchedRuleLog": {
+      "additionalProperties": false,
+      "description": "Matched rule info for decision trace logging.\n\nProvides context about which rules matched and why they were\nevaluated in a particular order (HITL > DENY > ALLOW).",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "effect": {
+          "enum": [
+            "allow",
+            "deny",
+            "hitl"
+          ],
+          "title": "Effect",
+          "type": "string"
+        },
+        "description": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
+        }
+      },
+      "required": [
+        "id",
+        "effect"
+      ],
+      "title": "MatchedRuleLog",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "description": "One policy decision log entry (audit/decisions.jsonl).\n\nRecords the outcome of a single ABAC policy evaluation for one MCP request.\nIncludes rule-level attribution, summarized resource context, timing data,\nand optional human-in-the-loop (HITL) information.",
   "properties": {
@@ -61,8 +100,9 @@
       "title": "Hitl Cache Hit"
     },
     "matched_rules": {
+      "description": "All rules that matched, with effect and optional description for trace",
       "items": {
-        "type": "string"
+        "$ref": "#/$defs/MatchedRuleLog"
       },
       "title": "Matched Rules",
       "type": "array"

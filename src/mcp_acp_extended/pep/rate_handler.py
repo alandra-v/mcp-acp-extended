@@ -10,9 +10,17 @@ import logging
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 
 from mcp_acp_extended.context import DecisionContext
-from mcp_acp_extended.pdp import Decision
+from mcp_acp_extended.pdp import Decision, MatchedRule
 from mcp_acp_extended.exceptions import PermissionDeniedError
 from mcp_acp_extended.pep.hitl import HITLHandler, HITLOutcome
+
+
+# Synthetic rule for rate limit breaches (not a policy rule)
+_RATE_LIMIT_RULE = MatchedRule(
+    id="rate_limit_breach",
+    description="Rate limit exceeded for tool calls",
+    effect="hitl",
+)
 
 if TYPE_CHECKING:
     from mcp_acp_extended.security.rate_limiter import SessionRateTracker
@@ -128,7 +136,7 @@ class RateBreachHandler:
                 decision=Decision.HITL,
                 decision_context=decision_context,
                 hitl_outcome=hitl_result.outcome,
-                matched_rules=["rate_limit_breach"],
+                matched_rules=[_RATE_LIMIT_RULE],
                 final_rule="rate_limit_breach",
                 policy_eval_ms=0.0,  # No policy eval - rate limit check
                 policy_hitl_ms=hitl_result.response_time_ms,
@@ -157,7 +165,7 @@ class RateBreachHandler:
                 decision=Decision.HITL,
                 decision_context=decision_context,
                 hitl_outcome=hitl_result.outcome,
-                matched_rules=["rate_limit_breach"],
+                matched_rules=[_RATE_LIMIT_RULE],
                 final_rule="rate_limit_breach",
                 policy_eval_ms=0.0,  # No policy eval - rate limit check
                 policy_hitl_ms=hitl_result.response_time_ms,

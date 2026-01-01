@@ -3,6 +3,21 @@ from typing import Optional, List, Literal
 from pydantic import BaseModel, Field
 
 
+class MatchedRuleLog(BaseModel):
+    """Matched rule info for decision trace logging.
+
+    Provides context about which rules matched and why they were
+    evaluated in a particular order (HITL > DENY > ALLOW).
+    """
+
+    id: str
+    effect: Literal["allow", "deny", "hitl"]
+    description: Optional[str] = None
+
+    class Config:
+        extra = "forbid"
+
+
 class DecisionEvent(BaseModel):
     """
     One policy decision log entry (audit/decisions.jsonl).
@@ -26,7 +41,10 @@ class DecisionEvent(BaseModel):
         None,
         description="True if approval was from cache, False if user prompted, None if not HITL",
     )
-    matched_rules: List[str] = Field(default_factory=list)
+    matched_rules: List[MatchedRuleLog] = Field(
+        default_factory=list,
+        description="All rules that matched, with effect and optional description for trace",
+    )
     final_rule: str  # Rule ID that determined outcome, or "default", "discovery_bypass"
 
     # --- context summary (not full context for privacy) ---

@@ -276,9 +276,9 @@ Simplified scope focusing on real risks (FastMCP already handles JSON-RPC valida
 
 Focused on high-value policy improvements for single-user context.
 
-- [ ] **Rule descriptions**
-  - Add optional `description` field to `PolicyRule` for documentation
-  - Self-documenting policies, shows in audit logs and UI
+- [x] **Rule descriptions** (Complete)
+  - Added optional `description` field to `PolicyRule` for documentation
+  - Self-documenting policies, included in `MatchedRule` for audit logs and UI
   - Implementation: `description: str | None = None` in `PolicyRule` model
 
 - [ ] **List/OR logic for conditions**
@@ -292,10 +292,10 @@ Focused on high-value policy improvements for single-user context.
   - Extract paths from tool arguments (move_file, copy_file, rename, etc.)
   - Current `path_pattern` becomes alias for "any path in arguments"
 
-- [ ] **Trace/explanation in decision logs**
-  - Log which rules matched and why
-  - Include matched rule IDs, conditions evaluated, final decision reason
-  - Helps debug policy behavior
+- [x] **Decision traces in logs** (Complete)
+  - Matched rules now include id, effect, and description
+  - `MatchedRuleLog` model for structured logging
+  - Helps debug policy behavior and understand why requests were allowed/denied
 
 - [ ] **Hot reload via SIGHUP**
   - Reload policy.yaml without restarting proxy

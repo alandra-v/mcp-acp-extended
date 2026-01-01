@@ -119,11 +119,13 @@ class PolicyRule(BaseModel):
 
     Attributes:
         id: Optional identifier for logging/debugging
+        description: Optional human-readable description for documentation
         effect: What happens when rule matches
         conditions: Matching criteria (AND logic)
     """
 
     id: str | None = None
+    description: str | None = None
     effect: Literal["allow", "deny", "hitl"]
     conditions: RuleConditions = Field(default_factory=RuleConditions)
 
