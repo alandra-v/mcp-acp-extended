@@ -8,12 +8,16 @@ Includes mTLS support for secure proxy-to-backend authentication.
 import asyncio
 import logging
 import ssl
+import time
 from typing import TYPE_CHECKING, Literal
 
 from fastmcp.client.transports import ClientTransport, StdioTransport, StreamableHttpTransport
 from fastmcp.server.proxy import ProxyClient
 
 from mcp_acp_extended.constants import (
+    BACKEND_RETRY_BACKOFF_MULTIPLIER,
+    BACKEND_RETRY_INITIAL_DELAY,
+    BACKEND_RETRY_MAX_ATTEMPTS,
     HEALTH_CHECK_TIMEOUT_SECONDS,
     TRANSPORT_ERRORS,
 )
@@ -39,6 +43,7 @@ __all__ = [
     "_check_certificate_expiry",
     "_validate_certificates",
     "check_http_health",
+    "check_http_health_with_retry",
     "create_backend_transport",
     "create_mtls_client_factory",
     "get_certificate_expiry_info",
@@ -87,6 +92,57 @@ def check_http_health(
         asyncio.run(_check_async(url, timeout, mtls_config))
 
 
+def check_http_health_with_retry(
+    url: str,
+    timeout: float = HEALTH_CHECK_TIMEOUT_SECONDS,
+    mtls_config: "MTLSConfig | None" = None,
+    max_attempts: int = BACKEND_RETRY_MAX_ATTEMPTS,
+) -> None:
+    """Check HTTP endpoint with retry and exponential backoff.
+
+    Retries connection attempts with exponential backoff until the backend
+    is reachable or max_attempts is exceeded. Used at startup to wait for
+    backends that may start after the proxy.
+
+    Args:
+        url: The backend URL to test.
+        timeout: Per-attempt connection timeout (default: HEALTH_CHECK_TIMEOUT_SECONDS).
+        mtls_config: Optional mTLS configuration for client certificate auth.
+        max_attempts: Maximum connection attempts (default: 3).
+
+    Raises:
+        TimeoutError: If backend not reachable after max_attempts.
+        ConnectionError: If connection fails for non-retryable reasons.
+        FileNotFoundError: If mTLS certificate files don't exist.
+        ValueError: If mTLS certificates are invalid.
+    """
+    delay = BACKEND_RETRY_INITIAL_DELAY
+    last_error: Exception | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        try:
+            check_http_health(url, timeout, mtls_config)
+            # Success - backend is up
+            if attempt > 1:
+                logger.warning(f"Backend connected on attempt {attempt}: {url}")
+            return
+        except (TimeoutError, ConnectionError) as e:
+            last_error = e
+
+            if attempt >= max_attempts:
+                # No more retries
+                raise TimeoutError(f"Backend not reachable after {max_attempts} attempts: {url}") from e
+
+            # Log retry attempt
+            logger.warning(
+                f"Waiting for backend at {url} (attempt {attempt}/{max_attempts}, retrying in {delay:.0f}s)..."
+            )
+            time.sleep(delay)
+
+            # Exponential backoff
+            delay = delay * BACKEND_RETRY_BACKOFF_MULTIPLIER
+
+
 def create_backend_transport(
     backend_config: "BackendConfig",
     mtls_config: "MTLSConfig | None" = None,
@@ -127,7 +183,8 @@ def create_backend_transport(
                     "Streamable HTTP transport selected but http configuration is missing. "
                     "Run 'mcp-acp-extended init' to configure the backend URL."
                 )
-            check_http_health(
+            # Use retry loop - wait for backend to become available
+            check_http_health_with_retry(
                 http_config.url, min(http_config.timeout, HEALTH_CHECK_TIMEOUT_SECONDS), mtls_config
             )
         elif explicit_transport == "stdio" and stdio_config is None:
@@ -178,7 +235,10 @@ def _auto_detect(
 ) -> Literal["streamablehttp", "stdio"]:
     """Auto-detect transport based on available configs.
 
-    Priority: HTTP (if reachable) > STDIO > error.
+    Priority: HTTP (if reachable after retry) > STDIO > error.
+
+    Uses retry loop with exponential backoff (up to 30s) before falling back
+    to STDIO or failing. This allows the proxy to start before the backend.
 
     Args:
         http_config: HTTP transport config, or None if not configured.
@@ -190,25 +250,26 @@ def _auto_detect(
 
     Raises:
         ValueError: If neither transport is configured.
-        TimeoutError: If HTTP-only and connection times out.
-        ConnectionError: If HTTP-only and server unreachable.
+        TimeoutError: If HTTP-only and connection times out after retries.
+        ConnectionError: If HTTP-only and server unreachable after retries.
     """
     has_http = http_config is not None
     has_stdio = stdio_config is not None
 
     if has_http and has_stdio:
-        # Both available - try HTTP, fall back to STDIO
+        # Both available - retry HTTP, fall back to STDIO on timeout
         try:
-            check_http_health(
+            check_http_health_with_retry(
                 http_config.url, min(http_config.timeout, HEALTH_CHECK_TIMEOUT_SECONDS), mtls_config
             )
             return "streamablehttp"
         except (TimeoutError, ConnectionError):
+            logger.warning(f"HTTP backend not available, falling back to STDIO")
             return "stdio"
 
     if has_http:
-        # HTTP only - must be reachable
-        check_http_health(
+        # HTTP only - retry, then fail
+        check_http_health_with_retry(
             http_config.url, min(http_config.timeout, HEALTH_CHECK_TIMEOUT_SECONDS), mtls_config
         )
         return "streamablehttp"

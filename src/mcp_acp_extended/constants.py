@@ -43,6 +43,13 @@ MAX_HTTP_TIMEOUT_SECONDS: int = 300  # 5 minutes
 # Health checks use min(user_timeout, HEALTH_CHECK_TIMEOUT_SECONDS) to stay fast
 HEALTH_CHECK_TIMEOUT_SECONDS: float = 10.0
 
+# Backend connection retry configuration (startup only)
+# When HTTP backend is not immediately available, retry with exponential backoff
+# 3 attempts: immediate → wait 2s → retry → wait 4s → retry → fail (~6s total)
+BACKEND_RETRY_MAX_ATTEMPTS: int = 3  # Maximum connection attempts
+BACKEND_RETRY_INITIAL_DELAY: float = 2.0  # Initial delay between retries (seconds)
+BACKEND_RETRY_BACKOFF_MULTIPLIER: float = 2.0  # Exponential backoff multiplier
+
 # ============================================================================
 # mTLS Certificate Monitoring
 # ============================================================================

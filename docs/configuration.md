@@ -162,8 +162,10 @@ Configuration is stored in an OS-specific application directory:
    - Use specified transport if available
    - **Fail** if specified transport not available (no silent fallback)
 2. If transport is `null` (auto-detect):
-   - Check if Streamable HTTP is available and reachable → use it
-   - Else fallback to STDIO
+   - Try Streamable HTTP with retry (3 attempts, ~6s total)
+   - If still unreachable → fall back to STDIO
+
+**Startup retry**: HTTP backends are retried with exponential backoff (2s → 4s) to allow starting the proxy before the backend is ready.
 
 **Streamable HTTP preferred**: MCP spec positions it as the modern default.
 
