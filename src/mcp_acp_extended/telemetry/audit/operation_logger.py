@@ -47,6 +47,7 @@ from mcp_acp_extended.utils.logging.logging_helpers import (
     clean_backend_error,
     create_arguments_summary,
     create_response_summary,
+    serialize_audit_event,
 )
 
 _system_logger = get_system_logger()
@@ -267,7 +268,7 @@ class AuditLoggingMiddleware(Middleware):
 
             # Log audit event with fallback chain
             # If primary fails, logs to system.jsonl then emergency_audit.jsonl
-            event_data = event.model_dump(exclude={"time"}, exclude_none=True)
+            event_data = serialize_audit_event(event)
             success, failure_reason = log_with_fallback(
                 primary_logger=self.logger,
                 system_logger=_system_logger,

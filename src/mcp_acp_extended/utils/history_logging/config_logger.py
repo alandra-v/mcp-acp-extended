@@ -14,14 +14,19 @@ import json
 from pathlib import Path
 from typing import Any
 
-from mcp_acp_extended.constants import INITIAL_VERSION
 from mcp_acp_extended.telemetry.models.system import ConfigHistoryEvent
 from mcp_acp_extended.utils.config.config_helpers import compute_config_checksum
 from mcp_acp_extended.utils.file_helpers import (
     VersionInfo,
-    get_history_logger,
-    get_last_version_info,
     get_next_version,
+)
+from mcp_acp_extended.utils.history_logging.base import (
+    HistoryLoggerConfig,
+    get_last_version_info_for_entity,
+    log_entity_created,
+    log_entity_loaded,
+    log_entity_validation_failed,
+    log_history_event,
 )
 
 # Re-export for backwards compatibility
@@ -36,19 +41,18 @@ __all__ = [
 ]
 
 
-def _get_last_config_version_info(config_history_path: Path) -> VersionInfo:
-    """Get version info using config_version field."""
-    return get_last_version_info(config_history_path, version_field="config_version")
-
-
-def _log_config_history_event(
-    config_history_path: Path,
-    event: ConfigHistoryEvent,
-) -> None:
-    """Log a ConfigHistoryEvent to config_history.jsonl."""
-    logger = get_history_logger(config_history_path, "mcp-acp-extended.config.history")
-    log_data = event.model_dump(exclude={"time"}, exclude_none=True)
-    logger.info(log_data)
+# Configuration for the config history logger
+_CONFIG_LOGGER_CONFIG = HistoryLoggerConfig(
+    version_field="config_version",
+    path_field="config_path",
+    entity_name="Configuration",
+    entity_name_lower="config",
+    logger_name="mcp-acp-extended.config.history",
+    event_class=ConfigHistoryEvent,
+    compute_checksum=compute_config_checksum,
+    created_change_type="initial_load",
+    manual_change_message="Configuration file modified outside of CLI",
+)
 
 
 def detect_config_changes(
@@ -118,35 +122,13 @@ def log_config_created(
     Returns:
         str: The new config version (e.g., "v1" or "v2" if overwriting).
     """
-    checksum = compute_config_checksum(config_path)
-
-    # Check for existing history (e.g., init --force overwrites)
-    last_info = _get_last_config_version_info(config_history_path)
-    if last_info.version is not None:
-        # Overwriting existing config - increment version
-        new_version = get_next_version(last_info.version)
-        previous_version = last_info.version
-    else:
-        # First time creation
-        new_version = INITIAL_VERSION
-        previous_version = None
-
-    event = ConfigHistoryEvent(
-        event="config_created",
-        message="Configuration created",
-        config_version=new_version,
-        previous_version=previous_version,
-        change_type="initial_load",
-        component="cli",
-        config_path=str(config_path),
-        source=source,
-        checksum=checksum,
-        snapshot_format="json",
-        snapshot=json.dumps(config_snapshot, indent=2),
+    return log_entity_created(
+        _CONFIG_LOGGER_CONFIG,
+        config_history_path,
+        config_path,
+        config_snapshot,
+        source,
     )
-
-    _log_config_history_event(config_history_path, event)
-    return new_version
 
 
 def log_config_loaded(
@@ -171,50 +153,14 @@ def log_config_loaded(
     Returns:
         Tuple of (current_version, manual_change_detected).
     """
-    current_checksum = compute_config_checksum(config_path)
-    last_info = _get_last_config_version_info(config_history_path)
-
-    manual_change = False
-    current_version = last_info.version or INITIAL_VERSION
-
-    # Check for manual edit (checksum changed but not through our logging)
-    if last_info.checksum is not None and last_info.checksum != current_checksum:
-        manual_change = True
-        current_version = get_next_version(last_info.version)
-
-        # Log manual change detected
-        manual_event = ConfigHistoryEvent(
-            event="manual_change_detected",
-            message="Configuration file modified outside of CLI",
-            config_version=current_version,
-            previous_version=last_info.version,
-            change_type="manual_edit",
-            component=component,
-            config_path=str(config_path),
-            source="file_change",
-            checksum=current_checksum,
-            snapshot_format="json",
-            snapshot=json.dumps(config_snapshot, indent=2),
-        )
-        _log_config_history_event(config_history_path, manual_event)
-
-    # Log config loaded
-    loaded_event = ConfigHistoryEvent(
-        event="config_loaded",
-        message="Configuration loaded",
-        config_version=current_version,
-        previous_version=None,  # Not applicable for loaded events
-        change_type="startup_load",
-        component=component,
-        config_path=str(config_path),
-        source=source,
-        checksum=current_checksum,
-        snapshot_format="json",
-        snapshot=None,  # Don't duplicate snapshot for load events
+    return log_entity_loaded(
+        _CONFIG_LOGGER_CONFIG,
+        config_history_path,
+        config_path,
+        config_snapshot,
+        component,
+        source,
     )
-    _log_config_history_event(config_history_path, loaded_event)
-
-    return current_version, manual_change
 
 
 def log_config_updated(
@@ -225,6 +171,8 @@ def log_config_updated(
     source: str = "cli_update",
 ) -> str | None:
     """Log config update event with detected changes.
+
+    This is config-specific functionality (policies don't have updates tracked this way).
 
     Args:
         config_history_path: Path to config_history.jsonl.
@@ -242,7 +190,7 @@ def log_config_updated(
         # No changes, don't log
         return None
 
-    last_info = _get_last_config_version_info(config_history_path)
+    last_info = get_last_version_info_for_entity(config_history_path, _CONFIG_LOGGER_CONFIG)
     new_version = get_next_version(last_info.version)
     checksum = compute_config_checksum(config_path)
 
@@ -261,7 +209,7 @@ def log_config_updated(
         changes=changes,
     )
 
-    _log_config_history_event(config_history_path, event)
+    log_history_event(config_history_path, event, _CONFIG_LOGGER_CONFIG)
     return new_version
 
 
@@ -295,28 +243,12 @@ def log_config_validation_failed(
         component: Component that detected error.
         source: Source of validation attempt.
     """
-    # Try to compute checksum even for invalid config
-    try:
-        checksum = compute_config_checksum(config_path)
-    except (OSError, FileNotFoundError):
-        checksum = "sha256:unknown"
-
-    last_info = _get_last_config_version_info(config_history_path)
-
-    event = ConfigHistoryEvent(
-        event="config_validation_failed",
-        message=f"Configuration validation failed: {error_type}",
-        config_version=last_info.version or "unknown",
-        previous_version=None,
-        change_type="validation_error",
-        component=component,
-        config_path=str(config_path),
-        source=source,
-        checksum=checksum,
-        snapshot_format="json",
-        snapshot=None,
-        error_type=error_type,
-        error_message=error_message,
+    log_entity_validation_failed(
+        _CONFIG_LOGGER_CONFIG,
+        config_history_path,
+        config_path,
+        error_type,
+        error_message,
+        component,
+        source,
     )
-
-    _log_config_history_event(config_history_path, event)

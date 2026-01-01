@@ -1,6 +1,7 @@
 """Logging helper utilities.
 
 Provides generic utilities for telemetry logging:
+- Event serialization (audit/history event model_dump with consistent options)
 - Sanitization (log injection prevention, path normalization)
 - Payload handling (serialization, truncation, size estimation)
 - Error categorization and metadata extraction
@@ -17,8 +18,44 @@ import traceback
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
+
 if TYPE_CHECKING:
     from mcp_acp_extended.telemetry.models.audit import ArgumentsSummary, ResponseSummary
+
+
+# ============================================================================
+# Event Serialization
+# ============================================================================
+
+
+def serialize_audit_event(event: BaseModel, *, json_mode: bool = False) -> dict[str, Any]:
+    """Serialize a Pydantic event model for audit/history logging.
+
+    Provides consistent serialization for all audit and history events:
+    - Excludes the 'time' field (added by ISO8601Formatter at log time)
+    - Excludes None values for cleaner logs
+
+    Args:
+        event: Pydantic model instance (e.g., AuthEvent, DecisionEvent, ConfigHistoryEvent).
+        json_mode: If True, use mode="json" for JSON-compatible serialization of
+                   datetime/enum values. Used by auth_logger for OIDC token data.
+
+    Returns:
+        dict: Serialized event data ready for logging.
+
+    Example:
+        >>> event = DecisionEvent(decision="ALLOW", tool_name="read_file", ...)
+        >>> serialize_audit_event(event)
+        {"decision": "ALLOW", "tool_name": "read_file", ...}
+
+        >>> event = AuthEvent(event_type="token_validated", oidc=OIDCInfo(...), ...)
+        >>> serialize_audit_event(event, json_mode=True)
+        {"event_type": "token_validated", "oidc": {...}, ...}
+    """
+    if json_mode:
+        return event.model_dump(mode="json", exclude={"time"}, exclude_none=True)
+    return event.model_dump(exclude={"time"}, exclude_none=True)
 
 
 # ============================================================================

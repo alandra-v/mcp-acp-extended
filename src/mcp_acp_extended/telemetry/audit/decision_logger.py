@@ -21,6 +21,7 @@ from mcp_acp_extended.pep.hitl import HITLOutcome
 from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallback
 from mcp_acp_extended.telemetry.models.decision import DecisionEvent, MatchedRuleLog
 from mcp_acp_extended.utils.logging.logger_setup import setup_failclosed_audit_logger
+from mcp_acp_extended.utils.logging.logging_helpers import serialize_audit_event
 
 
 def create_decision_logger(
@@ -160,7 +161,7 @@ class DecisionEventLogger:
         )
 
         # Log with fallback chain
-        event_data = event.model_dump(exclude={"time"}, exclude_none=True)
+        event_data = serialize_audit_event(event)
         success, failure_reason = log_with_fallback(
             primary_logger=self._logger,
             system_logger=self._system_logger,
