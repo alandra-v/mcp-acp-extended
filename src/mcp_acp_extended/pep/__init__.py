@@ -31,6 +31,7 @@ from mcp_acp_extended.pep.middleware import (
     PolicyEnforcementMiddleware,
     create_enforcement_middleware,
 )
+from mcp_acp_extended.pep.reloader import PolicyReloader, ReloadResult
 
 __all__ = [
     # Errors
@@ -48,4 +49,7 @@ __all__ = [
     "create_context_middleware",
     "PolicyEnforcementMiddleware",
     "create_enforcement_middleware",
+    # Hot reload
+    "PolicyReloader",
+    "ReloadResult",
 ]

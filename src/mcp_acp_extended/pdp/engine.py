@@ -87,6 +87,19 @@ class PolicyEngine:
         # Resolve all protected dirs to real paths at init time
         self._protected_dirs = tuple(os.path.realpath(d) for d in protected_dirs)
 
+    def reload_policy(self, new_policy: PolicyConfig) -> None:
+        """Reload policy configuration for hot reload.
+
+        Atomically swaps the policy reference. Thread-safe because:
+        - Python's GIL ensures reference assignment is atomic
+        - PolicyConfig is frozen (immutable) - no partial state
+        - Evaluation methods only read self.policy
+
+        Args:
+            new_policy: New validated PolicyConfig to use.
+        """
+        self.policy = new_policy
+
     def is_protected_path(self, path: str | None) -> bool:
         """Check if path is under a protected directory.
 

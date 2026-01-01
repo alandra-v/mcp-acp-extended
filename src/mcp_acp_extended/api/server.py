@@ -10,6 +10,18 @@ Future additions:
 - Proxy control (/api/control)
 - Session management (/api/sessions)
 - Static file serving for React UI
+
+Usage:
+    The API server is embedded in the proxy process (see proxy.py) to share
+    memory with the approval store. It starts automatically on port 8080
+    when the proxy runs.
+
+    For standalone development/testing (without shared memory):
+        uv run uvicorn mcp_acp_extended.api.server:create_api_app \\
+            --factory --host 127.0.0.1 --port 8080
+
+    Note: Standalone mode won't have access to the approval cache since the
+    ApprovalStore is only registered when running inside the proxy process.
 """
 
 import os
@@ -17,7 +29,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import approvals
+from .routes import approvals, control
 
 
 def create_api_app() -> FastAPI:
@@ -40,14 +52,15 @@ def create_api_app() -> FastAPI:
         CORSMiddleware,
         allow_origins=[origin.strip() for origin in cors_origins],
         allow_credentials=True,
-        allow_methods=["GET", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],
         allow_headers=["Content-Type", "Authorization"],
         max_age=3600,  # Cache preflight for 1 hour
     )
 
     # Mount API routes
-    # TODO: Add config, policy, logs, control, sessions routes
     app.include_router(approvals.router, prefix="/api/approvals", tags=["approvals"])
+    app.include_router(control.router, prefix="/api/control", tags=["control"])
+    # TODO: Add config, policy, logs, sessions routes
 
     # TODO: Serve static files (built React app)
     # static_dir = Path(__file__).parent.parent / "web" / "static"

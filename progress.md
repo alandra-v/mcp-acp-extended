@@ -298,10 +298,14 @@ Focused on high-value policy improvements for single-user context.
   - `MatchedRuleLog` model for structured logging
   - Helps debug policy behavior and understand why requests were allowed/denied
 
-- [ ] **Hot reload via SIGHUP**
-  - Reload policy.json without restarting proxy
-  - Validate new policy before applying
-  - Log policy reload events
+- [x] **Hot reload via SIGHUP** (Complete)
+  - `PolicyReloader` class with asyncio.Lock for concurrent safety
+  - SIGHUP signal handler (Unix) and API endpoint (`POST /api/control/reload-policy`)
+  - CLI command: `mcp-acp-extended policy reload`
+  - Validates new policy before applying (LKG pattern on failure)
+  - Updates RateBreachHandler and DecisionEventLogger on reload
+  - Rollback all state on error
+  - Logs reload events to system.jsonl
 
 ---
 
@@ -357,5 +361,5 @@ Web UI requests go through proxy → uses same session
 - [x] Policy OR logic for conditions
 - [x] Multiple path support (source/destination)
 - [x] Decision trace in logs
-- [ ] Hot reload via SIGHUP
+- [x] Hot reload via SIGHUP
 - [ ] React web UI

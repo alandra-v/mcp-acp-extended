@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import signal
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 
@@ -36,7 +37,7 @@ from mcp_acp_extended.constants import (
 )
 from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
 from mcp_acp_extended.cli.startup_alerts import show_startup_error_popup
-from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware
+from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware, PolicyReloader
 from mcp_acp_extended.pips.auth import SessionManager
 from mcp_acp_extended.security import create_identity_provider, SessionRateTracker
 from mcp_acp_extended.security.posture import DeviceHealthMonitor, check_device_health
@@ -63,9 +64,10 @@ from mcp_acp_extended.utils.config import (
     get_client_log_path,
     get_decisions_log_path,
     get_log_dir,
+    get_policy_history_path,
     get_system_log_path,
 )
-from mcp_acp_extended.utils.policy import load_policy
+from mcp_acp_extended.utils.policy import get_policy_path, load_policy
 from mcp_acp_extended.utils.transport import create_backend_transport
 
 
@@ -266,6 +268,7 @@ def create_proxy(
         session_identity: SubjectIdentity | None = None
         bound_session_id: str | None = None
         end_reason: Literal["normal", "timeout", "error", "auth_expired"] = "normal"
+        sighup_registered: bool = False
 
         try:
             await audit_monitor.start()
@@ -315,6 +318,35 @@ def create_proxy(
                     "url": f"http://127.0.0.1:{DEFAULT_API_PORT}",
                 }
             )
+
+            # Create policy reloader and store on API app for endpoint access
+            # enforcement_middleware is captured from enclosing scope (created after lifespan definition)
+            policy_reloader = PolicyReloader(
+                middleware=enforcement_middleware,
+                system_logger=system_logger,
+                policy_path=get_policy_path(),
+                policy_history_path=get_policy_history_path(config),
+                initial_version=policy_version,
+            )
+            api_app.state.policy_reloader = policy_reloader
+
+            # Setup SIGHUP handler for policy hot reload (Unix only)
+            def handle_sighup() -> None:
+                """Handle SIGHUP signal by scheduling policy reload."""
+                system_logger.info({"event": "sighup_received", "action": "scheduling_policy_reload"})
+                asyncio.create_task(policy_reloader.reload())
+
+            loop = asyncio.get_event_loop()
+            try:
+                loop.add_signal_handler(signal.SIGHUP, handle_sighup)
+                sighup_registered = True
+            except (ValueError, OSError, AttributeError):
+                # Windows or signal not available in this context
+                sighup_registered = False
+                system_logger.warning(
+                    {"event": "sighup_handler_not_available", "reason": "platform_unsupported"}
+                )
+
         except AuthenticationError as e:
             # Auth failed at startup - log with placeholder (no user to bind to)
             import secrets
@@ -359,7 +391,15 @@ def create_proxy(
             )
             raise
         finally:
-            # Stop API server first (graceful shutdown)
+            # Remove SIGHUP handler (before stopping API server)
+            if sighup_registered:
+                try:
+                    loop = asyncio.get_event_loop()
+                    loop.remove_signal_handler(signal.SIGHUP)
+                except (ValueError, OSError, AttributeError):
+                    pass  # Signal handler already removed or not available
+
+            # Stop API server (graceful shutdown)
             if api_server is not None:
                 api_server.should_exit = True
                 if api_task is not None:

@@ -120,6 +120,91 @@ class PolicyEnforcementMiddleware(Middleware):
         """Get the approval store for cache management."""
         return self._approval_store
 
+    def reload_policy(self, new_policy: "PolicyConfig", policy_version: str | None = None) -> dict[str, int]:
+        """Reload policy configuration for hot reload.
+
+        Updates:
+        - PolicyEngine's policy reference (atomic swap)
+        - HITL handler config (for cache TTL changes)
+        - RateBreachHandler's HITL handler reference
+        - DecisionEventLogger's policy version
+        - Clears approval cache (HITL rules may have changed)
+
+        On error, rolls back to previous state to maintain consistency.
+
+        Args:
+            new_policy: New validated PolicyConfig to apply.
+            policy_version: New policy version for audit logs (e.g., "v3").
+
+        Returns:
+            Dict with old_rules_count, new_rules_count, approvals_cleared.
+
+        Raises:
+            Exception: Re-raises any exception after rolling back state.
+        """
+        # Save old state for rollback
+        old_policy = self._engine.policy
+        old_hitl_handler = self._hitl_handler
+        old_hitl_config = self._hitl_config
+        old_approval_store = self._approval_store
+        old_policy_version = self._decision_logger._policy_version
+        old_count = len(old_policy.rules)
+
+        try:
+            # Swap policy in engine (atomic reference swap)
+            self._engine.reload_policy(new_policy)
+
+            # Update HITL handler and config (in case TTL or settings changed)
+            self._hitl_handler = HITLHandler(new_policy.hitl)
+            self._hitl_config = new_policy.hitl
+
+            # Update RateBreachHandler's HITL reference (uses new timeout settings)
+            if self._rate_breach_handler is not None:
+                self._rate_breach_handler._hitl_handler = self._hitl_handler
+
+            # Update DecisionEventLogger's policy version for audit trail
+            self._decision_logger._policy_version = policy_version
+
+            # Update approval store TTL if it changed
+            if self._approval_store.ttl_seconds != new_policy.hitl.approval_ttl_seconds:
+                # Create new store with new TTL (old approvals are cleared anyway)
+                self._approval_store = ApprovalStore(ttl_seconds=new_policy.hitl.approval_ttl_seconds)
+                register_approval_store(self._approval_store)
+                cleared_count = 0  # New store, nothing to clear
+            else:
+                # Clear existing cache - HITL rules may have changed
+                cleared_count = self._approval_store.clear()
+
+            new_count = len(new_policy.rules)
+
+            return {
+                "old_rules_count": old_count,
+                "new_rules_count": new_count,
+                "approvals_cleared": cleared_count,
+            }
+
+        except Exception as e:
+            # Rollback to previous state on any error (logged to system.jsonl)
+            _system_logger.error(
+                {
+                    "event": "policy_reload_rollback",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                }
+            )
+            self._engine.reload_policy(old_policy)
+            self._hitl_handler = old_hitl_handler
+            self._hitl_config = old_hitl_config
+            # Rollback RateBreachHandler's HITL reference
+            if self._rate_breach_handler is not None:
+                self._rate_breach_handler._hitl_handler = old_hitl_handler
+            # Rollback DecisionEventLogger's policy version
+            self._decision_logger._policy_version = old_policy_version
+            if self._approval_store is not old_approval_store:
+                self._approval_store = old_approval_store
+                register_approval_store(old_approval_store)
+            raise
+
     def _extract_client_name(self, context: MiddlewareContext[Any]) -> None:
         """Extract and cache client name from initialize request.
 
@@ -280,8 +365,8 @@ class PolicyEnforcementMiddleware(Middleware):
                         }
                     )
             else:
-                # Unexpected result type - log for debugging
-                _system_logger.debug(
+                # Unexpected result type - log warning
+                _system_logger.warning(
                     {
                         "event": "sanitization_skipped",
                         "message": f"tools/list returned unexpected type: {type(result).__name__}",
@@ -387,18 +472,6 @@ class PolicyEnforcementMiddleware(Middleware):
         if cached_approval is not None:
             # Cached approval found - skip dialog and allow
             cache_age_s = self._approval_store.get_age_seconds(cached_approval)
-            _system_logger.debug(
-                {
-                    "event": "hitl_cache_hit",
-                    "message": f"Using cached approval for {tool_name}",
-                    "tool_name": tool_name,
-                    "path": path,
-                    "subject_id": subject_id,
-                    "cache_age_s": round(cache_age_s, 1),
-                    "original_request_id": cached_approval.request_id,
-                    "request_id": request_id,
-                }
-            )
             self._decision_logger.log(
                 decision=Decision.HITL,
                 decision_context=decision_context,
@@ -426,17 +499,6 @@ class PolicyEnforcementMiddleware(Middleware):
                     tool_name=tool_name or "unknown",
                     path=path,
                     request_id=request_id,
-                )
-                _system_logger.debug(
-                    {
-                        "event": "hitl_approval_cached",
-                        "message": f"Cached approval for {tool_name}",
-                        "tool_name": tool_name,
-                        "path": path,
-                        "subject_id": subject_id,
-                        "ttl_seconds": self._hitl_config.approval_ttl_seconds,
-                        "request_id": request_id,
-                    }
                 )
 
             # Log and allow

@@ -109,13 +109,14 @@ def make_context():
         tool_name: str | None = "test_tool",
         path: str | None = None,
         category: ActionCategory = ActionCategory.ACTION,
+        subject_id: str = "testuser",
     ) -> DecisionContext:
         tool = ToolInfo(name=tool_name, provenance=Provenance.MCP_REQUEST) if tool_name else None
         resource_info = ResourceInfo(path=path, provenance=Provenance.MCP_REQUEST) if path else None
 
         return DecisionContext(
             subject=Subject(
-                id="testuser",
+                id=subject_id,
                 provenance=SubjectProvenance(id=Provenance.DERIVED),
             ),
             action=Action(
@@ -1701,3 +1702,206 @@ class TestListConditionsEngine:
 
         assert engine.evaluate(make_context(tool_name="bash")) == Decision.DENY
         assert engine.evaluate(make_context(tool_name="safe_tool")) == Decision.ALLOW
+
+
+# ============================================================================
+# Tests: Subject-Based Conditions
+# ============================================================================
+
+
+class TestSubjectBasedConditions:
+    """Tests for subject_id policy conditions.
+
+    These tests verify that policies can filter by user identity,
+    which is security-critical for multi-user deployments.
+    """
+
+    def test_subject_id_exact_match_allows(self, make_context):
+        """Given subject_id condition, allows matching user."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(subject_id="alice"),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Alice should be allowed
+        assert engine.evaluate(make_context(subject_id="alice")) == Decision.ALLOW
+
+        # Bob should be denied (default action)
+        assert engine.evaluate(make_context(subject_id="bob")) == Decision.DENY
+
+    def test_subject_id_exact_match_denies(self, make_context):
+        """Given subject_id deny rule, denies matching user."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="deny",
+                    conditions=RuleConditions(subject_id="mallory"),
+                ),
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(tool_name="*"),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Mallory should be denied
+        assert engine.evaluate(make_context(subject_id="mallory")) == Decision.DENY
+
+        # Alice should be allowed (falls through to allow rule)
+        assert engine.evaluate(make_context(subject_id="alice")) == Decision.ALLOW
+
+    def test_subject_id_is_case_sensitive(self, make_context):
+        """Given subject_id condition, matching is case-sensitive."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(subject_id="Alice"),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Exact case matches
+        assert engine.evaluate(make_context(subject_id="Alice")) == Decision.ALLOW
+
+        # Different case does NOT match (case-sensitive)
+        assert engine.evaluate(make_context(subject_id="alice")) == Decision.DENY
+        assert engine.evaluate(make_context(subject_id="ALICE")) == Decision.DENY
+
+    def test_subject_id_list_matches_any(self, make_context):
+        """Given subject_id list, allows any user in list."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(subject_id=["alice", "bob", "charlie"]),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # All listed users should be allowed
+        assert engine.evaluate(make_context(subject_id="alice")) == Decision.ALLOW
+        assert engine.evaluate(make_context(subject_id="bob")) == Decision.ALLOW
+        assert engine.evaluate(make_context(subject_id="charlie")) == Decision.ALLOW
+
+        # Unlisted user should be denied
+        assert engine.evaluate(make_context(subject_id="mallory")) == Decision.DENY
+
+    def test_subject_id_combined_with_tool_name(self, make_context):
+        """Given subject_id AND tool_name, both must match."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    id="admin-bash",
+                    effect="allow",
+                    conditions=RuleConditions(
+                        subject_id="admin",
+                        tool_name="bash",
+                    ),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Admin using bash - allowed
+        assert engine.evaluate(make_context(subject_id="admin", tool_name="bash")) == Decision.ALLOW
+
+        # Admin using other tool - denied (tool doesn't match)
+        assert engine.evaluate(make_context(subject_id="admin", tool_name="rm")) == Decision.DENY
+
+        # Non-admin using bash - denied (subject doesn't match)
+        assert engine.evaluate(make_context(subject_id="user", tool_name="bash")) == Decision.DENY
+
+    def test_subject_id_combined_with_path(self, make_context):
+        """Given subject_id AND path_pattern, both must match."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    id="alice-home",
+                    effect="allow",
+                    conditions=RuleConditions(
+                        subject_id="alice",
+                        path_pattern="/home/alice/**",
+                    ),
+                ),
+                PolicyRule(
+                    id="bob-home",
+                    effect="allow",
+                    conditions=RuleConditions(
+                        subject_id="bob",
+                        path_pattern="/home/bob/**",
+                    ),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Alice accessing her home - allowed
+        assert (
+            engine.evaluate(make_context(subject_id="alice", path="/home/alice/file.txt")) == Decision.ALLOW
+        )
+
+        # Alice accessing Bob's home - denied
+        assert engine.evaluate(make_context(subject_id="alice", path="/home/bob/file.txt")) == Decision.DENY
+
+        # Bob accessing his home - allowed
+        assert engine.evaluate(make_context(subject_id="bob", path="/home/bob/file.txt")) == Decision.ALLOW
+
+    def test_subject_id_hitl_for_elevated_actions(self, make_context):
+        """Given HITL rule with subject_id, requires approval for user."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    id="intern-needs-approval",
+                    effect="hitl",
+                    conditions=RuleConditions(
+                        subject_id="intern",
+                        tool_name="write_*",
+                    ),
+                ),
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(tool_name="*"),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Intern writing needs HITL approval
+        assert engine.evaluate(make_context(subject_id="intern", tool_name="write_file")) == Decision.HITL
+
+        # Intern reading is allowed (doesn't match write_*)
+        assert engine.evaluate(make_context(subject_id="intern", tool_name="read_file")) == Decision.ALLOW
+
+        # Senior dev writing is allowed (subject doesn't match)
+        assert engine.evaluate(make_context(subject_id="senior", tool_name="write_file")) == Decision.ALLOW
+
+    def test_subject_id_oidc_format(self, make_context):
+        """Given OIDC-style subject_id (issuer|id), matches correctly."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(
+                        subject_id=["auth0|user123", "google-oauth2|user456"],
+                    ),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # OIDC-style IDs should match exactly
+        assert engine.evaluate(make_context(subject_id="auth0|user123")) == Decision.ALLOW
+        assert engine.evaluate(make_context(subject_id="google-oauth2|user456")) == Decision.ALLOW
+
+        # Partial match should NOT work
+        assert engine.evaluate(make_context(subject_id="user123")) == Decision.DENY
+        assert engine.evaluate(make_context(subject_id="auth0|user456")) == Decision.DENY
