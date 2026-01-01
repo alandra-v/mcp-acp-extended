@@ -26,6 +26,7 @@ from mcp_acp_extended.context import ActionCategory, DecisionContext
 from mcp_acp_extended.exceptions import PolicyEnforcementFailure
 from mcp_acp_extended.pdp.decision import Decision
 from mcp_acp_extended.pdp.matcher import (
+    _match_any,
     _match_exact_case_insensitive,
     _match_exact_case_sensitive,
     _match_glob_case_insensitive,
@@ -225,25 +226,21 @@ class PolicyEngine:
         mcp_method = context.action.mcp_method
         subject_id = context.subject.id
 
-        # Check tool_name condition (glob, case-insensitive)
-        if conditions.tool_name is not None:
-            if not match_tool_name(conditions.tool_name, tool_name):
-                return False
+        # Check tool_name condition (glob, case-insensitive, OR logic for lists)
+        if not _match_any(conditions.tool_name, tool_name, match_tool_name):
+            return False
 
-        # Check path_pattern condition (glob with **) - matches primary path
-        if conditions.path_pattern is not None:
-            if not match_path_pattern(conditions.path_pattern, path):
-                return False
+        # Check path_pattern condition (glob with **, OR logic for lists)
+        if not _match_any(conditions.path_pattern, path, match_path_pattern):
+            return False
 
-        # Check source_path condition (glob with **) - for move/copy source
-        if conditions.source_path is not None:
-            if not match_path_pattern(conditions.source_path, source_path):
-                return False
+        # Check source_path condition (glob with **, OR logic for lists)
+        if not _match_any(conditions.source_path, source_path, match_path_pattern):
+            return False
 
-        # Check dest_path condition (glob with **) - for move/copy destination
-        if conditions.dest_path is not None:
-            if not match_path_pattern(conditions.dest_path, dest_path):
-                return False
+        # Check dest_path condition (glob with **, OR logic for lists)
+        if not _match_any(conditions.dest_path, dest_path, match_path_pattern):
+            return False
 
         # Check operations condition (heuristic from tool name)
         if conditions.operations is not None:
@@ -251,35 +248,30 @@ class PolicyEngine:
             if not _match_operations(conditions.operations, inferred_op):
                 return False
 
-        # Check extension condition (exact, case-insensitive)
-        if conditions.extension is not None:
-            if not _match_exact_case_insensitive(conditions.extension, extension):
-                return False
+        # Check extension condition (exact, case-insensitive, OR logic for lists)
+        if not _match_any(conditions.extension, extension, _match_exact_case_insensitive):
+            return False
 
-        # Check scheme condition (exact, case-insensitive)
-        if conditions.scheme is not None:
-            if not _match_exact_case_insensitive(conditions.scheme, scheme):
-                return False
+        # Check scheme condition (exact, case-insensitive, OR logic for lists)
+        if not _match_any(conditions.scheme, scheme, _match_exact_case_insensitive):
+            return False
 
-        # Check backend_id condition (glob, case-insensitive)
-        if conditions.backend_id is not None:
-            if not _match_glob_case_insensitive(conditions.backend_id, backend_id):
-                return False
+        # Check backend_id condition (glob, case-insensitive, OR logic for lists)
+        if not _match_any(conditions.backend_id, backend_id, _match_glob_case_insensitive):
+            return False
 
-        # Check resource_type condition (exact, case-insensitive)
+        # Check resource_type condition (exact, case-insensitive) - single value only
         if conditions.resource_type is not None:
             if not _match_exact_case_insensitive(conditions.resource_type, resource_type):
                 return False
 
-        # Check mcp_method condition (glob, case-sensitive - methods are standardized)
-        if conditions.mcp_method is not None:
-            if not _match_glob_case_sensitive(conditions.mcp_method, mcp_method):
-                return False
+        # Check mcp_method condition (glob, case-sensitive, OR logic for lists)
+        if not _match_any(conditions.mcp_method, mcp_method, _match_glob_case_sensitive):
+            return False
 
-        # Check subject_id condition (exact, case-sensitive - usernames are case-sensitive)
-        if conditions.subject_id is not None:
-            if not _match_exact_case_sensitive(conditions.subject_id, subject_id):
-                return False
+        # Check subject_id condition (exact, case-sensitive, OR logic for lists)
+        if not _match_any(conditions.subject_id, subject_id, _match_exact_case_sensitive):
+            return False
 
         # Check side_effects condition (ANY logic)
         if conditions.side_effects is not None:

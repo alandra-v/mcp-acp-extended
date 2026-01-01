@@ -29,7 +29,7 @@ import hashlib
 import json
 from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from mcp_acp_extended.constants import (
     DEFAULT_APPROVAL_TTL_SECONDS,
@@ -41,6 +41,9 @@ from mcp_acp_extended.constants import (
 )
 from mcp_acp_extended.context.resource import SideEffect
 
+# Type alias for conditions that accept single value or list (OR logic)
+ConditionValue = str | list[str] | None
+
 
 class RuleConditions(BaseModel):
     """Conditions for a policy rule (AND logic - all must match).
@@ -48,46 +51,92 @@ class RuleConditions(BaseModel):
     At least one condition MUST be specified. Empty conditions are not allowed
     as they would match everything, which is a security risk.
 
+    Most conditions accept either a single value or a list. When a list is
+    provided, the condition matches if ANY value matches (OR logic within
+    the field, AND logic across fields).
+
     Attributes:
-        tool_name: Tool name pattern (glob: *, ?) - case-insensitive
-        path_pattern: Glob pattern for file paths (*, **, ?) - matches ANY path
-        source_path: Glob pattern for source path in move/copy operations
-        dest_path: Glob pattern for destination path in move/copy operations
-        operations: List of operations to match (read, write, delete)
-        extension: Exact file extension match (e.g., ".key", ".env")
-        scheme: Exact URI scheme match (e.g., "file", "db", "s3")
-        backend_id: Server ID pattern (glob: *, ?) - case-insensitive
-        resource_type: Exact resource type ("tool", "resource", "prompt", "server")
-        mcp_method: MCP method pattern (glob: *, ?) e.g., "resources/*"
-        subject_id: Exact subject/user ID match
-        side_effects: Tool must have ANY of these side effects
+        tool_name: Tool name pattern (glob: *, ?) - case-insensitive.
+            Can be a single pattern or list of patterns (OR logic).
+        path_pattern: Glob pattern for file paths (*, **, ?) - matches ANY path.
+            Can be a single pattern or list of patterns (OR logic).
+        source_path: Glob pattern for source path in move/copy operations.
+            Can be a single pattern or list of patterns (OR logic).
+        dest_path: Glob pattern for destination path in move/copy operations.
+            Can be a single pattern or list of patterns (OR logic).
+        operations: List of operations to match (read, write, delete).
+        extension: Exact file extension match (e.g., ".key", ".env").
+            Can be a single value or list of values (OR logic).
+        scheme: Exact URI scheme match (e.g., "file", "db", "s3").
+            Can be a single value or list of values (OR logic).
+        backend_id: Server ID pattern (glob: *, ?) - case-insensitive.
+            Can be a single pattern or list of patterns (OR logic).
+        resource_type: Exact resource type ("tool", "resource", "prompt", "server").
+        mcp_method: MCP method pattern (glob: *, ?) e.g., "resources/*".
+            Can be a single pattern or list of patterns (OR logic).
+        subject_id: Exact subject/user ID match.
+            Can be a single value or list of values (OR logic).
+        side_effects: Tool must have ANY of these side effects.
     """
 
-    # Original conditions
-    tool_name: str | None = None
-    path_pattern: str | None = None
+    # Original conditions (now support lists with OR logic)
+    tool_name: ConditionValue = None
+    path_pattern: ConditionValue = None
     operations: list[Literal["read", "write", "delete"]] | None = None
 
     # Source/destination path conditions (for move/copy operations)
-    source_path: str | None = None
-    dest_path: str | None = None
+    source_path: ConditionValue = None
+    dest_path: ConditionValue = None
 
-    # New resource conditions
-    extension: str | None = None
-    scheme: str | None = None
-    backend_id: str | None = None
+    # Resource conditions
+    extension: ConditionValue = None
+    scheme: ConditionValue = None
+    backend_id: ConditionValue = None
     resource_type: Literal["tool", "resource", "prompt", "server"] | None = None
 
     # Action conditions
-    mcp_method: str | None = None
+    mcp_method: ConditionValue = None
 
     # Subject conditions
-    subject_id: str | None = None
+    subject_id: ConditionValue = None
 
     # Side effects (ANY logic - matches if tool has any of the listed effects)
     side_effects: list[SideEffect] | None = None
 
     model_config = ConfigDict(frozen=True)
+
+    @field_validator(
+        "tool_name",
+        "path_pattern",
+        "source_path",
+        "dest_path",
+        "extension",
+        "scheme",
+        "backend_id",
+        "mcp_method",
+        "subject_id",
+        mode="after",
+    )
+    @classmethod
+    def reject_empty_strings(cls, v: str | list[str] | None) -> str | list[str] | None:
+        """Reject empty or whitespace-only strings in condition values.
+
+        Empty strings would silently never match, which is confusing.
+        Better to fail fast with a clear error.
+        """
+        if v is None:
+            return v
+
+        if isinstance(v, str):
+            if not v.strip():
+                raise ValueError("Condition value cannot be empty or whitespace-only")
+            return v
+
+        # List case
+        for item in v:
+            if not item.strip():
+                raise ValueError("List conditions cannot contain empty or whitespace-only strings")
+        return v
 
     @model_validator(mode="after")
     def at_least_one_condition(self) -> Self:

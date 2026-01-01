@@ -40,6 +40,7 @@ from mcp_acp_extended.utils.policy import (
     save_policy,
 )
 from mcp_acp_extended.pdp.matcher import (
+    _match_any,
     _match_operations,
     infer_operation,
     match_path_pattern,
@@ -653,10 +654,13 @@ class TestMatchPathPattern:
     @pytest.mark.parametrize(
         ("pattern", "path", "expected"),
         [
-            # ** matches anything including /
+            # ** matches anything including / (and the directory itself)
+            ("/project/**", "/project", True),  # Directory itself
+            ("/project/**", "/project/", True),  # Directory with trailing slash
             ("/project/**", "/project/src/main.py", True),
             ("/project/**", "/project/deep/nested/file.txt", True),
             ("/project/**", "/other/file.txt", False),
+            ("/project/**", "/projectX", False),  # Similar prefix but different
             # * matches anything except /
             ("/project/*", "/project/file.txt", True),
             ("/project/*", "/project/src/file.txt", False),
@@ -679,9 +683,12 @@ class TestMatchPathPattern:
             ("*", "path/file.txt", False),
         ],
         ids=[
+            "double-star-matches-dir-itself",
+            "double-star-matches-dir-trailing-slash",
             "double-star-deep",
             "double-star-deeper",
             "double-star-no-match",
+            "double-star-rejects-similar-prefix",
             "single-star-match",
             "single-star-no-nested",
             "extension-deep",
@@ -1439,3 +1446,258 @@ class TestPolicyEngineCriticalFailures:
         assert "ValueError" in str(exc_info.value)
         assert "Bad value in rule matching" in str(exc_info.value)
         assert exc_info.value.__cause__ is not None
+
+
+# ============================================================================
+# Tests: List/OR Logic for Conditions
+# ============================================================================
+
+
+class TestMatchAny:
+    """Tests for _match_any helper function."""
+
+    def test_none_pattern_matches_anything(self):
+        """Given None pattern, matches any value."""
+        assert _match_any(None, "anything", match_tool_name) is True
+        assert _match_any(None, None, match_tool_name) is True
+
+    def test_single_string_pattern_uses_match_fn(self):
+        """Given single string pattern, uses match function directly."""
+        assert _match_any("bash", "bash", match_tool_name) is True
+        assert _match_any("bash", "rm", match_tool_name) is False
+        assert _match_any("write_*", "write_file", match_tool_name) is True
+
+    def test_empty_list_never_matches(self):
+        """Given empty list, never matches (no valid values)."""
+        assert _match_any([], "bash", match_tool_name) is False
+        assert _match_any([], None, match_tool_name) is False
+
+    def test_list_matches_if_any_pattern_matches(self):
+        """Given list of patterns, matches if ANY matches (OR logic)."""
+        patterns = ["bash", "rm", "mv"]
+        assert _match_any(patterns, "bash", match_tool_name) is True
+        assert _match_any(patterns, "rm", match_tool_name) is True
+        assert _match_any(patterns, "mv", match_tool_name) is True
+        assert _match_any(patterns, "cp", match_tool_name) is False
+
+    def test_list_with_glob_patterns(self):
+        """Given list with glob patterns, matches if any pattern matches."""
+        patterns = ["write_*", "edit_*", "save_*"]
+        assert _match_any(patterns, "write_file", match_tool_name) is True
+        assert _match_any(patterns, "edit_document", match_tool_name) is True
+        assert _match_any(patterns, "read_file", match_tool_name) is False
+
+    def test_works_with_path_pattern_matcher(self):
+        """Given path patterns, works with match_path_pattern."""
+        patterns = ["/project/**", "/tmp/**"]
+        assert _match_any(patterns, "/project/src/main.py", match_path_pattern) is True
+        assert _match_any(patterns, "/tmp/cache.txt", match_path_pattern) is True
+        assert _match_any(patterns, "/etc/passwd", match_path_pattern) is False
+
+
+class TestListConditionsModel:
+    """Tests for RuleConditions accepting list values."""
+
+    def test_tool_name_accepts_single_string(self):
+        """Given single string tool_name, creates conditions successfully."""
+        conditions = RuleConditions(tool_name="bash")
+        assert conditions.tool_name == "bash"
+
+    def test_tool_name_accepts_list(self):
+        """Given list of tool names, creates conditions successfully."""
+        conditions = RuleConditions(tool_name=["bash", "rm", "mv"])
+        assert conditions.tool_name == ["bash", "rm", "mv"]
+
+    def test_path_pattern_accepts_list(self):
+        """Given list of path patterns, creates conditions successfully."""
+        conditions = RuleConditions(path_pattern=["/project/**", "/tmp/**"])
+        assert conditions.path_pattern == ["/project/**", "/tmp/**"]
+
+    def test_multiple_list_conditions(self):
+        """Given multiple list conditions, creates conditions successfully."""
+        conditions = RuleConditions(
+            tool_name=["bash", "rm"],
+            path_pattern=["/etc/**", "/var/**"],
+        )
+        assert conditions.tool_name == ["bash", "rm"]
+        assert conditions.path_pattern == ["/etc/**", "/var/**"]
+
+    def test_rejects_empty_string(self):
+        """Given empty string, raises ValidationError."""
+        with pytest.raises(ValidationError, match="empty or whitespace"):
+            RuleConditions(tool_name="")
+
+    def test_rejects_whitespace_only_string(self):
+        """Given whitespace-only string, raises ValidationError."""
+        with pytest.raises(ValidationError, match="empty or whitespace"):
+            RuleConditions(tool_name="   ")
+
+    def test_rejects_empty_string_in_list(self):
+        """Given list containing empty string, raises ValidationError."""
+        with pytest.raises(ValidationError, match="empty or whitespace"):
+            RuleConditions(tool_name=["bash", ""])
+
+    def test_rejects_whitespace_in_list(self):
+        """Given list containing whitespace-only string, raises ValidationError."""
+        with pytest.raises(ValidationError, match="empty or whitespace"):
+            RuleConditions(tool_name=["bash", "   "])
+
+
+class TestListConditionsEngine:
+    """Tests for PolicyEngine with list conditions."""
+
+    def test_tool_name_list_matches_any(self, make_context):
+        """Given tool_name list, matches if tool is ANY in list."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="deny",
+                    conditions=RuleConditions(tool_name=["bash", "rm", "mv"]),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Should deny bash, rm, mv
+        assert engine.evaluate(make_context(tool_name="bash")) == Decision.DENY
+        assert engine.evaluate(make_context(tool_name="rm")) == Decision.DENY
+        assert engine.evaluate(make_context(tool_name="mv")) == Decision.DENY
+
+        # Should use default (deny) for other tools - no allow rule
+        assert engine.evaluate(make_context(tool_name="cp")) == Decision.DENY
+
+    def test_tool_name_list_with_allow_rule(self, make_context):
+        """Given tool_name list in allow rule, allows matching tools."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(tool_name=["read_file", "list_dir"]),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Should allow read_file and list_dir
+        assert engine.evaluate(make_context(tool_name="read_file")) == Decision.ALLOW
+        assert engine.evaluate(make_context(tool_name="list_dir")) == Decision.ALLOW
+
+        # Should deny other tools (default action)
+        assert engine.evaluate(make_context(tool_name="write_file")) == Decision.DENY
+
+    def test_path_pattern_list_matches_any(self, make_context):
+        """Given path_pattern list, matches if path matches ANY pattern."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(
+                        tool_name="read_file",
+                        path_pattern=["/project/**", "/tmp/**"],
+                    ),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Should allow paths matching either pattern
+        assert (
+            engine.evaluate(make_context(tool_name="read_file", path="/project/src/main.py"))
+            == Decision.ALLOW
+        )
+        assert engine.evaluate(make_context(tool_name="read_file", path="/tmp/cache.txt")) == Decision.ALLOW
+
+        # Should deny path not matching any pattern
+        assert engine.evaluate(make_context(tool_name="read_file", path="/etc/passwd")) == Decision.DENY
+
+    def test_mixed_list_and_single_uses_and_logic(self, make_context):
+        """Given list in one field and single in another, uses AND across fields."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="deny",
+                    conditions=RuleConditions(
+                        tool_name=["bash", "rm"],  # OR within
+                        path_pattern="/etc/**",  # AND with this
+                    ),
+                ),
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(tool_name="*"),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Should deny: (bash OR rm) AND /etc/**
+        assert engine.evaluate(make_context(tool_name="bash", path="/etc/passwd")) == Decision.DENY
+        assert engine.evaluate(make_context(tool_name="rm", path="/etc/passwd")) == Decision.DENY
+
+        # Should allow: bash on non-/etc path (doesn't match deny rule)
+        assert engine.evaluate(make_context(tool_name="bash", path="/project/file")) == Decision.ALLOW
+
+        # Should allow: cp on /etc (doesn't match deny rule - tool not in list)
+        assert engine.evaluate(make_context(tool_name="cp", path="/etc/passwd")) == Decision.ALLOW
+
+    def test_empty_list_never_matches(self, make_context):
+        """Given empty list, rule never matches."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="deny",
+                    conditions=RuleConditions(tool_name=[]),  # Empty list
+                ),
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(tool_name="*"),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Empty list rule never matches, so allow rule applies
+        assert engine.evaluate(make_context(tool_name="bash")) == Decision.ALLOW
+        assert engine.evaluate(make_context(tool_name="anything")) == Decision.ALLOW
+
+    def test_glob_patterns_in_list(self, make_context):
+        """Given list with glob patterns, each pattern is matched."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="deny",
+                    conditions=RuleConditions(tool_name=["write_*", "edit_*", "delete_*"]),
+                ),
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(tool_name="*"),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        # Should deny write_*, edit_*, delete_*
+        assert engine.evaluate(make_context(tool_name="write_file")) == Decision.DENY
+        assert engine.evaluate(make_context(tool_name="edit_document")) == Decision.DENY
+        assert engine.evaluate(make_context(tool_name="delete_record")) == Decision.DENY
+
+        # Should allow read_* (doesn't match any deny pattern)
+        assert engine.evaluate(make_context(tool_name="read_file")) == Decision.ALLOW
+
+    def test_backward_compat_single_string_still_works(self, make_context):
+        """Given single string values (old format), still works."""
+        policy = PolicyConfig(
+            rules=[
+                PolicyRule(
+                    effect="deny",
+                    conditions=RuleConditions(tool_name="bash"),
+                ),
+                PolicyRule(
+                    effect="allow",
+                    conditions=RuleConditions(tool_name="*"),
+                ),
+            ]
+        )
+        engine = PolicyEngine(policy)
+
+        assert engine.evaluate(make_context(tool_name="bash")) == Decision.DENY
+        assert engine.evaluate(make_context(tool_name="safe_tool")) == Decision.ALLOW

@@ -21,7 +21,7 @@ from __future__ import annotations
 import fnmatch
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 from mcp_acp_extended.context.resource import SideEffect
 
@@ -116,8 +116,17 @@ def match_path_pattern(pattern: str, path: str | None) -> bool:
         c = pattern[i]
         if c == "*":
             if i + 1 < len(pattern) and pattern[i + 1] == "*":
-                # ** matches anything including /
-                regex_pattern += ".*"
+                # ** matches zero or more characters including /
+                # Special case: /** at end should also match the directory itself
+                # e.g., /tmp/** should match /tmp, /tmp/foo, /tmp/foo/bar
+                is_at_end = i + 2 >= len(pattern)
+                preceded_by_slash = regex_pattern.endswith("/")
+
+                if is_at_end and preceded_by_slash:
+                    # Remove the trailing slash and make the whole /... part optional
+                    regex_pattern = regex_pattern[:-1] + "(/.*)?"
+                else:
+                    regex_pattern += ".*"
                 i += 2
             else:
                 # * matches anything except /
@@ -346,3 +355,44 @@ def _match_side_effects(
     # ANY logic: tool must have at least one of the required effects
     required_set = set(required)
     return bool(required_set & actual)
+
+
+# =============================================================================
+# List/OR Logic Helper
+# =============================================================================
+
+
+def _match_any(
+    patterns: str | list[str] | None,
+    value: str | None,
+    match_fn: Callable[[str, str | None], bool],
+) -> bool:
+    """Match value against single pattern or any pattern in list.
+
+    Provides OR logic for conditions that accept lists: the condition
+    matches if ANY pattern in the list matches the value.
+
+    Args:
+        patterns: Single pattern, list of patterns, or None (no constraint).
+        value: Value to match against.
+        match_fn: Function to match single pattern against value.
+            Must have signature: (pattern: str, value: str | None) -> bool
+
+    Returns:
+        True if no constraint (patterns is None), or if value matches any pattern.
+        False if empty list (no valid values = rule never matches).
+    """
+    # No constraint = matches anything
+    if patterns is None:
+        return True
+
+    # Single value: use match function directly
+    if isinstance(patterns, str):
+        return match_fn(patterns, value)
+
+    # Empty list = no valid values = never match
+    if not patterns:
+        return False
+
+    # List: OR logic - match if ANY pattern matches
+    return any(match_fn(p, value) for p in patterns)

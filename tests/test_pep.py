@@ -1205,6 +1205,8 @@ class TestApprovalCaching:
         mock_decision_context.resource.resource.path = "/test"
         mock_decision_context.resource.resource.uri = None
         mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.resource.resource.source_path = None
+        mock_decision_context.resource.resource.dest_path = None
         mock_decision_context.subject.id = "test_user"
         mock_decision_context.action.mcp_method = "tools/call"
         mock_decision_context.action.category = MagicMock()
@@ -1269,6 +1271,8 @@ class TestApprovalCaching:
         mock_decision_context.resource.resource.path = "/test"
         mock_decision_context.resource.resource.uri = None
         mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.resource.resource.source_path = None
+        mock_decision_context.resource.resource.dest_path = None
         mock_decision_context.subject.id = "test_user"
         mock_decision_context.action.mcp_method = "tools/call"
         mock_decision_context.action.category = MagicMock()
@@ -1327,6 +1331,8 @@ class TestApprovalCaching:
         mock_decision_context.resource.resource.path = "/test"
         mock_decision_context.resource.resource.uri = None
         mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.resource.resource.source_path = None
+        mock_decision_context.resource.resource.dest_path = None
         mock_decision_context.subject.id = "test_user"
         mock_decision_context.action.mcp_method = "tools/call"
         mock_decision_context.action.category = MagicMock()
@@ -1404,6 +1410,8 @@ class TestApprovalCaching:
         mock_decision_context.resource.resource.path = "/test/file.txt"
         mock_decision_context.resource.resource.uri = None
         mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.resource.resource.source_path = None
+        mock_decision_context.resource.resource.dest_path = None
         mock_decision_context.subject.id = "test_user"
         mock_decision_context.action.mcp_method = "tools/call"
         mock_decision_context.action.category = MagicMock()
@@ -1484,6 +1492,8 @@ class TestApprovalCaching:
         mock_decision_context.resource.resource.path = "/test/file.txt"
         mock_decision_context.resource.resource.uri = None
         mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.resource.resource.source_path = None
+        mock_decision_context.resource.resource.dest_path = None
         mock_decision_context.subject.id = "test_user"
         mock_decision_context.action.mcp_method = "tools/call"
         mock_decision_context.action.category = MagicMock()
@@ -1537,6 +1547,8 @@ class TestApprovalCaching:
         mock_decision_context.resource.resource.path = "/test"
         mock_decision_context.resource.resource.uri = None
         mock_decision_context.resource.resource.scheme = None
+        mock_decision_context.resource.resource.source_path = None
+        mock_decision_context.resource.resource.dest_path = None
         mock_decision_context.subject.id = "test_user"
         mock_decision_context.action.mcp_method = "tools/call"
         mock_decision_context.action.category = MagicMock()

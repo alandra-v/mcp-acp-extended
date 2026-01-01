@@ -281,10 +281,11 @@ Focused on high-value policy improvements for single-user context.
   - Self-documenting policies, included in `MatchedRule` for audit logs and UI
   - Implementation: `description: str | None = None` in `PolicyRule` model
 
-- [ ] **List/OR logic for conditions**
-  - Allow multiple values per condition field (e.g., `tool_name: ["bash", "rm", "mv"]`)
+- [x] **List/OR logic for conditions** (Complete)
+  - Most conditions accept single value or list (e.g., `tool_name: ["bash", "rm", "mv"]`)
   - ANY match = rule applies (OR logic within field, AND across fields)
-  - Makes policies more expressive, fewer redundant rules
+  - `_match_any()` helper in matcher.py handles both cases
+  - Empty list `[]` never matches (no valid values)
 
 - [x] **Multiple path support (source/destination)** (Complete)
   - Added `source_path` and `dest_path` conditions for data flow policies
@@ -298,7 +299,7 @@ Focused on high-value policy improvements for single-user context.
   - Helps debug policy behavior and understand why requests were allowed/denied
 
 - [ ] **Hot reload via SIGHUP**
-  - Reload policy.yaml without restarting proxy
+  - Reload policy.json without restarting proxy
   - Validate new policy before applying
   - Log policy reload events
 
@@ -353,8 +354,8 @@ Web UI requests go through proxy → uses same session
 - [x] Documentation (docs/auth.md)
 - [x] E2E testing guide (docs/manual-e2e-testing.md)
 - [x] mTLS for HTTP backend connections
-- [ ] Policy OR logic for conditions
-- [ ] Multiple path support (source/destination)
-- [ ] Decision trace in logs
+- [x] Policy OR logic for conditions
+- [x] Multiple path support (source/destination)
+- [x] Decision trace in logs
 - [ ] Hot reload via SIGHUP
 - [ ] React web UI
