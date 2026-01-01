@@ -86,16 +86,13 @@ DEVICE_FLOW_POLL_INTERVAL_SECONDS: int = 5
 DEVICE_FLOW_TIMEOUT_SECONDS: int = 300
 
 # ============================================================================
-# Authentication Caching (Zero Trust with Performance)
+# Authentication
 # ============================================================================
-
-# Cache TTL for validated identity (seconds)
-# Re-validates token every 60 seconds for Zero Trust with performance
-IDENTITY_CACHE_TTL_SECONDS: int = 60
 
 # JWKS (JSON Web Key Set) cache TTL (seconds)
 # Shorter TTL reduces window for revoked key acceptance while still avoiding
 # excessive requests to the JWKS endpoint (10 minutes)
+# Note: Identity is validated per-request (true Zero Trust, no caching)
 JWKS_CACHE_TTL_SECONDS: int = 600
 
 # ============================================================================

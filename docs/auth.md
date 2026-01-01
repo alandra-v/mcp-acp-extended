@@ -38,7 +38,7 @@ Authentication supports the Zero Trust security model with three primary goals:
 │    d. Run device health checks (disk encryption, SIP)                       │
 │    e. If all pass → proxy ready, log session_started                        │
 │    f. If ANY fail → proxy exits with error popup                            │
-│ 4. Per-request: validate identity (60s cache for performance)               │
+│ 4. Per-request: validate identity (every request, no caching)               │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -142,18 +142,16 @@ JWKS keys are cached for 10 minutes per-instance to avoid excessive network call
 JWKS_CACHE_TTL_SECONDS = 600  # 10 minutes
 ```
 
-### Identity Caching
+### Per-Request Validation (True Zero Trust)
 
-For performance, validated identity is cached for 60 seconds (Zero Trust with performance):
+Identity is validated on **every request** with no caching:
 
-```python
-IDENTITY_CACHE_TTL_SECONDS = 60
-```
+- Token is loaded from storage on each request
+- JWT signature, issuer, audience, and expiry are verified
+- Logout takes effect immediately (no cache delay)
+- Token revocation takes effect immediately
 
-This means:
-- First request in 60s: Full JWT validation
-- Subsequent requests: Return cached identity
-- After 60s: Re-validate JWT
+This ensures true Zero Trust: every request is independently verified.
 
 ---
 
@@ -193,8 +191,9 @@ For STDIO clients (Claude Desktop), tokens are loaded from OS keychain:
                         └─────────────────────┘
 ```
 
-- `OIDCIdentityProvider` loads token from keychain at startup
-- Validates JWT per-request (60s cache)
+- `OIDCIdentityProvider` loads token from keychain
+- Validates JWT on every request (no caching)
+- Logout/revocation takes effect immediately
 - Auto-refreshes when access_token expires
 
 ---
@@ -231,7 +230,7 @@ Authentication is configured via `config.json`:
 
 | Token | Auth0 Default | Strategy |
 |-------|---------------|----------|
-| Access Token | 24 hours | Validate per-request (60s cache) |
+| Access Token | 24 hours | Validate per-request (no caching) |
 | Refresh Token | 30 days | Auto-refresh silently |
 | ID Token | 24 hours | Extract claims for Subject |
 

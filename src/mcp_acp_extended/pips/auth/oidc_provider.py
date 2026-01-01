@@ -2,14 +2,14 @@
 
 Pattern 1: STDIO Transport
 - Token stored in OS keychain (via CLI `auth login`)
-- Loaded at proxy startup
-- Validated per-request with 60-second cache
+- Validated per-request (true Zero Trust - no caching)
 - Auto-refreshed when expired
+- Logout/revocation takes effect immediately
 
 This provider implements the IdentityProvider protocol, making it interchangeable
 with LocalIdentityProvider (Stage 1) and future HTTPIdentityProvider (Pattern 2).
 
-Thread-safety: Uses asyncio.Lock to protect cache access during concurrent requests.
+Thread-safety: Uses asyncio.Lock for concurrent request safety.
 
 See docs/design/authentication_implementation.md for architecture details.
 """
@@ -21,7 +21,6 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from mcp_acp_extended.constants import IDENTITY_CACHE_TTL_SECONDS
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth import (
     JWTValidator,
@@ -43,15 +42,11 @@ if TYPE_CHECKING:
 
 @dataclass
 class _CachedIdentity:
-    """Cached identity with expiration tracking."""
+    """Holds the last validated identity for get_validated_token() access."""
 
     identity: SubjectIdentity
     validated_token: ValidatedToken
-    cached_at: float  # monotonic timestamp
-
-    def is_expired(self, ttl: float = IDENTITY_CACHE_TTL_SECONDS) -> bool:
-        """Check if cache has expired."""
-        return time.monotonic() - self.cached_at > ttl
+    cached_at: float  # monotonic timestamp (for debugging/logging)
 
 
 class OIDCIdentityProvider:
@@ -61,10 +56,11 @@ class OIDCIdentityProvider:
     and auto-refreshes when expired. Implements IdentityProvider protocol.
 
     Features:
-    - Per-request validation with 60-second cache (Zero Trust)
+    - Per-request validation (true Zero Trust - no caching)
     - Automatic token refresh when access_token expires
     - Rich SubjectIdentity with OIDC claims for policy evaluation
-    - Concurrency-safe with asyncio.Lock protecting cache access
+    - Concurrency-safe with asyncio.Lock
+    - Immediate logout/revocation effect (no cache delay)
 
     Usage:
         provider = OIDCIdentityProvider(oidc_config)
@@ -106,12 +102,14 @@ class OIDCIdentityProvider:
         Implements IdentityProvider protocol. Called per-request by middleware.
 
         Flow:
-        1. Acquire lock for thread-safe cache access
-        2. Check cache (60s TTL for Zero Trust with performance)
-        3. Load token from keychain
-        4. Validate JWT (signature, issuer, audience, expiry)
-        5. If expired, try refresh
-        6. Build SubjectIdentity with OIDC claims
+        1. Acquire lock for thread-safe access
+        2. Load token from keychain
+        3. Validate JWT (signature, issuer, audience, expiry)
+        4. If expired, try refresh
+        5. Build SubjectIdentity with OIDC claims
+
+        Zero Trust: Validates on every request. No caching - ensures logout
+        and token revocation take effect immediately.
 
         Returns:
             SubjectIdentity with subject_id and OIDC claims.
@@ -121,12 +119,7 @@ class OIDCIdentityProvider:
                 or refresh fails (user must re-login).
         """
         async with self._lock:
-            # Check cache first (Zero Trust with performance)
-            # Inside lock to prevent concurrent cache invalidation
-            if self._cache is not None and not self._cache.is_expired():
-                return self._cache.identity
-
-            # Load token from storage
+            # Load token from storage (validates token exists)
             token = self._load_token()
 
             # Validate and potentially refresh
@@ -135,7 +128,7 @@ class OIDCIdentityProvider:
             # Build identity from validated claims
             identity = self._build_identity(validated)
 
-            # Cache for next request
+            # Store for get_validated_token() access
             self._cache = _CachedIdentity(
                 identity=identity,
                 validated_token=validated,

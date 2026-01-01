@@ -889,60 +889,15 @@ class TestOIDCIdentityProvider:
         with pytest.raises(AuthenticationError, match="Not authenticated"):
             await provider.get_identity()
 
-    async def test_get_identity_returns_cached_identity(self, oidc_config: OIDCConfig):
-        """Given cached identity, returns from cache without reloading."""
-        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
-        from mcp_acp_extended.pips.auth.oidc_provider import _CachedIdentity
-        import time
-
-        # Arrange: Provider with pre-populated cache
-        mock_storage = MagicMock()
-        mock_validator = MagicMock()
-
-        provider = OIDCIdentityProvider(
-            config=oidc_config,
-            token_storage=mock_storage,
-            jwt_validator=mock_validator,
-        )
-
-        # Set up cache with valid identity
-        from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
-
-        cached_identity = SubjectIdentity(
-            subject_id="auth0|cached-user",
-            subject_claims={"auth_type": "oidc"},
-        )
-        cached_token = ValidatedToken(
-            subject_id="auth0|cached-user",
-            issuer=oidc_config.issuer,
-            audience=[oidc_config.audience],
-            scopes=frozenset(["openid", "profile"]),
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-            issued_at=datetime.now(timezone.utc),
-            auth_time=None,
-            claims={},
-        )
-        provider._cache = _CachedIdentity(
-            identity=cached_identity,
-            validated_token=cached_token,
-            cached_at=time.monotonic(),  # Fresh cache
-        )
-
-        # Act
-        identity = await provider.get_identity()
-
-        # Assert: Returns cached identity, storage not called
-        assert identity.subject_id == "auth0|cached-user"
-        mock_storage.load.assert_not_called()
-        mock_validator.validate.assert_not_called()
-
-    async def test_get_identity_validates_token_when_cache_expired(
+    async def test_get_identity_always_validates_token(
         self, oidc_config: OIDCConfig, stored_token: StoredToken
     ):
-        """Given expired cache, reloads and validates token."""
+        """Given valid token, get_identity always validates (no caching).
+
+        Zero Trust: Every request validates the token from storage.
+        This ensures logout and token revocation take effect immediately.
+        """
         from mcp_acp_extended.pips.auth import OIDCIdentityProvider
-        from mcp_acp_extended.pips.auth.oidc_provider import _CachedIdentity, IDENTITY_CACHE_TTL_SECONDS
-        import time
 
         # Arrange
         mock_storage = MagicMock()
@@ -950,7 +905,7 @@ class TestOIDCIdentityProvider:
 
         mock_validator = MagicMock()
         mock_validator.validate.return_value = ValidatedToken(
-            subject_id="auth0|fresh-user",
+            subject_id="auth0|user",
             issuer=oidc_config.issuer,
             audience=[oidc_config.audience],
             scopes=frozenset(["openid"]),
@@ -966,33 +921,15 @@ class TestOIDCIdentityProvider:
             jwt_validator=mock_validator,
         )
 
-        # Set up expired cache (older than TTL)
-        from mcp_acp_extended.telemetry.models.audit import SubjectIdentity
+        # Act: Call get_identity twice
+        identity1 = await provider.get_identity()
+        identity2 = await provider.get_identity()
 
-        old_identity = SubjectIdentity(subject_id="old-user")
-        old_token = ValidatedToken(
-            subject_id="old-user",
-            issuer=oidc_config.issuer,
-            audience=[oidc_config.audience],
-            scopes=frozenset(),
-            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
-            issued_at=datetime.now(timezone.utc),
-            auth_time=None,
-            claims={},
-        )
-        provider._cache = _CachedIdentity(
-            identity=old_identity,
-            validated_token=old_token,
-            cached_at=time.monotonic() - IDENTITY_CACHE_TTL_SECONDS - 1,  # Expired
-        )
-
-        # Act
-        identity = await provider.get_identity()
-
-        # Assert: Fresh identity from validation
-        assert identity.subject_id == "auth0|fresh-user"
-        mock_storage.load.assert_called_once()
-        mock_validator.validate.assert_called_once()
+        # Assert: Both calls load and validate (no caching)
+        assert identity1.subject_id == "auth0|user"
+        assert identity2.subject_id == "auth0|user"
+        assert mock_storage.load.call_count == 2
+        assert mock_validator.validate.call_count == 2
 
     def test_is_authenticated_returns_true_when_token_exists(self, oidc_config: OIDCConfig):
         """Given stored token, is_authenticated returns True."""
