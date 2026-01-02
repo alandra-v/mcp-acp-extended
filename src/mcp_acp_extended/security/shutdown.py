@@ -21,22 +21,37 @@ if TYPE_CHECKING:
     import logging
 
 
-def _write_crash_breadcrumb(log_dir: Path, failure_type: str, reason: str) -> None:
+def _write_crash_breadcrumb(
+    log_dir: Path,
+    failure_type: str,
+    reason: str,
+    exit_code: int,
+    context: dict[str, Any] | None = None,
+) -> None:
     """Write breadcrumb file with failure details.
 
     Location: <log_dir>/.last_crash
-    Format: timestamp\\nfailure_type\\nreason\\n
+    Format:
+        <timestamp>
+        failure_type: <type>
+        exit_code: <code>
+        reason: <reason>
+        context: <json>
 
-    This simple format is:
-    - Easy to parse programmatically
+    This format is:
+    - Easy to parse programmatically (labeled fields)
     - Human-readable for operators
-    - Minimal dependencies (no JSON, just text)
+    - Minimal dependencies (simple text with one JSON field)
 
     Args:
         log_dir: Directory for breadcrumb file.
         failure_type: Category of failure (e.g., "audit_failure").
         reason: Human-readable description of the failure.
+        exit_code: Process exit code (10=audit, 11=policy, 12=identity).
+        context: Additional context for the failure.
     """
+    import json
+
     try:
         log_dir.mkdir(parents=True, exist_ok=True)
     except OSError:
@@ -44,7 +59,14 @@ def _write_crash_breadcrumb(log_dir: Path, failure_type: str, reason: str) -> No
 
     crash_file = log_dir / ".last_crash"
     timestamp = datetime.now(timezone.utc).isoformat()
-    crash_file.write_text(f"{timestamp}\n{failure_type}\n{reason}\n")
+    context_json = json.dumps(context) if context else "{}"
+    crash_file.write_text(
+        f"{timestamp}\n"
+        f"failure_type: {failure_type}\n"
+        f"exit_code: {exit_code}\n"
+        f"reason: {reason}\n"
+        f"context: {context_json}\n"
+    )
 
 
 class ShutdownCoordinator:
@@ -138,7 +160,7 @@ class ShutdownCoordinator:
 
         # 2. Write breadcrumb file (best effort - simple text, likely to succeed)
         try:
-            _write_crash_breadcrumb(self.log_dir, failure_type, reason)
+            _write_crash_breadcrumb(self.log_dir, failure_type, reason, exit_code, context)
         except Exception:
             pass  # Best effort
 
@@ -189,7 +211,7 @@ def sync_emergency_shutdown(
 
     # 1. Write breadcrumb file
     try:
-        _write_crash_breadcrumb(log_dir, failure_type, reason)
+        _write_crash_breadcrumb(log_dir, failure_type, reason, exit_code)
     except Exception:
         pass
 
