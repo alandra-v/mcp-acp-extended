@@ -34,11 +34,65 @@ from mcp_acp_extended.utils.config import (
 )
 from mcp_acp_extended.utils.history_logging import log_config_created
 from mcp_acp_extended.utils.transport import check_http_health, validate_mtls_config
+from mcp_acp_extended.security.auth.token_storage import create_token_storage
 
 from ..prompts import prompt_auth_config, prompt_http_config, prompt_stdio_config, prompt_with_retry
 
 # Recommended log directory shown in init prompts (user can customize)
 RECOMMENDED_LOG_DIR = "~/.mcp-acp-extended"
+
+
+def _check_oidc_change_warning(
+    old_config: AppConfig | None,
+    new_auth_config: AuthConfig,
+) -> None:
+    """Warn if OIDC settings changed and user has stored tokens.
+
+    When OIDC settings change (issuer, client_id, audience), existing tokens
+    become invalid. This warns the user to re-authenticate.
+
+    Args:
+        old_config: Previous configuration (None if no config existed).
+        new_auth_config: New authentication configuration being saved.
+    """
+    if old_config is None:
+        return
+
+    old_oidc = old_config.auth.oidc if old_config.auth else None
+    new_oidc = new_auth_config.oidc if new_auth_config else None
+
+    # Check if OIDC settings changed
+    oidc_changed = False
+    if old_oidc and new_oidc:
+        # Both have OIDC - check if settings differ
+        if (
+            old_oidc.issuer != new_oidc.issuer
+            or old_oidc.client_id != new_oidc.client_id
+            or old_oidc.audience != new_oidc.audience
+        ):
+            oidc_changed = True
+    elif old_oidc and not new_oidc:
+        # Had OIDC, now removed
+        oidc_changed = True
+    elif not old_oidc and new_oidc:
+        # Didn't have OIDC, now added - no warning needed (no old token)
+        pass
+
+    if not oidc_changed:
+        return
+
+    # Check if tokens exist
+    try:
+        storage = create_token_storage(old_oidc)
+        if storage.exists():
+            click.echo()
+            click.echo(click.style("Warning: OIDC settings changed", fg="yellow", bold=True))
+            click.echo("  Your stored authentication token was created with different settings.")
+            click.echo("  You will need to run 'mcp-acp-extended auth login' to re-authenticate.")
+            click.echo()
+    except Exception:
+        # Can't check token storage - don't warn, not critical
+        pass
 
 
 def _create_policy_only(config: AppConfig, policy_path: Path) -> None:
@@ -443,6 +497,15 @@ def init(
             click.echo("Aborted.")
             sys.exit(0)
 
+    # Load existing config to check for OIDC changes later
+    old_config: AppConfig | None = None
+    if config_exists:
+        try:
+            old_config = AppConfig.load_from_files(config_path)
+        except Exception:
+            # Can't load old config - that's fine, we'll skip the warning
+            pass
+
     # Gather configuration values
     try:
         if non_interactive:
@@ -471,6 +534,9 @@ def init(
     except click.Abort:
         click.echo("Aborted.")
         sys.exit(0)
+
+    # Warn if OIDC settings changed and user has stored tokens
+    _check_oidc_change_warning(old_config, auth_config)
 
     # Create and save configuration (always creates both config and policy)
     # Note: log_dir, server_name, connection_type are guaranteed to be str after
