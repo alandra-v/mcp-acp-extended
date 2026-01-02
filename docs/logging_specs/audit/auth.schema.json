@@ -339,7 +339,8 @@
             "normal",
             "timeout",
             "error",
-            "auth_expired"
+            "auth_expired",
+            "session_binding_violation"
           ],
           "type": "string"
         },

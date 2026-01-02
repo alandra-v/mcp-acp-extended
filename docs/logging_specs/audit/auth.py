@@ -107,7 +107,9 @@ class AuthEvent(BaseModel):
     error_message: Optional[str] = None  # Detailed error message
 
     # --- session end details ---
-    end_reason: Optional[Literal["normal", "timeout", "error", "auth_expired"]] = None
+    end_reason: Optional[
+        Literal["normal", "timeout", "error", "auth_expired", "session_binding_violation"]
+    ] = None
 
     # --- extra details ---
     details: Optional[Dict[str, Any]] = None  # any extra structured data

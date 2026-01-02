@@ -86,6 +86,9 @@ Displays current authentication state:
 
 Removes stored credentials from keychain or encrypted file. Running proxies need restart after logout.
 
+**Options:**
+- `--federated`: Also log out of the identity provider (Auth0) in browser. Use when switching users.
+
 ---
 
 ## Token Storage
@@ -300,7 +303,7 @@ Authentication events are logged to `audit/auth.jsonl`:
 - `token_refreshed`: Successful token refresh
 - `token_refresh_failed`: Refresh failure
 - `session_started`: Proxy startup with valid auth
-- `session_ended`: Proxy shutdown
+- `session_ended`: Proxy shutdown (end_reason: `normal`, `timeout`, `error`, `auth_expired`, `session_binding_violation`)
 - `device_health_passed`: Device checks passed
 - `device_health_failed`: Device checks failed
 
@@ -371,9 +374,20 @@ The `SessionManager` handles session lifecycle:
 
 - Session created after identity validation
 - Session ID includes user binding (`<user_id>:<session_id>`)
-- Session validation checks user binding
+- Session validation checks user binding on every request
 - Prevents cross-user session hijacking
 - Sessions MUST NOT be used for authentication (token validation on every request)
+
+### Session Binding Violation
+
+If a request arrives with a different user identity than the session was bound to:
+
+1. `SessionBindingViolationError` is raised
+2. Session ends with `end_reason: session_binding_violation`
+3. Proxy shuts down immediately (exit code 15)
+4. `.last_crash` breadcrumb file is written
+
+This fail-closed behavior prevents session hijacking if an attacker obtains different credentials mid-session.
 
 ---
 

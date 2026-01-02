@@ -50,7 +50,7 @@ error_type — optional error class name (e.g. "TokenExpiredError", "InvalidSign
 error_message — optional detailed error message
 
 ## Session end (for session_ended event)
-end_reason — optional, "normal" | "timeout" | "error" | "auth_expired"
+end_reason — optional, "normal" | "timeout" | "error" | "auth_expired" | "session_binding_violation"
 
 ## Extra details
 details — optional dict of additional structured data

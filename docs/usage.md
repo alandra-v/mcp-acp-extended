@@ -129,6 +129,13 @@ Clear stored credentials from OS keychain.
 mcp-acp-extended auth logout
 ```
 
+**Options:**
+- `--federated`: Also log out of the identity provider (Auth0) in your browser. Useful when switching between different users.
+
+```bash
+mcp-acp-extended auth logout --federated
+```
+
 Running proxies need restart after logout.
 
 ---

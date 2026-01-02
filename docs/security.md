@@ -314,28 +314,43 @@ Every error condition defaults to DENY (fail-closed):
 
 ## Shutdown Security
 
-### Audit Integrity Failure Detection
+### Critical Security Failure Detection
 
-Shutdown is triggered when audit integrity is compromised:
+Shutdown is triggered when security invariants are violated:
 
+**Audit Integrity Failures:**
 - Audit log file deleted
 - Audit log file replaced (different inode)
 - Audit log becomes unwritable
 - Write to audit log fails
 
+**Session Binding Violations:**
+- Request arrives with different user identity than session was bound to
+- Indicates potential session hijacking attempt
+
 ### Shutdown Sequence
 
+**For Audit Integrity Failures:**
 1. `FailClosedAuditHandler.emit()` detects integrity failure
 2. Sets `is_compromised = True` flag
 3. Attempts to log event via fallback chain
 4. Writes breadcrumb file with failure details
-5. Spawns background thread for delayed exit (500ms allows error response to reach client)
+5. Schedules delayed exit (100ms allows error response to flush)
 6. Returns error to client (`-32603 INTERNAL_ERROR`)
-7. Background thread calls `os._exit()` with appropriate exit code
+7. Calls `os._exit(10)` - cannot be caught by exception handlers
+
+**For Session Binding Violations:**
+1. `build_decision_context()` detects identity mismatch
+2. Raises `SessionBindingViolationError`
+3. Middleware catches and calls shutdown callback
+4. Logs `session_ended` with `end_reason: session_binding_violation`
+5. Writes breadcrumb file with failure details
+6. Schedules delayed exit (100ms allows error response to flush)
+7. Calls `os._exit(15)` - cannot be caught by exception handlers
 
 ### Breadcrumb File
 
-On audit failure, a breadcrumb file is written for post-incident analysis:
+On critical security failure, a breadcrumb file is written for post-incident analysis:
 
 - **Location**: `<log_dir>/.last_crash`
 - **Contents**: timestamp, failure type, list of missing/compromised files
@@ -350,6 +365,7 @@ On audit failure, a breadcrumb file is written for post-incident analysis:
 | 12 | Identity verification failure | JWKS endpoint unreachable |
 | 13 | Authentication error | No token, expired token, invalid signature |
 | 14 | Device health check failure | FileVault/SIP not enabled (macOS) |
+| 15 | Session binding violation | Identity changed mid-session (potential hijacking) |
 
 ### Post-Shutdown Client Behavior
 

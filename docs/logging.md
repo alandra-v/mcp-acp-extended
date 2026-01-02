@@ -113,7 +113,7 @@ Authentication events for Zero Trust compliance. Based on OCSF Authentication (3
 | `subject` | User identity (`subject_id`, `subject_claims`) |
 | `oidc` | OIDC token details (`issuer`, `provider`, `audience`, `scopes`, `token_exp`, `token_expired`) |
 | `device_checks` | Device health results (`disk_encryption`, `device_integrity`: `pass`/`fail`/`unknown`) |
-| `end_reason` | Session end reason: `normal`, `timeout`, `error`, `auth_expired` |
+| `end_reason` | Session end reason: `normal`, `timeout`, `error`, `auth_expired`, `session_binding_violation` |
 | `method` | MCP method (for per-request token validation) |
 | `error_type`, `error_message` | Error details (for failure events) |
 | `message` | Human-readable status message |
