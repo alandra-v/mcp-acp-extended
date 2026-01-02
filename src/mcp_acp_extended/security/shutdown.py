@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import asyncio
 import os
+import platform
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -21,6 +23,39 @@ if TYPE_CHECKING:
     import logging
 
     from mcp_acp_extended.telemetry.audit.auth_logger import AuthLogger
+
+
+def _show_shutdown_popup(failure_type: str, log_dir: Path) -> None:
+    """Show a popup alerting the user that the proxy shut down.
+
+    Best effort - fails silently if osascript unavailable.
+    No backoff needed since we're already shutting down.
+
+    Args:
+        failure_type: Category of failure (e.g., "audit_failure").
+        log_dir: Directory containing .last_crash file.
+    """
+    if platform.system() != "Darwin":
+        return
+
+    crash_file = log_dir / ".last_crash"
+
+    script = f"""
+    display alert "MCP ACP" message "Proxy shut down due to {failure_type}.
+
+Restart your MCP client (e.g., Claude Desktop) to reconnect.
+
+Details: {crash_file}" as critical buttons {{"OK"}} default button "OK"
+    """
+
+    try:
+        subprocess.run(
+            ["osascript", "-e", script],
+            capture_output=True,
+            timeout=30,
+        )
+    except (subprocess.SubprocessError, OSError):
+        pass  # Best effort
 
 
 def _write_crash_breadcrumb(
@@ -85,9 +120,10 @@ class ShutdownCoordinator:
     3. Write breadcrumb file (best effort)
     4. Log session_ended to auth.jsonl (best effort, if auth_logger set)
     5. Print to stderr (best effort)
-    6. Schedule delayed exit (100ms for response to flush)
-    7. Return control (caller raises MCP error to client)
-    8. Background task calls os._exit() after delay
+    6. Show popup to user (best effort, macOS only)
+    7. Schedule delayed exit (100ms for response to flush)
+    8. Return control (caller raises MCP error to client)
+    9. Background task calls os._exit() after delay
     """
 
     def __init__(self, log_dir: Path, system_logger: "logging.Logger") -> None:
@@ -157,8 +193,9 @@ class ShutdownCoordinator:
         1. Sets shutdown flag to reject new requests
         2. Logs to system.jsonl and breadcrumb file
         3. Logs session_ended to auth.jsonl (if auth_logger is set)
-        4. Schedules delayed exit (100ms)
-        5. Returns immediately so caller can raise MCP error
+        4. Shows popup to user (macOS only)
+        5. Schedules delayed exit (100ms)
+        6. Returns immediately so caller can raise MCP error
 
         Args:
             failure_type: Category of failure (e.g., "audit_failure")
@@ -221,7 +258,13 @@ class ShutdownCoordinator:
         except Exception:
             pass  # Best effort
 
-        # 5. Schedule delayed exit (allows MCP error response to flush)
+        # 5. Show popup to user (best effort - macOS only)
+        try:
+            _show_shutdown_popup(failure_type, self.log_dir)
+        except Exception:
+            pass  # Best effort
+
+        # 6. Schedule delayed exit (allows MCP error response to flush)
         asyncio.create_task(self._delayed_exit())
 
     async def _delayed_exit(self) -> None:
