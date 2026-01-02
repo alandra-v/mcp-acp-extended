@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import platform
 import subprocess
+import sys
 import time
 
 from mcp_acp_extended.pep.applescript import escape_applescript_string
@@ -44,6 +45,7 @@ def show_startup_error_popup(
         message: Main message text describing the failure.
         detail: Additional detail text (e.g., command to run to fix).
         backoff: If True, sleep after popup to prevent restart loops.
+            Only applies when NOT running in interactive terminal (no TTY).
             Use for errors that won't be fixed by automatic restart
             (e.g., auth failures where user must run a command).
 
@@ -72,9 +74,10 @@ def show_startup_error_popup(
             capture_output=True,
             timeout=_DIALOG_TIMEOUT_SECONDS,
         )
-        if backoff:
+        if backoff and not sys.stdin.isatty():
             # Sleep to prevent rapid restart loops
-            # MCP clients auto-restart crashed servers
+            # MCP clients auto-restart crashed servers (no TTY)
+            # Skip backoff for interactive terminal users
             time.sleep(_RESTART_BACKOFF_SECONDS)
         return True
     except (subprocess.SubprocessError, OSError):

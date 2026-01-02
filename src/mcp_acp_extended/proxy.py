@@ -40,7 +40,6 @@ from mcp_acp_extended.constants import (
     PROTECTED_CONFIG_DIR,
 )
 from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
-from mcp_acp_extended.cli.startup_alerts import show_startup_error_popup
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware, PolicyReloader
 from mcp_acp_extended.pips.auth import SessionManager
 from mcp_acp_extended.security import create_identity_provider, SessionRateTracker
@@ -150,29 +149,17 @@ def create_proxy(
     audit_path = get_audit_log_path(config)
     decisions_path = get_decisions_log_path(config)
     auth_log_path = get_auth_log_path(config)
-    try:
-        verify_audit_writable(audit_path)
-        verify_audit_writable(decisions_path)
-        verify_audit_writable(auth_log_path)
-    except AuditFailure as e:
-        # Show popup on macOS for users
-        show_startup_error_popup(
-            title="MCP ACP",
-            message="Audit log failure.",
-            detail=f"{e}\n\nCheck log directory permissions.",
-        )
-        raise
+    # Verify audit logs are writable - raises AuditFailure if not
+    # No popup here - start.py handles user-facing popups to avoid duplicates
+    verify_audit_writable(audit_path)
+    verify_audit_writable(decisions_path)
+    verify_audit_writable(auth_log_path)
 
     # Run device health check (hard gate - proxy won't start if unhealthy)
     # Zero Trust: device posture must be verified before accepting any requests
     device_health = check_device_health()
     if not device_health.is_healthy:
-        # Show popup on macOS for users
-        show_startup_error_popup(
-            title="MCP ACP",
-            message="Device health check failed.",
-            detail=f"{device_health}\n\nEnable FileVault and ensure SIP is enabled.",
-        )
+        # No popup here - start.py handles user-facing popups to avoid duplicates
         raise DeviceHealthError(str(device_health))
 
     # =========================================================================
@@ -362,13 +349,8 @@ def create_proxy(
                 error_type=type(e).__name__,
                 error_message=str(e),
             )
-            # Show popup on macOS for users (with backoff to prevent restart loops)
-            show_startup_error_popup(
-                title="MCP ACP",
-                message="Not authenticated.",
-                detail="Run in terminal:\n  mcp-acp-extended auth login\n\nThen restart your MCP client.",
-                backoff=True,
-            )
+            # No popup here - start.py handles user-facing popups
+            # This avoids duplicate popups when called from CLI
             raise
 
         try:
@@ -465,17 +447,9 @@ def create_proxy(
     # Note: transport="stdio" because clients connect via STDIO (Claude Desktop).
     # transport_type is the BACKEND transport, not client transport.
     # Future: When HTTP client transport is added, this will need updating.
-    try:
-        identity_provider = create_identity_provider(config, transport="stdio", auth_logger=auth_logger)
-    except AuthenticationError as e:
-        # Show popup on macOS for users (with backoff to prevent restart loops)
-        show_startup_error_popup(
-            title="MCP ACP",
-            message="Authentication not configured.",
-            detail="Run in terminal:\n  mcp-acp-extended init\n\nThen restart your MCP client.",
-            backoff=True,
-        )
-        raise
+    # create_identity_provider raises AuthenticationError if auth not configured
+    # No popup here - start.py handles user-facing popups to avoid duplicates
+    identity_provider = create_identity_provider(config, transport="stdio", auth_logger=auth_logger)
 
     # =========================================================================
     # PHASE 6: Middleware Chain
