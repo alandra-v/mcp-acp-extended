@@ -63,6 +63,43 @@ Rules are evaluated against the context:
 
 ## Policy File Structure
 
+### Minimal Valid Policy
+
+An empty object is a valid policy - all fields have defaults:
+
+```json
+{}
+```
+
+This is equivalent to:
+
+```json
+{
+  "version": "1",
+  "default_action": "deny",
+  "rules": [],
+  "hitl": {
+    "timeout_seconds": 30,
+    "default_on_timeout": "deny",
+    "approval_ttl_seconds": 600,
+    "cache_side_effects": null
+  }
+}
+```
+
+With no rules, all operations are denied (Zero Trust default).
+
+### PolicyConfig Fields
+
+| Field | Required | Default | Description |
+|-------|----------|---------|-------------|
+| `version` | No | `"1"` | Schema version for migrations |
+| `default_action` | No | `"deny"` | What to do when no rule matches (always "deny", cannot be changed) |
+| `rules` | No | `[]` | List of rules; all matches combined via HITL > DENY > ALLOW |
+| `hitl` | No | (see below) | HITL configuration |
+
+### Example Policy
+
 ```json
 {
   "version": "1",
@@ -101,6 +138,8 @@ Rules are evaluated against the context:
 ---
 
 ## Rule Conditions
+
+> **⚠️ At least one condition MUST be specified.** Empty conditions are rejected because they would match everything - a security risk. A rule like `{"effect": "allow", "conditions": {}}` is invalid.
 
 All conditions in a rule use **AND logic** (all must match).
 Most conditions support **list values with OR logic** - when a list is provided, the condition matches if ANY value matches.
@@ -384,12 +423,24 @@ Auto-deny in 30s
 - **Deny** (Esc): Reject the operation
 - **Allow** (Return): Approve the operation
 
-### Timeout Configuration
+### HITLConfig Fields
 
-- **Dialog timeout**: 30 seconds default, range 5-300 seconds
-- **Approval cache TTL**: 600 seconds default (10 min), range 300-900 seconds (5-15 min)
+| Field | Required | Default | Constraints | Description |
+|-------|----------|---------|-------------|-------------|
+| `timeout_seconds` | No | `30` | 5-300 | How long to wait for user response |
+| `default_on_timeout` | No | `"deny"` | (fixed) | Always deny on timeout (Zero Trust, cannot be changed) |
+| `approval_ttl_seconds` | No | `600` | 300-900 | How long cached approvals remain valid (5-15 min) |
+| `cache_side_effects` | No | `null` | see below | Which side effects can be cached |
 
-Configurable in `policy.json`:
+**`cache_side_effects` values:**
+
+| Value | Behavior |
+|-------|----------|
+| `null` (default) | Only cache tools with NO side effects |
+| `["fs_write", ...]` | Also cache tools with these specific side effects |
+| (any value) | Tools with `code_exec` are **never cached** (unsafe - same key matches different commands) |
+
+Example:
 ```json
 "hitl": {
   "timeout_seconds": 60,
@@ -400,8 +451,6 @@ Configurable in `policy.json`:
 
 **Note**: MCP clients have their own request timeouts. Ensure client timeout > HITL timeout to allow user response time.
 
-**Note**: `default_on_timeout` is always `"deny"` (Zero Trust) and cannot be changed.
-
 ### Approval Caching
 
 To reduce HITL dialog fatigue, approvals can be cached for repeated operations:
@@ -410,11 +459,6 @@ To reduce HITL dialog fatigue, approvals can be cached for repeated operations:
 - **TTL**: Configurable via `approval_ttl_seconds` (default: 10 minutes)
 - **Buttons**: "Allow (Xm)" caches the approval, "Allow once" does not
 - **Clearing**: Cache is cleared on policy reload
-
-**`cache_side_effects` configuration:**
-- `null` (default): Only cache tools with NO side effects
-- `["fs_write", "fs_read"]`: Also cache tools with these specific side effects
-- Tools with `code_exec` side effect are **never cached** regardless of this setting
 
 **Security**: The cache key does not include tool arguments, so code execution tools (bash, etc.) cannot be safely cached - the same cache key would match different commands.
 
