@@ -673,6 +673,7 @@ class TestPolicyEnforcementMiddleware:
             identity_provider=mock_identity_provider,
             backend_id="test-server",
             logger=mock_logger,
+            shutdown_callback=lambda reason: None,  # No-op for tests
             policy_version="v1",
         )
 
@@ -1164,6 +1165,7 @@ class TestApprovalCaching:
             identity_provider=mock_identity_provider,
             backend_id="test-server",
             logger=mock_logger,
+            shutdown_callback=lambda reason: None,  # No-op for tests
             policy_version="v1",
         )
 
@@ -1383,6 +1385,7 @@ class TestApprovalCaching:
             identity_provider=mock_identity_provider,
             backend_id="test-server",
             logger=mock_logger,
+            shutdown_callback=lambda reason: None,  # No-op for tests
             policy_version="v1",
         )
 
@@ -1465,6 +1468,7 @@ class TestApprovalCaching:
             identity_provider=mock_identity_provider,
             backend_id="test-server",
             logger=mock_logger,
+            shutdown_callback=lambda reason: None,  # No-op for tests
             policy_version="v1",
         )
 

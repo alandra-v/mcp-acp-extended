@@ -6,11 +6,17 @@ Commands:
     auth status - Show authentication status
 """
 
+from __future__ import annotations
+
 import webbrowser
+from typing import TYPE_CHECKING
 
 import click
 
 from mcp_acp_extended.config import AppConfig
+
+if TYPE_CHECKING:
+    from mcp_acp_extended.config import OIDCConfig
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth.device_flow import (
     DeviceFlowDeniedError,
@@ -177,11 +183,19 @@ def login(no_browser: bool) -> None:
 
 
 @auth.command()
-def logout() -> None:
+@click.option(
+    "--federated",
+    is_flag=True,
+    help="Also log out of the identity provider (Auth0) in your browser",
+)
+def logout(federated: bool) -> None:
     """Clear stored credentials.
 
     Removes tokens from your OS keychain. You will need to run
     'auth login' again to use the proxy.
+
+    Use --federated to also log out of Auth0 in your browser. This is
+    useful when switching between different users.
     """
     # Load config to get OIDC settings (for storage selection)
     config = _load_config()
@@ -191,17 +205,50 @@ def logout() -> None:
 
     if not storage.exists():
         click.echo("No stored credentials found.")
+        # Still do federated logout if requested (browser session may exist)
+        if federated and oidc_config:
+            _do_federated_logout(oidc_config)
         return
 
     try:
         storage.delete()
-        click.echo(click.style("Credentials cleared.", fg="green"))
-        click.echo()
-        click.echo("Note: Any running proxy will need to be restarted.")
+        click.echo(click.style("Local credentials cleared.", fg="green"))
+
+        # Federated logout if requested
+        if federated and oidc_config:
+            _do_federated_logout(oidc_config)
+        else:
+            click.echo()
+            click.echo("Note: Any running proxy will need to be restarted.")
+            if oidc_config:
+                click.echo("Tip: Use --federated to also log out of Auth0 in your browser.")
+
         click.echo()
         click.echo("Run 'mcp-acp-extended auth login' to authenticate again.")
     except AuthenticationError as e:
         raise click.ClickException(f"Failed to clear credentials: {e}")
+
+
+def _do_federated_logout(oidc_config: OIDCConfig) -> None:
+    """Open browser to log out of the identity provider.
+
+    Args:
+        oidc_config: OIDC configuration with issuer and client_id.
+    """
+    # Build Auth0 logout URL
+    # Format: https://{issuer}/v2/logout?client_id={client_id}
+    issuer = oidc_config.issuer.rstrip("/")
+    logout_url = f"{issuer}/v2/logout?client_id={oidc_config.client_id}"
+
+    click.echo()
+    click.echo("Opening browser to log out of Auth0...")
+
+    try:
+        webbrowser.open(logout_url)
+        click.echo(click.style("Browser opened for Auth0 logout.", fg="green"))
+    except (OSError, webbrowser.Error) as e:
+        click.echo(f"Could not open browser automatically: {e}")
+        click.echo(f"Open this URL manually: {logout_url}")
 
 
 @auth.command()

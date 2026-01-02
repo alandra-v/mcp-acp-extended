@@ -242,3 +242,19 @@ class DeviceHealthError(CriticalSecurityFailure):
 
     exit_code = 14
     failure_type = "device_health_failure"
+
+
+class SessionBindingViolationError(CriticalSecurityFailure):
+    """Session binding violated - identity changed mid-session.
+
+    Raised when:
+    - A request is made with a different user identity than the session was bound to
+    - This indicates possible session hijacking or credential swap
+
+    Per MCP spec: sessions SHOULD be bound to user ID from validated token.
+    The proxy must shutdown to prevent unauthorized access.
+    Exit code 15 indicates session binding violation.
+    """
+
+    exit_code = 15
+    failure_type = "session_binding_violation"

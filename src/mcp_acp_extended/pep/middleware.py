@@ -28,7 +28,11 @@ from mcp.types import ListToolsResult
 
 from mcp_acp_extended.context import ActionCategory, DecisionContext, build_decision_context
 from mcp_acp_extended.pdp import Decision, MatchedRule, PolicyEngine
-from mcp_acp_extended.exceptions import AuthenticationError, PermissionDeniedError
+from mcp_acp_extended.exceptions import (
+    AuthenticationError,
+    PermissionDeniedError,
+    SessionBindingViolationError,
+)
 from mcp_acp_extended.pep.approval_store import ApprovalStore
 from mcp_acp_extended.api.routes.approvals import register_approval_store
 from mcp_acp_extended.pep.hitl import HITLHandler, HITLOutcome
@@ -66,6 +70,7 @@ class PolicyEnforcementMiddleware(Middleware):
         identity_provider: IdentityProvider,
         backend_id: str,
         logger: logging.Logger,
+        shutdown_callback: Callable[[str], None],
         policy_version: str | None = None,
         rate_tracker: SessionRateTracker | None = None,
     ) -> None:
@@ -77,9 +82,11 @@ class PolicyEnforcementMiddleware(Middleware):
             identity_provider: Provider for user identity.
             backend_id: Backend server ID (from config.backend.server_name).
             logger: Logger for decision events.
+            shutdown_callback: Called for critical security failures (audit, session binding).
             policy_version: Policy version for audit logging.
             rate_tracker: Optional rate tracker for detecting runaway loops.
         """
+        self._shutdown_callback = shutdown_callback
         self._engine = PolicyEngine(policy, protected_dirs=protected_dirs)
         self._identity_provider = identity_provider
         self._backend_id = backend_id
@@ -604,6 +611,21 @@ class PolicyEnforcementMiddleware(Middleware):
                 str(e),  # Surface actual message: "Not authenticated. Run 'auth login'..."
                 decision=Decision.DENY,
             ) from e
+        except SessionBindingViolationError as e:
+            # Critical security event - identity changed mid-session
+            # Trigger shutdown immediately - this is a potential session hijacking attempt
+            _system_logger.critical(
+                {
+                    "event": "session_binding_violation",
+                    "error": str(e),
+                    "method": method,
+                    "request_id": request_id,
+                    "session_id": session_id,
+                    "message": "Identity changed mid-session - triggering shutdown",
+                }
+            )
+            self._shutdown_callback(str(e))
+            raise
         except Exception as e:
             # Other errors - generic message (fail-secure, don't leak details)
             _system_logger.error(
@@ -706,6 +728,7 @@ def create_enforcement_middleware(
         identity_provider=identity_provider,
         backend_id=backend_id,
         logger=logger,
+        shutdown_callback=shutdown_callback,
         policy_version=policy_version,
         rate_tracker=rate_tracker,
     )

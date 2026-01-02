@@ -27,6 +27,11 @@ request_id_var: ContextVar[str | None] = ContextVar("request_id", default=None)
 session_id_var: ContextVar[str | None] = ContextVar("session_id", default=None)
 """Session ID for correlating all requests within a single client connection."""
 
+# Bound user ID for session binding validation
+# This is the user_id from the initial session creation - used to detect identity changes
+bound_user_id_var: ContextVar[str | None] = ContextVar("bound_user_id", default=None)
+"""User ID from session creation for identity binding validation."""
+
 # Tool call metadata - set by LoggingProxyClient.call_tool_mcp(), read by audit middleware
 # These provide tool info that's hard to extract from MiddlewareContext
 #
@@ -63,6 +68,30 @@ def get_session_id() -> str | None:
         str | None: Current session ID if set, None otherwise.
     """
     return session_id_var.get()
+
+
+def get_bound_user_id() -> str | None:
+    """Get the bound user ID from context.
+
+    This is the user_id from when the session was created, used to detect
+    if a different user is trying to use the session (identity mismatch).
+
+    Returns:
+        str | None: Bound user ID if set, None otherwise.
+    """
+    return bound_user_id_var.get()
+
+
+def set_bound_user_id(user_id: str) -> None:
+    """Set the bound user ID in context.
+
+    Called when session is created to record which user started the session.
+    Used for session binding validation on subsequent requests.
+
+    Args:
+        user_id: User ID from validated identity (e.g., "auth0|123").
+    """
+    bound_user_id_var.set(user_id)
 
 
 def set_request_id(request_id: str) -> None:

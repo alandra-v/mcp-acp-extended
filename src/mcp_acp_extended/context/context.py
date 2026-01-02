@@ -104,11 +104,29 @@ async def build_decision_context(
 
     Returns:
         DecisionContext with ABAC attributes populated from observable facts.
+
+    Raises:
+        SessionBindingViolationError: If current identity doesn't match bound session.
     """
+    from mcp_acp_extended.exceptions import SessionBindingViolationError
+    from mcp_acp_extended.utils.logging.logging_context import get_bound_user_id
+
     # Build Subject from identity
     # - OIDC: Full claims (issuer, audience, scopes) with TOKEN provenance
     # - Local: Minimal (id only) with DERIVED provenance
     identity = await identity_provider.get_identity()
+
+    # Session binding validation: reject if identity changed mid-session
+    # Per MCP spec: sessions SHOULD be bound to user ID from validated token
+    # This prevents session hijacking if attacker obtains different credentials
+    bound_user_id = get_bound_user_id()
+    if bound_user_id is not None and identity.subject_id != bound_user_id:
+        raise SessionBindingViolationError(
+            f"Session binding violation: identity mismatch. "
+            f"Session bound to '{bound_user_id}', but request from '{identity.subject_id}'. "
+            f"This session cannot be used by a different user."
+        )
+
     subject = build_subject_from_identity(identity)
 
     # Build Action

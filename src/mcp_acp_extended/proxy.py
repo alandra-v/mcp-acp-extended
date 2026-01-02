@@ -39,7 +39,12 @@ from mcp_acp_extended.constants import (
     DEVICE_HEALTH_CHECK_INTERVAL_SECONDS,
     PROTECTED_CONFIG_DIR,
 )
-from mcp_acp_extended.exceptions import AuditFailure, AuthenticationError, DeviceHealthError
+from mcp_acp_extended.exceptions import (
+    AuditFailure,
+    AuthenticationError,
+    DeviceHealthError,
+    SessionBindingViolationError,
+)
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware, PolicyReloader
 from mcp_acp_extended.pips.auth import SessionManager
 from mcp_acp_extended.security import create_identity_provider, SessionRateTracker
@@ -174,23 +179,35 @@ def create_proxy(
 
     # Create shutdown callback with hybrid approach:
     # Try async coordinator if event loop is running, fall back to sync
-    def on_audit_failure(reason: str) -> None:
-        """Handle audit log integrity failure."""
+    def on_critical_failure(reason: str) -> None:
+        """Handle critical security failure requiring shutdown.
+
+        Detects failure type from reason string to set correct exit code and logging.
+        """
+        # Determine failure type from reason
+        if "session binding" in reason.lower():
+            failure_type = SessionBindingViolationError.failure_type
+            exit_code = SessionBindingViolationError.exit_code
+            source = "session_binding"
+        else:
+            # Default to audit failure for backwards compatibility
+            failure_type = AuditFailure.failure_type
+            exit_code = AuditFailure.exit_code
+            source = "audit_handler"
+
         try:
             loop = asyncio.get_running_loop()
             loop.create_task(
                 shutdown_coordinator.initiate_shutdown(
-                    failure_type=AuditFailure.failure_type,
+                    failure_type=failure_type,
                     reason=reason,
-                    exit_code=AuditFailure.exit_code,
-                    context={"source": "audit_handler"},
+                    exit_code=exit_code,
+                    context={"source": source},
                 )
             )
         except RuntimeError:
             # No event loop running - use sync fallback
-            sync_emergency_shutdown(
-                log_dir, AuditFailure.failure_type, reason, exit_code=AuditFailure.exit_code
-            )
+            sync_emergency_shutdown(log_dir, failure_type, reason, exit_code=exit_code)
 
     # Create AuditHealthMonitor for background integrity checking
     # This runs periodic checks even during idle periods (defense in depth)
@@ -201,7 +218,7 @@ def create_proxy(
     )
 
     # Create auth logger for authentication event audit trail
-    auth_logger = create_auth_logger(auth_log_path, on_audit_failure)
+    auth_logger = create_auth_logger(auth_log_path, on_critical_failure)
 
     # Wire auth logger to shutdown coordinator for session_ended logging on fatal errors
     # This ensures session end is logged even when os._exit() bypasses finally blocks
@@ -262,7 +279,9 @@ def create_proxy(
         # Note: app parameter required by FastMCP's _lifespan_manager
         session_identity: SubjectIdentity | None = None
         bound_session_id: str | None = None
-        end_reason: Literal["normal", "timeout", "error", "auth_expired"] = "normal"
+        end_reason: Literal["normal", "timeout", "error", "auth_expired", "session_binding_violation"] = (
+            "normal"
+        )
         sighup_registered: bool = False
 
         try:
@@ -292,6 +311,12 @@ def create_proxy(
                 bound_session_id=bound_session_id,
                 subject=session_identity,
             )
+
+            # Store bound user ID for session binding validation on each request
+            # This allows detecting if a different user tries to use the session
+            from mcp_acp_extended.utils.logging.logging_context import set_bound_user_id
+
+            set_bound_user_id(session_identity.subject_id)
 
             # Store session info on shutdown coordinator for session_ended logging
             # This allows session_ended to be logged even on os._exit() shutdown
@@ -375,6 +400,20 @@ def create_proxy(
             )
             # No popup - this happens during operation, not before start
             # Error is logged to system log and auth.jsonl
+            raise
+        except SessionBindingViolationError as e:
+            end_reason = "session_binding_violation"
+            system_logger.critical(
+                {
+                    "event": "session_binding_violation",
+                    "error": str(e),
+                    "error_type": type(e).__name__,
+                    "bound_user_id": bound_session_id.split(":")[0] if bound_session_id else None,
+                    "message": "Identity changed mid-session - possible session hijacking attempt",
+                }
+            )
+            # This is a critical security event - proxy must shutdown
+            # CriticalSecurityFailure exceptions trigger process exit
             raise
         except Exception as e:
             end_reason = "error"
@@ -476,7 +515,7 @@ def create_proxy(
     audit_middleware = create_audit_logging_middleware(
         log_path=audit_path,
         shutdown_coordinator=shutdown_coordinator,
-        shutdown_callback=on_audit_failure,
+        shutdown_callback=on_critical_failure,
         backend_id=config.backend.server_name,
         identity_provider=identity_provider,
         transport=transport_type,
@@ -518,7 +557,7 @@ def create_proxy(
         identity_provider=identity_provider,
         backend_id=config.backend.server_name,
         log_path=decisions_path,
-        shutdown_callback=on_audit_failure,
+        shutdown_callback=on_critical_failure,
         policy_version=policy_version,
         rate_tracker=rate_tracker,
     )

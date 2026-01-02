@@ -43,7 +43,7 @@ def _show_shutdown_popup(failure_type: str, log_dir: Path) -> None:
     script = f"""
     display alert "MCP ACP" message "Proxy shut down due to {failure_type}.
 
-Restart your MCP client (e.g., Claude Desktop) to reconnect.
+Restart your MCP client (e.g., Claude Desktop).
 
 Details: {crash_file}" as critical buttons {{"OK"}} default button "OK"
     """
@@ -237,10 +237,18 @@ class ShutdownCoordinator:
         # This ensures the session end is logged even when os._exit() bypasses finally blocks
         if self._auth_logger and self._bound_session_id:
             try:
+                # Map failure_type to appropriate end_reason
+                # session_binding_violation is a specific security event with its own end_reason
+                end_reason: str
+                if failure_type == "session_binding_violation":
+                    end_reason = "session_binding_violation"
+                else:
+                    end_reason = "error"
+
                 self._auth_logger.log_session_ended(
                     bound_session_id=self._bound_session_id,
                     subject=self._session_identity,
-                    end_reason="error",
+                    end_reason=end_reason,  # type: ignore[arg-type]
                     error_type=failure_type,
                     error_message=reason,
                 )

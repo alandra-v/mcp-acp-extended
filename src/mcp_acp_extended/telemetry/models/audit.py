@@ -127,7 +127,9 @@ class AuthEvent(BaseModel):
     device_checks: DeviceHealthChecks | None = None
 
     # --- session end details ---
-    end_reason: Literal["normal", "timeout", "error", "auth_expired"] | None = None
+    end_reason: Literal["normal", "timeout", "error", "auth_expired", "session_binding_violation"] | None = (
+        None
+    )
 
     # --- errors / extra details ---
     error_type: str | None = None  # e.g. "TokenExpiredError"

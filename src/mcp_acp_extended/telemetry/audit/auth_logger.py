@@ -44,7 +44,7 @@ class AuthLogger:
     Usage:
         logger = create_auth_logger(
             log_path=get_auth_log_path(config),
-            shutdown_callback=on_audit_failure,
+            shutdown_callback=on_critical_failure,
         )
         logger.log_token_validated(session_id="...", subject=..., oidc=...)
     """
@@ -264,7 +264,9 @@ class AuthLogger:
         bound_session_id: str,
         mcp_session_id: str | None = None,
         subject: SubjectIdentity | None = None,
-        end_reason: Literal["normal", "timeout", "error", "auth_expired"] = "normal",
+        end_reason: Literal[
+            "normal", "timeout", "error", "auth_expired", "session_binding_violation"
+        ] = "normal",
         error_type: str | None = None,
         error_message: str | None = None,
         message: str | None = None,
@@ -284,7 +286,7 @@ class AuthLogger:
             True if logged successfully.
         """
         status: Literal["Success", "Failure"] = (
-            "Failure" if end_reason in ("error", "auth_expired") else "Success"
+            "Failure" if end_reason in ("error", "auth_expired", "session_binding_violation") else "Success"
         )
         event = AuthEvent(
             event_type="session_ended",
