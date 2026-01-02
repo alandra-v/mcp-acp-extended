@@ -20,6 +20,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import logging
 
+    from mcp_acp_extended.telemetry.audit.auth_logger import AuthLogger
+
 
 def _write_crash_breadcrumb(
     log_dir: Path,
@@ -81,10 +83,11 @@ class ShutdownCoordinator:
     1. Set _shutdown_in_progress = True (reject new requests)
     2. Log to system.jsonl (best effort)
     3. Write breadcrumb file (best effort)
-    4. Print to stderr (best effort)
-    5. Schedule delayed exit (100ms for response to flush)
-    6. Return control (caller raises MCP error to client)
-    7. Background task calls os._exit() after delay
+    4. Log session_ended to auth.jsonl (best effort, if auth_logger set)
+    5. Print to stderr (best effort)
+    6. Schedule delayed exit (100ms for response to flush)
+    7. Return control (caller raises MCP error to client)
+    8. Background task calls os._exit() after delay
     """
 
     def __init__(self, log_dir: Path, system_logger: "logging.Logger") -> None:
@@ -99,6 +102,34 @@ class ShutdownCoordinator:
         self._shutdown_in_progress = False
         self._shutdown_reason: str | None = None
         self._shutdown_exit_code: int = 1
+        self._auth_logger: "AuthLogger | None" = None
+        self._bound_session_id: str | None = None
+        self._session_identity: Any = None  # SubjectIdentity
+
+    def set_auth_logger(self, auth_logger: "AuthLogger") -> None:
+        """Set the auth logger for session_ended logging on shutdown.
+
+        This must be called after the auth logger is created in the lifespan,
+        so that session_ended can be logged before os._exit().
+
+        Args:
+            auth_logger: The auth logger instance.
+        """
+        self._auth_logger = auth_logger
+
+    def set_session_info(self, bound_session_id: str, session_identity: Any) -> None:
+        """Set session info for session_ended logging on shutdown.
+
+        This must be called after the session is created in the lifespan.
+        Stored directly on the coordinator (not ContextVars) to work across
+        async tasks and threads.
+
+        Args:
+            bound_session_id: The bound session ID (format: <user_id>:<session_uuid>).
+            session_identity: The user identity (SubjectIdentity).
+        """
+        self._bound_session_id = bound_session_id
+        self._session_identity = session_identity
 
     @property
     def is_shutting_down(self) -> bool:
@@ -125,8 +156,9 @@ class ShutdownCoordinator:
         This method:
         1. Sets shutdown flag to reject new requests
         2. Logs to system.jsonl and breadcrumb file
-        3. Schedules delayed exit (100ms)
-        4. Returns immediately so caller can raise MCP error
+        3. Logs session_ended to auth.jsonl (if auth_logger is set)
+        4. Schedules delayed exit (100ms)
+        5. Returns immediately so caller can raise MCP error
 
         Args:
             failure_type: Category of failure (e.g., "audit_failure")
@@ -164,7 +196,21 @@ class ShutdownCoordinator:
         except Exception:
             pass  # Best effort
 
-        # 3. Print to stderr (best effort - may not be visible to operator)
+        # 3. Log session_ended to auth.jsonl (best effort)
+        # This ensures the session end is logged even when os._exit() bypasses finally blocks
+        if self._auth_logger and self._bound_session_id:
+            try:
+                self._auth_logger.log_session_ended(
+                    bound_session_id=self._bound_session_id,
+                    subject=self._session_identity,
+                    end_reason="error",
+                    error_type=failure_type,
+                    error_message=reason,
+                )
+            except Exception:
+                pass  # Best effort - don't let this block shutdown
+
+        # 4. Print to stderr (best effort - may not be visible to operator)
         try:
             print(
                 f"CRITICAL: Proxy shutting down - {failure_type}\n"
@@ -175,7 +221,7 @@ class ShutdownCoordinator:
         except Exception:
             pass  # Best effort
 
-        # 4. Schedule delayed exit (allows MCP error response to flush)
+        # 5. Schedule delayed exit (allows MCP error response to flush)
         asyncio.create_task(self._delayed_exit())
 
     async def _delayed_exit(self) -> None:

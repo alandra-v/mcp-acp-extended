@@ -203,6 +203,10 @@ def create_proxy(
     # Create auth logger for authentication event audit trail
     auth_logger = create_auth_logger(auth_log_path, on_audit_failure)
 
+    # Wire auth logger to shutdown coordinator for session_ended logging on fatal errors
+    # This ensures session end is logged even when os._exit() bypasses finally blocks
+    shutdown_coordinator.set_auth_logger(auth_logger)
+
     # Create DeviceHealthMonitor for periodic device posture verification
     # Device state can change during operation (e.g., user disables SIP)
     device_monitor = DeviceHealthMonitor(
@@ -288,6 +292,11 @@ def create_proxy(
                 bound_session_id=bound_session_id,
                 subject=session_identity,
             )
+
+            # Store session info on shutdown coordinator for session_ended logging
+            # This allows session_ended to be logged even on os._exit() shutdown
+            # (stored directly, not ContextVars, to work across async tasks/threads)
+            shutdown_coordinator.set_session_info(bound_session_id, session_identity)
 
             # Start management API server (shares memory for sessions/approvals)
             # Lazy import to avoid circular import (proxy -> api -> cli -> proxy)
