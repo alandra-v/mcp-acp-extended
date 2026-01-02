@@ -127,7 +127,7 @@ class OIDCIdentityProvider:
             token = self._load_token()
 
             # Validate and potentially refresh
-            validated = self._validate_token(token)
+            validated = await self._validate_token(token)
 
             # Build identity from validated claims
             identity = self._build_identity(validated)
@@ -199,7 +199,7 @@ class OIDCIdentityProvider:
             ),
         )
 
-    def _validate_token(self, token: StoredToken) -> ValidatedToken:
+    async def _validate_token(self, token: StoredToken) -> ValidatedToken:
         """Validate token, refreshing if expired.
 
         Args:
@@ -213,7 +213,7 @@ class OIDCIdentityProvider:
         """
         # Check if token is expired based on stored expiry
         if token.is_expired:
-            return self._refresh_and_validate(token)
+            return await self._refresh_and_validate(token)
 
         # Validate JWT (signature, issuer, audience, exp)
         try:
@@ -239,7 +239,7 @@ class OIDCIdentityProvider:
 
             is_expiry = isinstance(e.__cause__, jwt.ExpiredSignatureError)
             if is_expiry:
-                return self._refresh_and_validate(token)
+                return await self._refresh_and_validate(token)
 
             # Log validation failure to auth.jsonl and system (warning)
             if self._auth_logger:
@@ -259,8 +259,11 @@ class OIDCIdentityProvider:
             # Re-raise
             raise
 
-    def _refresh_and_validate(self, token: StoredToken) -> ValidatedToken:
+    async def _refresh_and_validate(self, token: StoredToken) -> ValidatedToken:
         """Refresh token and validate the new one.
+
+        Runs the HTTP token refresh in a thread pool to avoid blocking
+        the event loop (refresh can take up to 30 seconds on timeout).
 
         Args:
             token: Expired token with refresh_token.
@@ -292,8 +295,9 @@ class OIDCIdentityProvider:
             raise AuthenticationError(error_msg)
 
         try:
-            # Refresh tokens
-            refreshed = refresh_tokens(self._config, token.refresh_token)
+            # Refresh tokens in thread pool to avoid blocking event loop
+            # (HTTP call can take up to 30 seconds on network timeout)
+            refreshed = await asyncio.to_thread(refresh_tokens, self._config, token.refresh_token)
 
             # Save refreshed tokens to storage
             self._storage.save(refreshed)

@@ -1255,3 +1255,129 @@ class TestCreateIdentityProvider:
         # Act & Assert
         with pytest.raises(NotImplementedError, match="HTTP transport"):
             create_identity_provider(config=config, transport="http")
+
+
+# ============================================================================
+# Tests: Token Refresh Async Behavior
+# ============================================================================
+
+
+class TestTokenRefreshAsyncBehavior:
+    """Tests to verify token refresh doesn't block the event loop.
+
+    These tests ensure that when a token needs refreshing (HTTP call to IdP),
+    other async tasks can continue running concurrently.
+    """
+
+    @pytest.fixture
+    def slow_refresh_mock(self):
+        """Create a mock that simulates a slow (1 second) token refresh."""
+        import time
+
+        def slow_refresh(*args, **kwargs):
+            time.sleep(1.0)  # Simulate network latency
+            now = datetime.now(timezone.utc)
+            return StoredToken(
+                access_token="refreshed-access-token",
+                refresh_token="refreshed-refresh-token",
+                expires_at=now + timedelta(hours=1),
+                issued_at=now,
+            )
+
+        return slow_refresh
+
+    @pytest.fixture
+    def provider_with_expired_token(self, oidc_config: OIDCConfig, expired_token: StoredToken):
+        """Create an OIDCIdentityProvider with an expired token."""
+        from mcp_acp_extended.pips.auth import OIDCIdentityProvider
+
+        mock_storage = MagicMock()
+        mock_storage.load.return_value = expired_token
+
+        # Mock validator to accept any token
+        mock_validator = MagicMock()
+        mock_validator.validate.return_value = ValidatedToken(
+            subject_id="auth0|user",
+            issuer=oidc_config.issuer,
+            audience=[oidc_config.audience],
+            scopes=frozenset(["openid"]),
+            expires_at=datetime.now(timezone.utc) + timedelta(hours=1),
+            issued_at=datetime.now(timezone.utc),
+            auth_time=None,
+            claims={},
+        )
+
+        return OIDCIdentityProvider(
+            config=oidc_config,
+            token_storage=mock_storage,
+            jwt_validator=mock_validator,
+        )
+
+    async def test_token_refresh_does_not_block_event_loop(
+        self,
+        provider_with_expired_token,
+        slow_refresh_mock,
+    ):
+        """Verify that token refresh doesn't block other async tasks.
+
+        This test runs a slow token refresh (1 second) concurrently with
+        a fast async task. If the refresh blocks the event loop, the fast
+        task will be delayed and the total time will be > 1.5 seconds.
+
+        Expected behavior (non-blocking):
+        - Total time ≈ 1.0 seconds (both run concurrently)
+
+        Blocking behavior (bug):
+        - Total time ≈ 1.1+ seconds (fast task waits for refresh)
+        """
+        import asyncio
+        import time
+
+        provider = provider_with_expired_token
+        fast_task_timestamps: list[float] = []
+
+        async def fast_task():
+            """A fast task that should run DURING the slow refresh."""
+            for i in range(5):
+                fast_task_timestamps.append(time.monotonic())
+                await asyncio.sleep(0.1)
+            return "fast_task_completed"
+
+        # Patch refresh_tokens to be slow
+        with patch(
+            "mcp_acp_extended.pips.auth.oidc_provider.refresh_tokens",
+            slow_refresh_mock,
+        ):
+            start = time.monotonic()
+
+            # Run both tasks concurrently
+            results = await asyncio.gather(
+                provider.get_identity(),
+                fast_task(),
+                return_exceptions=True,
+            )
+
+            total_time = time.monotonic() - start
+
+        # Verify fast task completed
+        assert results[1] == "fast_task_completed", f"Fast task failed: {results[1]}"
+
+        # Verify timing
+        # If non-blocking: total ≈ 1.0s (fast task runs during refresh)
+        # If blocking: total ≈ 1.5s (fast task waits for 1s refresh, then runs 0.5s)
+        #
+        # We use 1.3s as threshold to account for some overhead but catch blocking
+        assert total_time < 1.3, (
+            f"Event loop appears blocked! Total time: {total_time:.2f}s. "
+            f"Expected < 1.3s if non-blocking. "
+            f"Fast task timestamps: {fast_task_timestamps}"
+        )
+
+        # Additional check: fast task should have started before refresh completed
+        # If blocking, first timestamp would be after the 1s refresh
+        if fast_task_timestamps:
+            first_task_delay = fast_task_timestamps[0] - start
+            assert first_task_delay < 0.5, (
+                f"Fast task was delayed by {first_task_delay:.2f}s, "
+                f"indicating the event loop was blocked during refresh"
+            )
