@@ -298,14 +298,14 @@ Authentication failures result in proxy shutdown:
 
 Authentication events are logged to `audit/auth.jsonl`:
 
-- `token_validated`: Successful JWT validation
 - `token_invalid`: Validation failure
 - `token_refreshed`: Successful token refresh
 - `token_refresh_failed`: Refresh failure
 - `session_started`: Proxy startup with valid auth
 - `session_ended`: Proxy shutdown (end_reason: `normal`, `timeout`, `error`, `auth_expired`, `session_binding_violation`)
-- `device_health_passed`: Device checks passed
 - `device_health_failed`: Device checks failed
+
+Note: Success events for per-request token validation and periodic device health checks are not logged to reduce noise.
 
 ---
 
