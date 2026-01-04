@@ -286,12 +286,16 @@ class PolicyEnforcementMiddleware(Middleware):
         Collects all matching rules and determines which one was decisive
         based on the combining algorithm: HITL > DENY > ALLOW.
 
+        Within each effect level, the most specific rule wins (by specificity
+        score). If two rules have the same specificity, the first one in the
+        policy file wins (preserves predictability).
+
         Args:
             decision_context: Context used for evaluation.
 
         Returns:
             Tuple of (matched_rules, final_rule). Matched rules include
-            id, effect, and description for decision trace logging.
+            id, effect, description, and specificity for decision trace logging.
         """
         # Check for built-in protected path (checked first in engine)
         path = decision_context.resource.resource.path if decision_context.resource.resource else None
@@ -302,18 +306,31 @@ class PolicyEnforcementMiddleware(Middleware):
         if decision_context.action.category == ActionCategory.DISCOVERY:
             return [], "discovery_bypass"
 
-        # Use public API to get matching rules (includes id, effect, description)
+        # Use public API to get matching rules (includes id, effect, description, specificity)
         matching = self._engine.get_matching_rules(decision_context)
 
         if not matching:
             return [], "default"
 
         # Determine final rule using combining algorithm: HITL > DENY > ALLOW
-        first_hitl = next((m.id for m in matching if m.effect == "hitl"), None)
-        first_deny = next((m.id for m in matching if m.effect == "deny"), None)
-        first_allow = next((m.id for m in matching if m.effect == "allow"), None)
+        # Within each effect level, select the most specific rule.
+        # max() with key selects highest specificity; for ties, first in list wins
+        # because max() returns the first element among equals.
+        hitl_rules = [m for m in matching if m.effect == "hitl"]
+        deny_rules = [m for m in matching if m.effect == "deny"]
+        allow_rules = [m for m in matching if m.effect == "allow"]
 
-        final_rule = first_hitl or first_deny or first_allow or "default"
+        if hitl_rules:
+            # HITL has highest priority - pick most specific HITL rule
+            final_rule = max(hitl_rules, key=lambda m: m.specificity).id
+        elif deny_rules:
+            # DENY has second priority - pick most specific DENY rule
+            final_rule = max(deny_rules, key=lambda m: m.specificity).id
+        elif allow_rules:
+            # All must be ALLOW - pick most specific ALLOW rule
+            final_rule = max(allow_rules, key=lambda m: m.specificity).id
+        else:
+            final_rule = "default"
 
         return matching, final_rule
 

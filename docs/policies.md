@@ -55,9 +55,37 @@ The proxy builds a `DecisionContext` with four attribute categories:
 Rules are evaluated against the context:
 1. Collect all rules where conditions match the context
 2. Apply combining algorithm: **HITL > DENY > ALLOW** (most restrictive wins)
-3. If no rules match → `default_action` (DENY)
+3. Within each effect level, select the **most specific rule** (see below)
+4. If no rules match → `default_action` (DENY)
 
 **Fail-closed**: Any error in context building or policy evaluation results in DENY.
+
+### Rule Specificity
+
+When multiple rules with the same effect match, the **most specific rule** is selected as the `final_rule` for logging. Specificity is calculated as:
+
+```
+Score = (condition_count × 100) + exactness_bonus + path_depth_bonus
+```
+
+**Scoring components:**
+
+| Component | Points | Description |
+|-----------|--------|-------------|
+| Condition count | +100 each | Each non-null condition adds 100 points |
+| Exactness bonus | +10 each | Patterns without wildcards (*, ?, **) get a bonus |
+| Path depth bonus | +1 each | Path segments before the first wildcard |
+
+**Example scores:**
+
+| Rule conditions | Score | Breakdown |
+|-----------------|-------|-----------|
+| `tool_name: "read*"` | 100 | 1 condition |
+| `tool_name: "read_file"` | 110 | 1 condition + exact match |
+| `tool_name: "read*", extension: ".py"` | 200 | 2 conditions |
+| `tool_name: "read*", path_pattern: "/a/b/c/**"` | 203 | 2 conditions + depth 3 |
+
+**Tie-breaker:** If two rules have the same specificity score, the rule that appears first in the policy file wins (preserves predictability).
 
 ---
 

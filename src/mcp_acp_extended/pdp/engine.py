@@ -7,13 +7,40 @@ Evaluation flow:
 1. Discovery methods (tools/list, etc.) → ALLOW (bypass policy)
 2. Collect all matching rules
 3. Apply combining algorithm: HITL > DENY > ALLOW
-4. No match → return default_action (DENY)
+4. Within each effect level, select the most specific rule
+5. No match → return default_action (DENY)
 
 Design principles:
 1. All conditions in a rule use AND logic
 2. Combining algorithm: HITL overrides DENY overrides ALLOW
-3. Discovery methods bypass policy entirely
-4. Default to DENY if no rule matches (zero trust)
+3. Within the same effect level, the most specific rule wins
+4. Discovery methods bypass policy entirely
+5. Default to DENY if no rule matches (zero trust)
+
+Specificity scoring:
+Rules are ranked by specificity to determine the "final_rule" when multiple
+rules with the same effect match. Specificity is calculated as:
+
+  Score = (condition_count × 100) + exactness_bonus + path_depth_bonus
+
+Where:
+- condition_count: Number of non-null conditions (+100 each)
+- exactness_bonus: +10 for each pattern without wildcards (*, ?, **)
+- path_depth_bonus: +1 per path segment before wildcard in path patterns
+
+Example scores:
+- tool_name: "read*"                                    → 100 (1 condition)
+- tool_name: "read_file"                                → 110 (1 condition + exact)
+- tool_name: "read*", extension: ".py"                  → 200 (2 conditions)
+- tool_name: "read*", path_pattern: "/a/b/c/**"         → 203 (2 conditions + depth 3)
+
+Tie-breaker: If two rules have the same specificity score, the rule
+that appears first in the policy file wins (preserves predictability).
+
+Known limitations:
+- Bracket glob patterns `[...]` are not detected as wildcards
+- Escaped wildcards are not supported
+- List conditions count as 1 condition regardless of list length
 """
 
 from __future__ import annotations
@@ -39,6 +66,60 @@ from mcp_acp_extended.pdp.matcher import (
 )
 from mcp_acp_extended.pdp.policy import PolicyConfig, PolicyRule
 
+# Wildcard characters used in glob patterns
+_WILDCARD_CHARS = {"*", "?"}
+
+
+def _has_wildcards(pattern: str | list[str] | None) -> bool:
+    """Check if a pattern contains wildcard characters (*, ?).
+
+    For lists, returns True if ANY pattern has wildcards.
+
+    Args:
+        pattern: Single pattern string, list of patterns, or None.
+
+    Returns:
+        True if any wildcard character is present, False otherwise.
+    """
+    if pattern is None:
+        return False
+    if isinstance(pattern, str):
+        return any(c in pattern for c in _WILDCARD_CHARS)
+    # List of patterns - check if any has wildcards
+    return any(any(c in p for c in _WILDCARD_CHARS) for p in pattern)
+
+
+def _count_path_depth(pattern: str | list[str] | None) -> int:
+    """Count path segments before the first wildcard.
+
+    Deeper paths are more specific (e.g., /a/b/c/** scores higher than /a/**).
+    For lists, returns the maximum depth across all patterns.
+
+    Args:
+        pattern: Path pattern string, list of patterns, or None.
+
+    Returns:
+        Number of path segments before the first wildcard.
+    """
+    if pattern is None:
+        return 0
+
+    def _depth_for_single(p: str) -> int:
+        # Split by / and count segments before first wildcard
+        segments = p.split("/")
+        depth = 0
+        for seg in segments:
+            if any(c in seg for c in _WILDCARD_CHARS):
+                break
+            if seg:  # Skip empty segments (leading /)
+                depth += 1
+        return depth
+
+    if isinstance(pattern, str):
+        return _depth_for_single(pattern)
+    # List of patterns - return max depth
+    return max(_depth_for_single(p) for p in pattern) if pattern else 0
+
 
 @dataclass
 class MatchedRule:
@@ -48,11 +129,14 @@ class MatchedRule:
         id: Rule identifier (from rule.id or auto-generated).
         description: Optional human-readable description.
         effect: The rule's effect ("allow", "deny", "hitl").
+        specificity: Specificity score for tie-breaking within same effect level.
+            Higher scores indicate more specific rules.
     """
 
     id: str
     description: str | None
     effect: Literal["allow", "deny", "hitl"]
+    specificity: int = 0
 
 
 class PolicyEngine:
@@ -191,11 +275,16 @@ class PolicyEngine:
         This is the public API for retrieving matched rules. Use this instead
         of accessing _rule_matches directly.
 
+        Each matched rule includes a specificity score for tie-breaking when
+        multiple rules with the same effect match. Higher scores indicate
+        more specific rules.
+
         Args:
             context: DecisionContext to match against.
 
         Returns:
-            List of MatchedRule with id, description, and effect for each matching rule.
+            List of MatchedRule with id, description, effect, and specificity
+            for each matching rule.
         """
         matched: list[MatchedRule] = []
 
@@ -207,6 +296,7 @@ class PolicyEngine:
                         id=rule_id,
                         description=rule.description,
                         effect=rule.effect,
+                        specificity=self._calculate_specificity(rule),
                     )
                 )
 
@@ -293,6 +383,112 @@ class PolicyEngine:
 
         # All specified conditions matched
         return True
+
+    def _calculate_specificity(self, rule: PolicyRule) -> int:
+        """Calculate specificity score for a rule.
+
+        Higher scores indicate more specific rules. Used to select the
+        "final_rule" when multiple rules with the same effect match.
+
+        Scoring formula:
+            Score = (condition_count × 100) + exactness_bonus + path_depth_bonus
+
+        Where:
+        - condition_count: Number of non-null conditions (+100 each)
+        - exactness_bonus: +10 for patterns without wildcards (*, ?, **)
+        - path_depth_bonus: +1 per path segment before wildcard
+
+        Args:
+            rule: PolicyRule to calculate specificity for.
+
+        Returns:
+            Integer specificity score (higher = more specific).
+        """
+        score = 0
+        conditions = rule.conditions
+
+        # Count conditions and add exactness bonuses
+        # Each non-null condition adds 100 points
+        # Exact patterns (no wildcards) add 10 bonus points
+
+        if conditions.tool_name is not None:
+            score += 100
+            if not _has_wildcards(conditions.tool_name):
+                score += 10
+
+        if conditions.path_pattern is not None:
+            score += 100
+            if not _has_wildcards(conditions.path_pattern):
+                score += 10
+            # Path depth bonus: deeper paths are more specific
+            score += _count_path_depth(conditions.path_pattern)
+
+        if conditions.source_path is not None:
+            score += 100
+            if not _has_wildcards(conditions.source_path):
+                score += 10
+            score += _count_path_depth(conditions.source_path)
+
+        if conditions.dest_path is not None:
+            score += 100
+            if not _has_wildcards(conditions.dest_path):
+                score += 10
+            score += _count_path_depth(conditions.dest_path)
+
+        if conditions.operations is not None:
+            score += 100
+
+        if conditions.extension is not None:
+            score += 100
+            # Extensions are typically exact (no wildcards)
+
+        if conditions.scheme is not None:
+            score += 100
+
+        if conditions.backend_id is not None:
+            score += 100
+            if not _has_wildcards(conditions.backend_id):
+                score += 10
+
+        if conditions.resource_type is not None:
+            score += 100
+            # resource_type is always exact (enum value)
+            score += 10
+
+        if conditions.mcp_method is not None:
+            score += 100
+            if not _has_wildcards(conditions.mcp_method):
+                score += 10
+
+        if conditions.subject_id is not None:
+            score += 100
+            # subject_id is always exact (no wildcards supported)
+            score += 10
+
+        if conditions.side_effects is not None:
+            score += 100
+
+        return score
+
+    def _get_most_specific_rule(self, rules: list[PolicyRule]) -> PolicyRule:
+        """Get the most specific rule from a list of rules.
+
+        Uses specificity scoring to determine which rule is most specific.
+        If two rules have the same score, the first one in the list wins
+        (preserves policy file order for predictability).
+
+        Args:
+            rules: Non-empty list of PolicyRule objects.
+
+        Returns:
+            The most specific rule from the list.
+        """
+        # Sort by specificity (descending), preserving original order for ties
+        # enumerate() captures original index for stable sorting
+        scored = [(self._calculate_specificity(rule), idx, rule) for idx, rule in enumerate(rules)]
+        # Sort by score descending, then by original index ascending (for ties)
+        scored.sort(key=lambda x: (-x[0], x[1]))
+        return scored[0][2]
 
     def _effect_to_decision(self, effect: str) -> Decision:
         """Convert rule effect string to Decision enum.
