@@ -1,10 +1,12 @@
 ### Authentication events
 
-The authentication log schema records Zero Trust authentication events for the proxy. Each entry captures token validation outcomes, session lifecycle events, and device health check results. Based on OCSF Authentication (3002) and Authorize Session (3003) classes, adapted for MCP. By correlating each event with the session and identity, the auth log enables security auditing, compliance verification, and forensic analysis.
+The authentication log schema records Zero Trust authentication events for the proxy. Each entry captures token validation failures, session lifecycle events, and device health check failures. Based on OCSF Authentication (3002) and Authorize Session (3003) classes, adapted for MCP. By correlating each event with the session and identity, the auth log enables security auditing, compliance verification, and forensic analysis.
+
+Note: Success events for per-request token validation and periodic device health checks are not logged to reduce noise. Only failures and session lifecycle events are logged for security auditing.
 
 ## Core
 time — ISO 8601 timestamp (added by formatter during serialization)
-event_type — "token_validated" | "token_invalid" | "token_refreshed" | "token_refresh_failed" | "session_started" | "session_ended" | "device_health_passed" | "device_health_failed"
+event_type — "token_invalid" | "token_refreshed" | "token_refresh_failed" | "session_started" | "session_ended" | "device_health_failed"
 status — "Success" | "Failure"
 
 ## Session IDs (two different concepts)
@@ -31,7 +33,7 @@ oidc.token_exp — optional ISO 8601 expiration time
 oidc.token_iat — optional ISO 8601 issued-at time
 oidc.token_expired — optional boolean, whether token was expired at validation
 
-## Device health (for device_health_passed/failed events)
+## Device health (for device_health_failed events)
 device_checks — optional DeviceHealthChecks object
 device_checks.disk_encryption — "pass" | "fail" | "unknown" (FileVault on macOS)
 device_checks.device_integrity — "pass" | "fail" | "unknown" (SIP enabled on macOS)

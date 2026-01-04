@@ -120,7 +120,6 @@ class DeviceHealthMonitor:
                 if report.is_healthy:
                     # Reset failure counter on success
                     self._consecutive_failures = 0
-                    self._log_check_passed(report)
                 else:
                     self._consecutive_failures += 1
                     self._log_check_failed(report)
@@ -142,19 +141,6 @@ class DeviceHealthMonitor:
             )
         finally:
             self._running = False
-
-    def _log_check_passed(self, report: DeviceHealthReport) -> None:
-        """Log successful health check to auth.jsonl.
-
-        TODO: Remove after testing complete - success events are noise.
-        """
-        if self.auth_logger:
-            self.auth_logger.log_device_health_passed(
-                device_checks=DeviceHealthChecks(
-                    disk_encryption=report.disk_encryption,
-                    device_integrity=report.device_integrity,
-                ),
-            )
 
     def _log_check_failed(self, report: DeviceHealthReport) -> None:
         """Log failed health check."""

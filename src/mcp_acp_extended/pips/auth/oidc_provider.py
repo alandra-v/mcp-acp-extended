@@ -218,18 +218,6 @@ class OIDCIdentityProvider:
         # Validate JWT (signature, issuer, audience, exp)
         try:
             validated = self._validator.validate(token.access_token)
-
-            # Log successful validation to auth.jsonl
-            # TODO: Remove after testing complete - success events are noise
-            if self._auth_logger:
-                identity = self._build_identity(validated)
-                self._auth_logger.log_token_validated(
-                    mcp_session_id=get_session_id(),
-                    request_id=get_request_id(),
-                    subject=identity,
-                    oidc=self._build_oidc_info(validated),
-                )
-
             return validated
 
         except AuthenticationError as e:

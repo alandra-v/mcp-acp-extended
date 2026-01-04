@@ -1,10 +1,14 @@
 """Authentication audit logger with fail-closed behavior.
 
 Logs authentication events to audit/auth.jsonl:
-- Token validation (success/failure)
-- Token refresh attempts
+- Token validation failures
+- Token refresh attempts (success/failure)
 - Session lifecycle (start/end)
-- Device health checks (pass/fail)
+- Device health check failures
+
+Note: Success events for token_validated and device_health_passed are not
+logged as they create noise (per-request validation fires constantly).
+Only failures are logged for security auditing.
 
 Uses fail-closed handler - if auth logging fails, proxy shuts down.
 This is a Zero Trust requirement: no operation without audit trail.
@@ -46,7 +50,7 @@ class AuthLogger:
             log_path=get_auth_log_path(config),
             shutdown_callback=on_critical_failure,
         )
-        logger.log_token_validated(session_id="...", subject=..., oidc=...)
+        logger.log_session_started(bound_session_id="...", subject=..., oidc=...)
     """
 
     def __init__(self, logger: logging.Logger) -> None:
@@ -76,44 +80,6 @@ class AuthLogger:
             source_file="auth.jsonl",
         )
         return success
-
-    def log_token_validated(
-        self,
-        *,
-        bound_session_id: str | None = None,
-        mcp_session_id: str | None = None,
-        request_id: str | None = None,
-        subject: SubjectIdentity | None = None,
-        oidc: OIDCInfo | None = None,
-        method: str | None = None,
-        message: str | None = None,
-    ) -> bool:
-        """Log successful token validation.
-
-        Args:
-            bound_session_id: Security-bound session ID (<user_id>:<session_uuid>).
-            mcp_session_id: MCP session ID (for correlation with other logs).
-            request_id: JSON-RPC request ID (for per-request validation).
-            subject: Validated user identity.
-            oidc: OIDC token details.
-            method: MCP method being validated (for per-request).
-            message: Optional human-readable message.
-
-        Returns:
-            True if logged successfully.
-        """
-        event = AuthEvent(
-            event_type="token_validated",
-            status="Success",
-            bound_session_id=bound_session_id,
-            mcp_session_id=mcp_session_id,
-            request_id=request_id,
-            subject=subject,
-            oidc=oidc,
-            method=method,
-            message=message,
-        )
-        return self._log_event(event)
 
     def log_token_invalid(
         self,
@@ -297,38 +263,6 @@ class AuthLogger:
             end_reason=end_reason,
             error_type=error_type,
             error_message=error_message,
-            message=message,
-        )
-        return self._log_event(event)
-
-    def log_device_health_passed(
-        self,
-        *,
-        bound_session_id: str | None = None,
-        mcp_session_id: str | None = None,
-        subject: SubjectIdentity | None = None,
-        device_checks: DeviceHealthChecks,
-        message: str | None = None,
-    ) -> bool:
-        """Log successful device health check.
-
-        Args:
-            bound_session_id: Security-bound session ID (may not exist during startup).
-            mcp_session_id: MCP session ID (for correlation with other logs).
-            subject: User identity.
-            device_checks: Individual check results.
-            message: Optional human-readable message.
-
-        Returns:
-            True if logged successfully.
-        """
-        event = AuthEvent(
-            event_type="device_health_passed",
-            status="Success",
-            bound_session_id=bound_session_id,
-            mcp_session_id=mcp_session_id,
-            subject=subject,
-            device_checks=device_checks,
             message=message,
         )
         return self._log_event(event)

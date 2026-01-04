@@ -54,10 +54,13 @@ class AuthEvent(BaseModel):
     One authentication log entry (audit/auth.jsonl).
 
     Records authentication events for Zero Trust compliance:
-    - Token validation (success/failure)
-    - Token refresh attempts
+    - Token validation failures
+    - Token refresh attempts (success/failure)
     - Session lifecycle (start/end)
-    - Device health checks (pass/fail)
+    - Device health check failures
+
+    Note: Success events for per-request token validation and periodic device
+    health checks are not logged to reduce noise.
 
     Uses fail-closed handler - if auth logging fails, proxy shuts down.
     """
@@ -75,13 +78,11 @@ class AuthEvent(BaseModel):
     mcp_session_id: Optional[str] = None  # For cross-log correlation
 
     event_type: Literal[
-        "token_validated",
         "token_invalid",
         "token_refreshed",
         "token_refresh_failed",
         "session_started",
         "session_ended",
-        "device_health_passed",
         "device_health_failed",
     ]
     status: Literal["Success", "Failure"]
@@ -95,7 +96,7 @@ class AuthEvent(BaseModel):
     # --- OIDC/OAuth details ---
     oidc: Optional[OIDCInfo] = None
 
-    # --- device health (for device_health events) ---
+    # --- device health (for device_health_failed events) ---
     device_checks: Optional[DeviceHealthChecks] = None
 
     # --- context ---

@@ -178,7 +178,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "One authentication log entry (audit/auth.jsonl).\n\nRecords authentication events for Zero Trust compliance:\n- Token validation (success/failure)\n- Token refresh attempts\n- Session lifecycle (start/end)\n- Device health checks (pass/fail)\n\nUses fail-closed handler - if auth logging fails, proxy shuts down.",
+  "description": "One authentication log entry (audit/auth.jsonl).\n\nRecords authentication events for Zero Trust compliance:\n- Token validation failures\n- Token refresh attempts (success/failure)\n- Session lifecycle (start/end)\n- Device health check failures\n\nNote: Success events for per-request token validation and periodic device health checks are not logged to reduce noise.\n\nUses fail-closed handler - if auth logging fails, proxy shuts down.",
   "properties": {
     "time": {
       "anyOf": [
@@ -219,13 +219,11 @@
     },
     "event_type": {
       "enum": [
-        "token_validated",
         "token_invalid",
         "token_refreshed",
         "token_refresh_failed",
         "session_started",
         "session_ended",
-        "device_health_passed",
         "device_health_failed"
       ],
       "title": "Event Type",

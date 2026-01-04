@@ -101,13 +101,11 @@ class AuthEvent(BaseModel):
     request_id: str | None = None
 
     event_type: Literal[
-        "token_validated",
         "token_invalid",
         "token_refreshed",
         "token_refresh_failed",
         "session_started",
         "session_ended",
-        "device_health_passed",
         "device_health_failed",
     ]
     status: Literal["Success", "Failure"]
@@ -123,7 +121,7 @@ class AuthEvent(BaseModel):
     # --- OIDC/OAuth details ---
     oidc: OIDCInfo | None = None
 
-    # --- device health (for device_health_passed/failed events) ---
+    # --- device health (for device_health_failed events) ---
     device_checks: DeviceHealthChecks | None = None
 
     # --- session end details ---
