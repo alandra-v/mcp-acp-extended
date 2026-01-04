@@ -12,6 +12,8 @@ from fastmcp.client.transports import StdioTransport, StreamableHttpTransport
 
 from mcp_acp_extended.config import BackendConfig, HttpTransportConfig, MTLSConfig, StdioTransportConfig
 from mcp_acp_extended.utils.transport import (
+    SSLCertificateError,
+    SSLHandshakeError,
     _check_certificate_expiry,
     _validate_certificates,
     create_backend_transport,
@@ -103,15 +105,16 @@ class TestExplicitTransport:
             create_backend_transport(config)
 
     def test_explicit_http_raises_when_unreachable(self, http_config: HttpTransportConfig):
+        """Explicit HTTP selection fails after retries when unreachable."""
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
 
-        # Act & Assert
+        # Act & Assert - raises TimeoutError after exhausting retries
         with patch(
             "mcp_acp_extended.utils.transport.check_http_health",
             side_effect=ConnectionError("refused"),
         ):
-            with pytest.raises(ConnectionError):
+            with pytest.raises(TimeoutError, match="not reachable after"):
                 create_backend_transport(config)
 
     def test_explicit_http_raises_on_timeout(self, http_config: HttpTransportConfig):
@@ -126,6 +129,47 @@ class TestExplicitTransport:
         ):
             with pytest.raises(TimeoutError):
                 create_backend_transport(config)
+
+    def test_explicit_https_without_mtls_suggests_mtls(self, https_config: HttpTransportConfig):
+        """HTTPS without mTLS config suggests mTLS when connection fails."""
+        # Arrange
+        config = BackendConfig(server_name="test", transport="streamablehttp", http=https_config)
+
+        # Act & Assert - should raise ConnectionError with mTLS hint
+        with patch(
+            "mcp_acp_extended.utils.transport.check_http_health",
+            side_effect=ConnectionError("connection reset"),
+        ):
+            with pytest.raises(ConnectionError, match="mTLS"):
+                create_backend_transport(config)
+
+    def test_ssl_handshake_error_not_retried(self, https_config: HttpTransportConfig):
+        """SSL handshake errors fail immediately without retry."""
+        # Arrange
+        config = BackendConfig(server_name="test", transport="streamablehttp", http=https_config)
+        mock = MagicMock(side_effect=SSLHandshakeError("handshake failed"))
+
+        # Act & Assert - should raise immediately, mock called only once
+        with patch("mcp_acp_extended.utils.transport.check_http_health", mock):
+            with pytest.raises(SSLHandshakeError, match="handshake failed"):
+                create_backend_transport(config)
+
+        # Verify no retries (only 1 call)
+        assert mock.call_count == 1
+
+    def test_ssl_certificate_error_not_retried(self, https_config: HttpTransportConfig):
+        """SSL certificate errors fail immediately without retry."""
+        # Arrange
+        config = BackendConfig(server_name="test", transport="streamablehttp", http=https_config)
+        mock = MagicMock(side_effect=SSLCertificateError("cert validation failed"))
+
+        # Act & Assert - should raise immediately, mock called only once
+        with patch("mcp_acp_extended.utils.transport.check_http_health", mock):
+            with pytest.raises(SSLCertificateError, match="cert validation failed"):
+                create_backend_transport(config)
+
+        # Verify no retries (only 1 call)
+        assert mock.call_count == 1
 
 
 # ============================================================================
@@ -154,12 +198,13 @@ class TestAutoDetect:
         assert transport_type == "streamablehttp"
 
     def test_http_only_raises_when_unreachable(self, backend_http_only: BackendConfig):
-        # Act & Assert
+        """HTTP-only config fails after retries when unreachable."""
+        # Act & Assert - raises TimeoutError after exhausting retries
         with patch(
             "mcp_acp_extended.utils.transport.check_http_health",
             side_effect=ConnectionError("refused"),
         ):
-            with pytest.raises(ConnectionError):
+            with pytest.raises(TimeoutError, match="not reachable after"):
                 create_backend_transport(backend_http_only)
 
     def test_http_only_raises_on_timeout(self, backend_http_only: BackendConfig):

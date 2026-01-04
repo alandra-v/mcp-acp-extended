@@ -104,6 +104,9 @@ def check_http_health_with_retry(
     is reachable or max_attempts is exceeded. Used at startup to wait for
     backends that may start after the proxy.
 
+    SSL-specific errors (SSLCertificateError, SSLHandshakeError) are NOT retried
+    as they indicate configuration issues that won't resolve on their own.
+
     Args:
         url: The backend URL to test.
         timeout: Per-attempt connection timeout (default: HEALTH_CHECK_TIMEOUT_SECONDS).
@@ -112,12 +115,15 @@ def check_http_health_with_retry(
 
     Raises:
         TimeoutError: If backend not reachable after max_attempts.
+        SSLCertificateError: If SSL certificate validation fails.
+        SSLHandshakeError: If SSL handshake fails (e.g., client cert required).
         ConnectionError: If connection fails for non-retryable reasons.
         FileNotFoundError: If mTLS certificate files don't exist.
         ValueError: If mTLS certificates are invalid.
     """
     delay = BACKEND_RETRY_INITIAL_DELAY
     last_error: Exception | None = None
+    is_https = url.lower().startswith("https://")
 
     for attempt in range(1, max_attempts + 1):
         try:
@@ -126,11 +132,21 @@ def check_http_health_with_retry(
             if attempt > 1:
                 logger.warning(f"Backend connected on attempt {attempt}: {url}")
             return
+        except (SSLCertificateError, SSLHandshakeError) as e:
+            # SSL errors are not retryable - fail immediately with clear message
+            raise
         except (TimeoutError, ConnectionError) as e:
             last_error = e
 
             if attempt >= max_attempts:
-                # No more retries
+                # No more retries - provide context-aware error message
+                if is_https and mtls_config is None:
+                    # HTTPS without mTLS configured - likely requires client cert
+                    raise ConnectionError(
+                        f"SSL/TLS connection failed: {url}. "
+                        "The server may require mTLS (client certificate authentication). "
+                        "Configure mTLS in your config or run 'mcp-acp-extended init'."
+                    ) from e
                 raise TimeoutError(f"Backend not reachable after {max_attempts} attempts: {url}") from e
 
             # Log retry attempt
