@@ -45,6 +45,7 @@ from mcp_acp_extended.exceptions import (
     DeviceHealthError,
     SessionBindingViolationError,
 )
+from mcp_acp_extended.manager import ProxyState
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware, PolicyReloader
 from mcp_acp_extended.pips.auth import SessionManager
 from mcp_acp_extended.security import create_identity_provider, SessionRateTracker
@@ -355,6 +356,10 @@ def create_proxy(
             )
             api_app.state.policy_reloader = policy_reloader
 
+            # Wire proxy state to API app for manager routes
+            # proxy_state is captured from enclosing scope (created after lifespan definition)
+            api_app.state.proxy_state = proxy_state
+
             # Setup SIGHUP handler for policy hot reload (Unix only)
             def handle_sighup() -> None:
                 """Handle SIGHUP signal by scheduling policy reload."""
@@ -562,6 +567,15 @@ def create_proxy(
         rate_tracker=rate_tracker,
     )
     proxy.add_middleware(enforcement_middleware)
+
+    # Create ProxyState aggregating all state for UI exposure
+    # Wraps ApprovalStore and SessionManager - proxy is source of truth
+    proxy_state = ProxyState(
+        backend_id=config.backend.server_name,
+        api_port=DEFAULT_API_PORT,
+        approval_store=enforcement_middleware.approval_store,
+        session_manager=session_manager,
+    )
 
     # DoS protection: FastMCP's rate limiter as outermost layer
     # Token bucket: 10 req/s sustained, 50 burst capacity

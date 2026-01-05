@@ -307,7 +307,7 @@ class OIDCIdentityProvider:
 
         except TokenRefreshExpiredError as e:
             # Refresh token has expired - user must re-authenticate
-            error_msg = "Session expired. Run 'mcp-acp-extended auth login' to re-authenticate."
+            error_msg = "Auth session expired. Run 'mcp-acp-extended auth login' to re-authenticate."
             # Log to auth.jsonl and system (error - user action required)
             if self._auth_logger:
                 self._auth_logger.log_token_refresh_failed(

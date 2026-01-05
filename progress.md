@@ -309,37 +309,6 @@ Focused on high-value policy improvements for single-user context.
 
 ---
 
-## Phase 12: Web UI (React + shadcn)
-
-- [ ] FastAPI backend (embedded)
-- [ ] React + Vite + shadcn dashboard
-- [ ] Logs viewer, HITL queue, config view
-- [ ] `start --ui-port 8080`
-
----
-
-## Session Architecture
-
-**Single-session design:** CLI login stores token in OS keychain. Proxy reads from keychain on startup and validates per-request. Web UI (when added) inherits the same session via the proxy - no separate login required.
-
-```
-User runs: mcp-acp-extended auth login
-    ↓
-Device Flow → Auth0 → access_token + refresh_token
-    ↓
-Tokens stored in OS keychain
-    ↓
-User runs: mcp-acp-extended start
-    ↓
-Proxy loads token from keychain
-    ↓
-Per-request: validate JWT (60s cache), refresh if expired
-    ↓
-Web UI requests go through proxy → uses same session
-```
-
----
-
 ## Stage 2 Completion Criteria
 
 - [x] Startup validation for audit logs
@@ -362,4 +331,79 @@ Web UI requests go through proxy → uses same session
 - [x] Multiple path support (source/destination)
 - [x] Decision trace in logs
 - [x] Hot reload via SIGHUP
-- [ ] React web UI
+
+---
+
+## Phase 12: CLI Enhancements for No-UI Mode
+CLI commands for runtime visibility without the web UI. Enables headless deployments, security-conscious users, scripting, and debugging.
+
+**Why**: UI introduces dependencies and attack surface. These commands provide full visibility via CLI for users who prefer not to use the UI.
+
+### Enhance existing
+- [ ] Add JSON output option to
+  - [ ] auth status
+  - [ ] config show
+  - [ ] policy show
+
+### Status & Health
+
+- [ ] **`status` command** (`cli/commands/status.py`)
+  - [ ] Proxy health (running, uptime)
+  - [ ] Policy version and rules count
+  - [ ] Auth status (valid, expired, not configured)
+  - [ ] Active session count
+  - [ ] Rate limit status
+  - [ ] Output: JSON or formatted table (--format flag)
+
+### Session Management
+
+- [ ] **`sessions list` command** (`cli/commands/sessions.py`)
+  - [ ] Show active sessions
+  - [ ] Columns: session_id, user_id, started_at, request_count
+  - [ ] Requires running proxy (connects via API or reads shared state)
+
+### Approval Management
+
+- [ ] **`approvals` command group** (`cli/commands/approvals.py`)
+  - [ ] `approvals pending` - Show pending HITL queue
+    - [ ] Columns: id, tool, path, user, waiting_since
+  - [ ] `approvals cache list` - Show cached approvals
+    - [ ] Columns: tool, path, user, effect, expires_at
+  - [ ] `approvals cache clear [--all|--id=X]` - Clear cache entries
+    - [ ] `--all` clears entire cache
+    - [ ] `--id=X` clears specific entry
+    - [ ] Confirmation prompt (--yes to skip)
+
+### Log Viewing
+
+- [ ] **`logs tail` command** (`cli/commands/logs.py`)
+  - [ ] Tail log files (like `tail -f`)
+  - [ ] `--type=TYPE` filter: operations, decisions, auth, system
+  - [ ] `--json` for raw JSONL output
+  - [ ] Default: formatted, human-readable output
+  - [ ] Ctrl+C to stop
+
+### Policy Management
+
+- [ ] **`policy show` command** (extend `cli/commands/policy.py`)
+  - [ ] Display current policy
+  - [ ] `--format=yaml|json` (default: yaml)
+  - [ ] Shows rule count, version, last modified
+
+- [ ] **`policy reload` command** (extend `cli/commands/policy.py`)
+  - [ ] Trigger hot reload (same as SIGHUP)
+  - [ ] Validates before applying
+  - [ ] Shows success/failure message
+
+  - [ ] **`policy edit` command** (extend `cli/commands/policy.py`)
+  - [ ] **`policy add` command** (extend `cli/commands/policy.py`)
+
+
+### Implementation Notes
+
+- Commands that need runtime data connect to proxy API (`127.0.0.1:8765`)
+- Bearer token read from `~/.mcp-acp-extended/manager.json`
+- Graceful error if proxy not running: "Proxy not running. Start with 'mcp-acp-extended start'"
+- All commands support default to formatted output wit `--json` for scriptable output
+
+**Deliverable**: Full CLI visibility into proxy runtime state without web UI.

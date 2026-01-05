@@ -1,14 +1,16 @@
 """FastAPI server for the management API and static file serving.
 
 Currently implements:
-- Approval cache API (/api/approvals)
+- Cached approvals API (/api/approvals/cached) - previously approved HITL decisions
+- Pending approvals API (/api/approvals/pending) - HITL requests waiting for decision
+- Proxies API (/api/proxies) - proxy information
+- Auth sessions API (/api/auth-sessions) - user authentication bindings
+- Control API (/api/control) - policy reload
 
 Future additions:
 - Config management (/api/config)
 - Policy management (/api/policy)
 - Log viewer (/api/logs)
-- Proxy control (/api/control)
-- Session management (/api/sessions)
 - Static file serving for React UI
 
 Usage:
@@ -29,7 +31,7 @@ import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from .routes import approvals, control
+from .routes import approvals, control, pending, proxies, sessions
 
 
 def create_api_app() -> FastAPI:
@@ -58,9 +60,12 @@ def create_api_app() -> FastAPI:
     )
 
     # Mount API routes
-    app.include_router(approvals.router, prefix="/api/approvals", tags=["approvals"])
+    app.include_router(proxies.router, prefix="/api/proxies", tags=["proxies"])
+    app.include_router(sessions.router, prefix="/api/auth-sessions", tags=["auth-sessions"])
+    app.include_router(approvals.router, prefix="/api/approvals/cached", tags=["cached-approvals"])
+    app.include_router(pending.router, prefix="/api/approvals/pending", tags=["pending-approvals"])
     app.include_router(control.router, prefix="/api/control", tags=["control"])
-    # TODO: Add config, policy, logs, sessions routes
+    # TODO: Add config, policy, logs routes
 
     # TODO: Serve static files (built React app)
     # static_dir = Path(__file__).parent.parent / "web" / "static"

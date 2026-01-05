@@ -263,11 +263,11 @@ def start() -> None:
             )
         elif "expired" in error_msg:
             # Token expired and refresh failed - need to re-login
-            click.echo("\nError: Session expired.", err=True)
+            click.echo("\nError: Auth session expired.", err=True)
             click.echo("Run 'mcp-acp-extended auth login' to re-authenticate.", err=True)
             show_startup_error_popup(
                 title="MCP ACP",
-                message="Session expired.",
+                message="Auth session expired.",
                 detail="Run in terminal:\n  mcp-acp-extended auth login\n\nThen restart your MCP client.",
                 backoff=True,
             )

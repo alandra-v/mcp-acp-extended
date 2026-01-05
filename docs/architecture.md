@@ -128,11 +128,14 @@ src/mcp_acp_extended/
 ├── constants.py                # Shared constants
 ├── exceptions.py               # Custom exceptions
 ├── api/                        # Management API server
-│   ├── server.py               # FastAPI app creation
-│   └── routes/                 # API endpoints
+│   ├── s erver.py               # FastAPI app creation
+│   └── routes/                # API endpoints
 │       ├── control.py          # /api/control/* (status, reload-policy)
-│       ├── approvals.py        # /api/approvals/* (HITL approval management)
+│       ├── approvals.py        # /api/approvals (cached approval visibility)
 │       └── ...
+├── manager/                    # UI state aggregation layer
+│   ├── state.py                # ProxyState, PendingApprovalInfo/Request
+│   └── routes.py               # /api/proxies, /api/sessions, /api/approvals/pending/*
 ├── cli/                        # CLI package (Click-based)
 │   ├── main.py                 # CLI group definition
 │   ├── prompts.py              # Interactive prompt helpers

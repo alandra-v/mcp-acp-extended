@@ -235,6 +235,15 @@ class SessionManager:
         self.cleanup_expired()
         return len(self._sessions)
 
+    def get_all_sessions(self) -> list[BoundSession]:
+        """Get all active (non-expired) sessions.
+
+        Returns:
+            List of active BoundSession objects.
+        """
+        self.cleanup_expired()
+        return list(self._sessions.values())
+
 
 def parse_bound_session_id(bound_id: str) -> tuple[str, str] | None:
     """Parse a bound session ID into user_id and session_id.

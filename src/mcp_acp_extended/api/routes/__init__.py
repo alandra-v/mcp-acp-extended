@@ -1,16 +1,18 @@
 """API route modules.
 
-Currently implements:
-- approvals: Approval cache visibility for debugging
+Route organization:
+- approvals: Cached HITL approvals (previously approved decisions)
+- pending: Pending HITL approvals (waiting for user decision)
+- proxies: Proxy information
+- sessions: Auth sessions (user authentication bindings)
+- control: Proxy control (status, policy reload)
 
 Future additions:
 - config: Configuration management
 - policy: Policy management
 - logs: Log viewer
-- control: Proxy control
-- sessions: Session management
 """
 
-from . import approvals
+from . import approvals, control, pending, proxies, sessions
 
-__all__ = ["approvals"]
+__all__ = ["approvals", "control", "pending", "proxies", "sessions"]

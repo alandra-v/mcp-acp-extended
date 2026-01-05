@@ -1,0 +1,67 @@
+"""Auth session API endpoints.
+
+Provides visibility into active authentication sessions.
+Auth sessions represent user authentication bindings (JWT token -> session).
+These are NOT proxy lifecycle sessions.
+
+Routes mounted at: /api/auth-sessions
+"""
+
+from __future__ import annotations
+
+__all__ = ["router"]
+
+from datetime import datetime
+
+from fastapi import APIRouter, Request
+from pydantic import BaseModel
+
+from mcp_acp_extended.api.deps import get_proxy_state
+
+router = APIRouter()
+
+
+class AuthSessionResponse(BaseModel):
+    """Response model for authentication session information.
+
+    Auth sessions represent user authentication bindings (JWT token -> session).
+    These are NOT proxy lifecycle sessions.
+    """
+
+    session_id: str
+    user_id: str
+    started_at: datetime
+    expires_at: datetime
+
+
+@router.get("", response_model=list[AuthSessionResponse])
+async def list_auth_sessions(
+    request: Request,
+    proxy_id: str | None = None,
+) -> list[AuthSessionResponse]:
+    """List all active authentication sessions.
+
+    Auth sessions represent user authentication bindings (JWT token -> session).
+    These are NOT proxy lifecycle sessions.
+
+    Args:
+        proxy_id: Optional filter by proxy ID (for multi-proxy future).
+
+    Returns:
+        List of active auth sessions.
+    """
+    state = get_proxy_state(request)
+
+    # In single-proxy, proxy_id filter is ignored (all sessions are ours)
+    # In multi-proxy Phase 2, Manager will filter by proxy
+    sessions = state.get_sessions()
+
+    return [
+        AuthSessionResponse(
+            session_id=s.session_id,
+            user_id=s.user_id,
+            started_at=s.created_at,
+            expires_at=s.expires_at,
+        )
+        for s in sessions
+    ]

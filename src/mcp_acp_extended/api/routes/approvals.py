@@ -1,7 +1,12 @@
-"""Approvals API endpoints.
+"""Cached approvals API endpoints.
 
-Provides visibility into the HITL approval cache for debugging.
+Provides visibility into the HITL approval cache for debugging and management.
+These are CACHED approvals (previously approved HITL decisions), not pending
+HITL requests waiting for user decision.
+
 The approval store is registered by the middleware at startup.
+
+Routes mounted at: /api/approvals/cached
 """
 
 from __future__ import annotations
@@ -124,3 +129,43 @@ async def clear_approvals() -> ClearApprovalsResponse:
 
     count = _approval_store.clear()
     return ClearApprovalsResponse(cleared=count, status="ok")
+
+
+class DeleteApprovalResponse(BaseModel):
+    """Response for single approval delete."""
+
+    deleted: bool
+    status: str
+
+
+@router.delete("/entry")
+async def delete_approval(
+    subject_id: str,
+    tool_name: str,
+    path: str | None = None,
+) -> DeleteApprovalResponse:
+    """Delete a specific cached approval.
+
+    Args:
+        subject_id: The user who approved.
+        tool_name: The tool that was approved.
+        path: The path that was approved (optional).
+
+    Raises:
+        HTTPException: 503 if approval store not registered.
+        HTTPException: 404 if approval not found.
+    """
+    if _approval_store is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Approval store not registered. Is the proxy running?",
+        )
+
+    deleted = _approval_store.delete(subject_id, tool_name, path)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Cached approval not found for {subject_id}/{tool_name}/{path}",
+        )
+
+    return DeleteApprovalResponse(deleted=True, status="ok")

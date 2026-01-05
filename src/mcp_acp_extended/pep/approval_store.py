@@ -230,6 +230,30 @@ class ApprovalStore:
         """
         return time.monotonic() - approval.stored_at
 
+    def delete(
+        self,
+        subject_id: str,
+        tool_name: str,
+        path: str | None,
+    ) -> bool:
+        """Delete a specific cached approval.
+
+        Args:
+            subject_id: The user who approved.
+            tool_name: The tool that was approved.
+            path: The path that was approved (will be normalized).
+
+        Returns:
+            True if the approval existed and was deleted, False otherwise.
+        """
+        normalized_path = self._normalize_path(path)
+        key: ApprovalKey = (subject_id, tool_name, normalized_path)
+
+        if key in self._store:
+            del self._store[key]
+            return True
+        return False
+
     def clear(self) -> int:
         """Clear all cached approvals.
 

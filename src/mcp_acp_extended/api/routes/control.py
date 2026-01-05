@@ -4,8 +4,8 @@ Provides:
 - GET /status - Current proxy and policy status
 - POST /reload-policy - Hot reload policy from disk
 
-Note: Start/stop/restart are placeholders for future multi-proxy Manager.
-The proxy is spawned by Claude Desktop, not controlled via this API.
+Note: Proxy lifecycle management (start/stop/restart) will be added
+in the multi-proxy Manager phase. See ui-progress.md.
 """
 
 __all__ = [
@@ -102,39 +102,3 @@ async def reload_policy(request: Request) -> ReloadResponse:
         error=result.error,
         policy_version=result.policy_version,
     )
-
-
-# ============================================================================
-# Placeholders for future multi-proxy Manager
-# These will be implemented when Manager architecture is added
-# ============================================================================
-
-
-@router.post("/start")
-async def start_proxy() -> dict[str, str]:
-    """Start the proxy (placeholder).
-
-    Note: Currently the proxy is spawned by Claude Desktop via STDIO.
-    This endpoint will be implemented for the Manager architecture.
-    """
-    return {"status": "not_implemented", "message": "Proxy is managed by MCP client"}
-
-
-@router.post("/stop")
-async def stop_proxy() -> dict[str, str]:
-    """Stop the proxy (placeholder).
-
-    Note: Currently the proxy lifecycle is managed by Claude Desktop.
-    This endpoint will be implemented for the Manager architecture.
-    """
-    return {"status": "not_implemented", "message": "Proxy is managed by MCP client"}
-
-
-@router.post("/restart")
-async def restart_proxy() -> dict[str, str]:
-    """Restart the proxy (placeholder).
-
-    Note: Currently requires restarting Claude Desktop.
-    This endpoint will be implemented for the Manager architecture.
-    """
-    return {"status": "not_implemented", "message": "Proxy is managed by MCP client"}
