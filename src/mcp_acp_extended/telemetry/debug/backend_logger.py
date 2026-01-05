@@ -12,6 +12,15 @@ Event logging functions:
 - log_backend_error: Log ingress error (backend → proxy error)
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "log_backend_error",
+    "log_backend_response",
+    "log_proxy_request",
+    "setup_backend_wire_logger",
+]
+
 import logging
 import time
 from pathlib import Path

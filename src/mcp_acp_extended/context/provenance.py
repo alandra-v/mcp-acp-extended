@@ -14,6 +14,8 @@ Trust hierarchy (high to low):
 
 from __future__ import annotations
 
+__all__ = ["Provenance"]
+
 from enum import Enum
 
 

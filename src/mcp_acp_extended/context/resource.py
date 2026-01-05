@@ -13,6 +13,15 @@ Structure:
 
 from __future__ import annotations
 
+__all__ = [
+    "Resource",
+    "ResourceInfo",
+    "ResourceType",
+    "ServerInfo",
+    "SideEffect",
+    "ToolInfo",
+]
+
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict

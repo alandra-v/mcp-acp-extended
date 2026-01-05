@@ -3,6 +3,10 @@
 Provides configuration management subcommands.
 """
 
+from __future__ import annotations
+
+__all__ = ["config"]
+
 import json
 import os
 import shutil

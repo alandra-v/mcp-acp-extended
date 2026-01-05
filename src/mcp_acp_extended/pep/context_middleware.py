@@ -15,6 +15,11 @@ By handling context at the outermost layer:
 
 from __future__ import annotations
 
+__all__ = [
+    "ContextMiddleware",
+    "create_context_middleware",
+]
+
 from typing import Any
 
 from fastmcp.server.middleware import Middleware

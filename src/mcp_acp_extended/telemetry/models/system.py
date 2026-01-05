@@ -14,6 +14,12 @@ This separation means:
 
 from __future__ import annotations
 
+__all__ = [
+    "ConfigHistoryEvent",
+    "PolicyHistoryEvent",
+    "SystemEvent",
+]
+
 from typing import Any, Dict, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field

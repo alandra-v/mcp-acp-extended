@@ -18,6 +18,12 @@ This is provided as a convenience for policy writing, not a security guarantee.
 
 from __future__ import annotations
 
+__all__ = [
+    "infer_operation",
+    "match_path_pattern",
+    "match_tool_name",
+]
+
 import fnmatch
 import re
 import sys

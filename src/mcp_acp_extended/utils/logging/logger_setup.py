@@ -9,6 +9,13 @@ Provides two types of loggers:
   shutdown if audit log integrity is compromised
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "setup_failclosed_audit_logger",
+    "setup_jsonl_logger",
+]
+
 import logging
 import sys
 from pathlib import Path

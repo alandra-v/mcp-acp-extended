@@ -3,6 +3,16 @@
 Provides reusable prompt utilities for gathering user input.
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "prompt_auth_config",
+    "prompt_http_config",
+    "prompt_optional",
+    "prompt_stdio_config",
+    "prompt_with_retry",
+]
+
 import click
 
 from mcp_acp_extended.config import (

@@ -75,7 +75,7 @@ function StatCard({ label, value, active, onClick, showConnectionStatus, connect
           <span className="stat-value">{value}</span>
           {showConnectionStatus && connected && (
             <span
-              className="w-2 h-2 rounded-full bg-success shadow-[0_0_6px_oklch(0.7_0.15_145_/_0.5)]"
+              className="w-2 h-2 rounded-full bg-success shadow-[0_0_6px_var(--success-border)]"
               title="Live updates connected"
             />
           )}

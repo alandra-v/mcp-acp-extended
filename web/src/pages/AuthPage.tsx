@@ -51,13 +51,13 @@ export function AuthPage() {
                 <div
                   className={cn(
                     'w-10 h-10 rounded-full flex items-center justify-center',
-                    isAuthenticated ? 'bg-[oklch(0.7_0.15_145_/_0.15)]' : 'bg-base-800'
+                    isAuthenticated ? 'bg-success-bg' : 'bg-base-800'
                   )}
                 >
                   <User
                     className={cn(
                       'w-5 h-5',
-                      isAuthenticated ? 'text-[oklch(0.75_0.12_145)]' : 'text-base-500'
+                      isAuthenticated ? 'text-success-muted' : 'text-base-500'
                     )}
                   />
                 </div>
@@ -126,7 +126,7 @@ export function AuthPage() {
               {!isAuthenticated ? (
                 <Button
                   onClick={() => setLoginDialogOpen(true)}
-                  className="bg-[oklch(0.7_0.15_145_/_0.2)] text-[oklch(0.75_0.12_145)] border border-[oklch(0.7_0.15_145_/_0.3)] hover:bg-[oklch(0.7_0.15_145_/_0.3)]"
+                  className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover"
                 >
                   <Key className="w-4 h-4 mr-2" />
                   Login

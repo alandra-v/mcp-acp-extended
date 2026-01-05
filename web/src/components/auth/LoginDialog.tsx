@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useEffect, useCallback } from 'react'
 import { ExternalLink } from 'lucide-react'
 import {
   Dialog,
@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Button } from '@/components/ui/button'
-import { startLogin, pollLogin } from '@/api/auth'
+import { useDeviceFlow } from '@/hooks/useDeviceFlow'
 
 interface LoginDialogProps {
   open: boolean
@@ -17,95 +17,26 @@ interface LoginDialogProps {
 }
 
 export function LoginDialog({ open, onOpenChange, onSuccess }: LoginDialogProps) {
-  const [state, setState] = useState<{
-    userCode?: string
-    verificationUri?: string
-    verificationUriComplete?: string
-    polling?: boolean
-    error?: string
-  }>({})
+  const handleSuccess = useCallback(() => {
+    onOpenChange(false)
+    onSuccess()
+  }, [onOpenChange, onSuccess])
 
-  // Track poll interval for cleanup
-  const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  // Cleanup on unmount or close
-  useEffect(() => {
-    return () => {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-      }
-    }
-  }, [])
+  const { state, start, reset } = useDeviceFlow(handleSuccess)
 
   // Reset state when dialog closes
   useEffect(() => {
     if (!open) {
-      if (pollIntervalRef.current) {
-        clearInterval(pollIntervalRef.current)
-        pollIntervalRef.current = null
-      }
-      setState({})
+      reset()
     }
-  }, [open])
-
-  const handleStartLogin = async () => {
-    setState({ polling: false })
-
-    try {
-      const response = await startLogin()
-      setState({
-        userCode: response.user_code,
-        verificationUri: response.verification_uri,
-        verificationUriComplete: response.verification_uri_complete || undefined,
-        polling: true,
-      })
-
-      // Start polling
-      pollIntervalRef.current = setInterval(async () => {
-        try {
-          const pollResponse = await pollLogin(response.user_code)
-
-          if (pollResponse.status === 'complete') {
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current)
-              pollIntervalRef.current = null
-            }
-            onOpenChange(false)
-            onSuccess()
-          } else if (
-            pollResponse.status === 'expired' ||
-            pollResponse.status === 'denied' ||
-            pollResponse.status === 'error'
-          ) {
-            if (pollIntervalRef.current) {
-              clearInterval(pollIntervalRef.current)
-              pollIntervalRef.current = null
-            }
-            setState((prev) => ({
-              ...prev,
-              polling: false,
-              error: pollResponse.message || 'Login failed',
-            }))
-          }
-        } catch {
-          if (pollIntervalRef.current) {
-            clearInterval(pollIntervalRef.current)
-            pollIntervalRef.current = null
-          }
-          setState((prev) => ({ ...prev, polling: false, error: 'Polling failed' }))
-        }
-      }, response.interval * 1000)
-    } catch (err) {
-      setState({ error: err instanceof Error ? err.message : 'Failed to start login' })
-    }
-  }
+  }, [open, reset])
 
   // Start login when dialog opens
   useEffect(() => {
     if (open && !state.userCode && !state.error && !state.polling) {
-      handleStartLogin()
+      start()
     }
-  }, [open]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, state.userCode, state.error, state.polling, start])
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -117,8 +48,8 @@ export function LoginDialog({ open, onOpenChange, onSuccess }: LoginDialogProps)
 
         {state.error ? (
           <div className="py-4">
-            <div className="text-[oklch(0.7_0.15_25)] mb-4">{state.error}</div>
-            <Button onClick={handleStartLogin} variant="outline">
+            <div className="text-error-muted mb-4">{state.error}</div>
+            <Button onClick={start} variant="outline">
               Try Again
             </Button>
           </div>

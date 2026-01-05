@@ -21,6 +21,13 @@ behavior and correctly reflects what we can observe from our position in the
 call stack.
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "LoggingProxyClient",
+    "create_logging_proxy_client",
+]
+
 import logging
 from datetime import timedelta
 from pathlib import Path

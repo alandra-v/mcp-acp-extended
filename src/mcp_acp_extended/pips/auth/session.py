@@ -14,6 +14,12 @@ See docs/design/mcp_security_best_practices.md for full specification.
 
 from __future__ import annotations
 
+__all__ = [
+    "BoundSession",
+    "SessionManager",
+    "parse_bound_session_id",
+]
+
 import secrets
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone

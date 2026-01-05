@@ -2,6 +2,10 @@ import { ApiError } from '@/types/api'
 
 const API_BASE = '/api'
 
+// Retry configuration
+const MAX_RETRIES = 3
+const INITIAL_DELAY_MS = 1000
+
 // Token is injected by server into index.html as window.__API_TOKEN__
 // In dev mode with Vite proxy, same-origin requests don't need token
 declare global {
@@ -19,8 +23,76 @@ function getAuthHeaders(): HeadersInit {
   return headers
 }
 
+/**
+ * Sleep for the specified number of milliseconds.
+ */
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms))
+}
+
+/**
+ * Check if an error is retryable (network error or 5xx server error).
+ */
+function isRetryable(error: unknown): boolean {
+  // Network errors (fetch throws)
+  if (error instanceof TypeError) return true
+  // Server errors (5xx)
+  if (error instanceof ApiError && error.status >= 500) return true
+  return false
+}
+
+/**
+ * Fetch with exponential backoff retry for transient failures.
+ * Only retries on network errors and 5xx server errors.
+ */
+async function fetchWithRetry(
+  url: string,
+  options: RequestInit,
+  retries = MAX_RETRIES
+): Promise<Response> {
+  let lastError: unknown
+
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const res = await fetch(url, options)
+
+      // Don't retry client errors (4xx)
+      if (res.ok || (res.status >= 400 && res.status < 500)) {
+        return res
+      }
+
+      // Server error (5xx) - will retry
+      const error = new ApiError(res.status, res.statusText, await res.text())
+      lastError = error
+
+      if (attempt < retries - 1 && isRetryable(error)) {
+        const delay = INITIAL_DELAY_MS * Math.pow(2, attempt)
+        console.warn(`Request failed (${res.status}), retrying in ${delay}ms...`)
+        await sleep(delay)
+        continue
+      }
+
+      throw error
+    } catch (error) {
+      lastError = error
+
+      // Network error - retry with backoff
+      if (attempt < retries - 1 && isRetryable(error)) {
+        const delay = INITIAL_DELAY_MS * Math.pow(2, attempt)
+        console.warn(`Network error, retrying in ${delay}ms...`)
+        await sleep(delay)
+        continue
+      }
+
+      throw error
+    }
+  }
+
+  throw lastError
+}
+
 export async function apiGet<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetchWithRetry(`${API_BASE}${path}`, {
     headers: getAuthHeaders(),
   })
   if (!res.ok) {
@@ -34,7 +106,7 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
     ...getAuthHeaders(),
     ...(body ? { 'Content-Type': 'application/json' } : {}),
   }
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetchWithRetry(`${API_BASE}${path}`, {
     method: 'POST',
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -50,7 +122,7 @@ export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
     ...getAuthHeaders(),
     ...(body ? { 'Content-Type': 'application/json' } : {}),
   }
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetchWithRetry(`${API_BASE}${path}`, {
     method: 'PUT',
     headers,
     body: body ? JSON.stringify(body) : undefined,
@@ -62,7 +134,7 @@ export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, {
+  const res = await fetchWithRetry(`${API_BASE}${path}`, {
     method: 'DELETE',
     headers: getAuthHeaders(),
   })

@@ -8,6 +8,8 @@ Commands:
 
 from __future__ import annotations
 
+__all__ = ["auth"]
+
 import webbrowser
 from typing import TYPE_CHECKING
 

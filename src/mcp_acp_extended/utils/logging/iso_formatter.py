@@ -4,6 +4,10 @@ Provides ISO 8601 timestamp formatting for JSONL logs.
 All other utilities (payload serialization, metadata extraction, etc.) are in helpers.py.
 """
 
+from __future__ import annotations
+
+__all__ = ["ISO8601Formatter"]
+
 import json
 import logging
 from datetime import datetime, timezone

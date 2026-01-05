@@ -12,6 +12,16 @@ The file handler is configured separately via configure_system_logger_file() onc
 the user's log_dir from config is available.
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "ConsoleFormatter",
+    "configure_system_logger_file",
+    "get_system_logger",
+    "is_transport_error",
+    "log_backend_disconnect",
+]
+
 import logging
 import sys
 from pathlib import Path

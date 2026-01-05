@@ -14,6 +14,15 @@ This separation means:
 
 from __future__ import annotations
 
+__all__ = [
+    "BackendErrorEvent",
+    "BackendResponseEvent",
+    "ClientRequestEvent",
+    "ProxyErrorEvent",
+    "ProxyRequestEvent",
+    "ProxyResponseEvent",
+]
+
 from typing import Any, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field

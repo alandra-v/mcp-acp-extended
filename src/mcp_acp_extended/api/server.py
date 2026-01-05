@@ -33,6 +33,11 @@ Usage:
     Also, security middleware is disabled in standalone mode (no token).
 """
 
+from __future__ import annotations
+
+__all__ = ["create_api_app"]
+
+import json
 import os
 from pathlib import Path
 
@@ -120,7 +125,8 @@ def create_api_app(token: str | None = None) -> FastAPI:
                 api_token = getattr(request.app.state, "api_token", None)
                 if api_token:
                     # Inject token script before </head>
-                    token_script = f'<script>window.__API_TOKEN__ = "{api_token}";</script>'
+                    # Use json.dumps for proper escaping (defense-in-depth)
+                    token_script = f"<script>window.__API_TOKEN__ = {json.dumps(api_token)};</script>"
                     html = html.replace("</head>", f"{token_script}\n  </head>")
 
                 return HTMLResponse(content=html)

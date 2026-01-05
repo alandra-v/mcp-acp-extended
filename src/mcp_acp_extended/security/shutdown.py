@@ -10,6 +10,11 @@ It ensures:
 
 from __future__ import annotations
 
+__all__ = [
+    "ShutdownCoordinator",
+    "sync_emergency_shutdown",
+]
+
 import asyncio
 import os
 import platform

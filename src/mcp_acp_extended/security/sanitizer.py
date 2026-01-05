@@ -21,6 +21,12 @@ Usage:
 
 from __future__ import annotations
 
+__all__ = [
+    "MAX_DESCRIPTION_LENGTH",
+    "SanitizationResult",
+    "sanitize_description",
+]
+
 import re
 import unicodedata
 from dataclasses import dataclass, field

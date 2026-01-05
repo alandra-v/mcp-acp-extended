@@ -9,6 +9,11 @@ See docs/design/authentication_implementation.md for architecture details.
 
 from __future__ import annotations
 
+__all__ = [
+    "build_subject_from_identity",
+    "build_subject_from_validated_token",
+]
+
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:

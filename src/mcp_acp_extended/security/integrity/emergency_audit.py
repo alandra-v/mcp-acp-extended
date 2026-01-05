@@ -14,6 +14,12 @@ audit trail is compromised.
 
 from __future__ import annotations
 
+__all__ = [
+    "get_emergency_audit_path",
+    "log_with_fallback",
+    "write_emergency_audit",
+]
+
 import json
 import logging
 import os

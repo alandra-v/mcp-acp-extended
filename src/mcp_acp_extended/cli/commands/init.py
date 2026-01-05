@@ -3,6 +3,10 @@
 Handles interactive and non-interactive configuration initialization.
 """
 
+from __future__ import annotations
+
+__all__ = ["init"]
+
 import sys
 from pathlib import Path
 from typing import Literal, cast

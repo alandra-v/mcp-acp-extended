@@ -45,6 +45,11 @@ Known limitations:
 
 from __future__ import annotations
 
+__all__ = [
+    "MatchedRule",
+    "PolicyEngine",
+]
+
 import os
 from dataclasses import dataclass
 from typing import Literal

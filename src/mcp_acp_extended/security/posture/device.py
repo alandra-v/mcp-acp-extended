@@ -20,6 +20,12 @@ Usage:
 
 from __future__ import annotations
 
+__all__ = [
+    "CheckResult",
+    "DeviceHealthReport",
+    "check_device_health",
+]
+
 import platform
 import subprocess
 from dataclasses import dataclass, field

@@ -11,6 +11,8 @@ Together they provide comprehensive detection.
 
 from __future__ import annotations
 
+__all__ = ["AuditHealthMonitor"]
+
 import asyncio
 import os
 import traceback

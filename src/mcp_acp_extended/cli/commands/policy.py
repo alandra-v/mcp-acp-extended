@@ -3,6 +3,10 @@
 Provides policy management subcommands.
 """
 
+from __future__ import annotations
+
+__all__ = ["policy"]
+
 import sys
 from pathlib import Path
 

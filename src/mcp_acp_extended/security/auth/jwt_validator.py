@@ -9,6 +9,11 @@ Zero Trust: Per-request validation with 60-second cache for performance.
 
 from __future__ import annotations
 
+__all__ = [
+    "JWTValidator",
+    "ValidatedToken",
+]
+
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone

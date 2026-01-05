@@ -4,6 +4,16 @@ Provides certificate validation, expiry checking, and httpx client factory
 creation for mTLS-authenticated connections to backend servers.
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "SSLCertificateError",
+    "SSLHandshakeError",
+    "create_mtls_client_factory",
+    "get_certificate_expiry_info",
+    "validate_mtls_config",
+]
+
 import logging
 import ssl
 from datetime import datetime, timezone

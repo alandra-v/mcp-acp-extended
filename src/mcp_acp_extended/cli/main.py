@@ -28,6 +28,10 @@ Subcommand help:
     mcp-acp-extended COMMAND -h         Show help for a specific command
 """
 
+from __future__ import annotations
+
+__all__ = ["cli"]
+
 import sys
 
 import click

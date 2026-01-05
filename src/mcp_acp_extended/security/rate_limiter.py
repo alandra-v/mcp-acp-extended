@@ -23,6 +23,14 @@ Usage:
 
 from __future__ import annotations
 
+__all__ = [
+    "DEFAULT_RATE_THRESHOLD",
+    "DEFAULT_RATE_WINDOW_SECONDS",
+    "RateLimitConfig",
+    "SessionRateTracker",
+    "create_rate_tracker",
+]
+
 from collections import deque
 from dataclasses import dataclass, field
 from time import monotonic

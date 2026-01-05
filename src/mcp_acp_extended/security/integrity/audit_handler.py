@@ -16,6 +16,11 @@ The Solution:
 
 from __future__ import annotations
 
+__all__ = [
+    "FailClosedAuditHandler",
+    "verify_audit_writable",
+]
+
 import json
 import logging
 import os

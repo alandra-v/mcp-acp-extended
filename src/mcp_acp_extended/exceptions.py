@@ -18,6 +18,18 @@ Usage:
 
 from __future__ import annotations
 
+__all__ = [
+    "AuditFailure",
+    "AuthenticationError",
+    "CriticalSecurityFailure",
+    "DeviceHealthError",
+    "IdentityVerificationFailure",
+    "PERMISSION_DENIED_CODE",
+    "PermissionDeniedError",
+    "PolicyEnforcementFailure",
+    "SessionBindingViolationError",
+]
+
 from typing import TYPE_CHECKING, Any
 
 from mcp import McpError

@@ -1,16 +1,6 @@
-import { useState } from 'react'
-import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { ChevronDown } from 'lucide-react'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu'
-import { LoginDialog } from '@/components/auth/LoginDialog'
+import { Link, useLocation } from 'react-router-dom'
+import { AuthDropdown } from '@/components/auth/AuthDropdown'
 import { cn } from '@/lib/utils'
-import { useAuth } from '@/hooks/useAuth'
 
 interface HeaderProps {
   proxyName?: string
@@ -75,80 +65,5 @@ export function Header({ proxyName }: HeaderProps) {
         <AuthDropdown />
       </nav>
     </header>
-  )
-}
-
-function AuthDropdown() {
-  const navigate = useNavigate()
-  const { status, loading, logout, logoutFederated, refresh } = useAuth()
-  const [loginDialogOpen, setLoginDialogOpen] = useState(false)
-
-  const isAuthenticated = status?.authenticated ?? false
-  const displayName = status?.email || status?.name || (isAuthenticated ? 'Authenticated' : 'Not logged in')
-
-  const handleLogout = async () => {
-    await logout()
-  }
-
-  const handleLogoutFederated = async () => {
-    await logoutFederated()
-  }
-
-  const handleSettings = () => {
-    navigate('/auth')
-  }
-
-  return (
-    <>
-      <DropdownMenu>
-        <DropdownMenuTrigger className="flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium hover:bg-base-900 transition-smooth outline-none">
-          <span
-            className={cn(
-              'w-2 h-2 rounded-full',
-              isAuthenticated
-                ? 'bg-success shadow-[0_0_6px_oklch(0.7_0.15_145_/_0.5)]'
-                : 'bg-[oklch(0.65_0.2_25)] shadow-[0_0_6px_oklch(0.65_0.2_25_/_0.5)]'
-            )}
-          />
-          <span className={loading ? 'opacity-50' : ''}>
-            {loading ? 'Loading...' : displayName}
-          </span>
-          <ChevronDown className="w-3 h-3 text-base-500" />
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem
-            onClick={() => setLoginDialogOpen(true)}
-            disabled={isAuthenticated}
-            className={isAuthenticated ? 'opacity-40 cursor-not-allowed' : ''}
-          >
-            Login
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={handleLogout}
-            disabled={!isAuthenticated}
-            className={!isAuthenticated ? 'opacity-40 cursor-not-allowed' : ''}
-          >
-            Logout
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={handleLogoutFederated}
-            disabled={!isAuthenticated}
-            className={!isAuthenticated ? 'opacity-40 cursor-not-allowed' : ''}
-          >
-            Logout (federated)
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onClick={handleSettings}>
-            Auth details
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
-
-      <LoginDialog
-        open={loginDialogOpen}
-        onOpenChange={setLoginDialogOpen}
-        onSuccess={refresh}
-      />
-    </>
   )
 }

@@ -6,6 +6,8 @@ used by the policy engine to communicate decisions to the PEP.
 
 from __future__ import annotations
 
+__all__ = ["Decision"]
+
 from enum import Enum
 
 

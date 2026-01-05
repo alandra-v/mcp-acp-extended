@@ -12,6 +12,20 @@ Example usage:
     config.save_to_file(config_path)
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "AppConfig",
+    "AuthConfig",
+    "BackendConfig",
+    "HttpTransportConfig",
+    "LoggingConfig",
+    "MTLSConfig",
+    "OIDCConfig",
+    "ProxyConfig",
+    "StdioTransportConfig",
+]
+
 import json
 from pathlib import Path
 from typing import Literal

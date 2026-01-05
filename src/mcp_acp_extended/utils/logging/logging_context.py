@@ -9,6 +9,28 @@ making them ideal for propagating request-scoped data without explicit
 parameter passing.
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "bound_user_id_var",
+    "clear_all_context",
+    "clear_context",
+    "clear_tool_context",
+    "get_bound_user_id",
+    "get_request_id",
+    "get_session_id",
+    "get_tool_arguments",
+    "get_tool_name",
+    "request_id_var",
+    "session_id_var",
+    "set_bound_user_id",
+    "set_request_id",
+    "set_session_id",
+    "set_tool_context",
+    "tool_arguments_var",
+    "tool_name_var",
+]
+
 from contextvars import ContextVar
 from typing import Any, cast
 

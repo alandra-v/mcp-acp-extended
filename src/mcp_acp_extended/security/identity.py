@@ -19,6 +19,12 @@ See docs/design/authentication_implementation.md for architecture details.
 
 from __future__ import annotations
 
+__all__ = [
+    "IdentityProvider",
+    "LocalIdentityProvider",
+    "create_identity_provider",
+]
+
 import getpass
 from typing import TYPE_CHECKING, Literal, Protocol, runtime_checkable
 

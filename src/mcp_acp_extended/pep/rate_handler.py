@@ -6,6 +6,11 @@ Extracted from middleware.py for better separation of concerns.
 
 from __future__ import annotations
 
+__all__ = [
+    "ContextBuilder",
+    "RateBreachHandler",
+]
+
 import logging
 from typing import TYPE_CHECKING, Any, Callable, Coroutine
 

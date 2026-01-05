@@ -12,6 +12,14 @@ Logs are written to <log_dir>/mcp_acp_extended_logs/debug/client_wire.jsonl usin
 The log_dir is specified in the user's configuration file.
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "BidirectionalClientLoggingMiddleware",
+    "create_client_logging_middleware",
+    "setup_client_wire_logger",
+]
+
 import logging
 import time
 import traceback

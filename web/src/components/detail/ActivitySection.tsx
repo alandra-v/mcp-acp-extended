@@ -29,7 +29,7 @@ export function ActivitySection({
           ) : (
             <div>
               {logs.map((log, i) => (
-                <LogEntryRow key={i} log={log} />
+                <LogEntryRow key={`${log.timestamp}-${i}`} log={log} />
               ))}
             </div>
           )}
@@ -64,7 +64,7 @@ function LogEntryRow({ log }: LogEntryRowProps) {
       <span
         className={cn(
           'text-xs font-medium',
-          isAllowed ? 'text-[oklch(0.65_0.1_145)]' : 'text-base-500'
+          isAllowed ? 'text-success-muted' : 'text-base-500'
         )}
       >
         {decision}

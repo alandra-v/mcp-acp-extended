@@ -58,9 +58,19 @@ export default {
           foreground: 'var(--card-foreground)',
         },
         // Status colors
-        success: 'var(--success)',
+        success: {
+          DEFAULT: 'var(--success)',
+          muted: 'var(--success-muted)',
+          bg: 'var(--success-bg)',
+          'bg-hover': 'var(--success-bg-hover)',
+          border: 'var(--success-border)',
+        },
         warning: 'var(--warning)',
-        error: 'var(--error)',
+        error: {
+          DEFAULT: 'var(--error)',
+          muted: 'var(--error-muted)',
+          indicator: 'var(--error-indicator)',
+        },
         info: 'var(--info)',
       },
       fontFamily: {

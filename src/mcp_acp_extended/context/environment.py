@@ -5,6 +5,8 @@ All fields are facts observable by the proxy at request time.
 
 from __future__ import annotations
 
+__all__ = ["Environment"]
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict

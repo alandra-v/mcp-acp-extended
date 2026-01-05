@@ -7,6 +7,11 @@ Stage 2+ (OIDC): Full token claims populated from FastMCP JWT
 
 from __future__ import annotations
 
+__all__ = [
+    "Subject",
+    "SubjectProvenance",
+]
+
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict

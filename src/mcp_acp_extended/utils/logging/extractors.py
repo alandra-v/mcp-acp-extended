@@ -4,6 +4,19 @@ Extracts structured metadata from MCP tool calls, file operations,
 initialize handshakes, and client info for audit and debug logging.
 """
 
+from __future__ import annotations
+
+__all__ = [
+    "ClientInfo",
+    "detect_operation_type",
+    "extract_client_info",
+    "extract_file_metadata",
+    "extract_file_path",
+    "extract_initialize_metadata",
+    "extract_tool_metadata",
+    "redact_sensitive_content",
+]
+
 import logging
 from dataclasses import dataclass
 from pathlib import Path

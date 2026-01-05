@@ -9,6 +9,12 @@ Design principle: We report what we KNOW, not what we guess.
 
 from __future__ import annotations
 
+__all__ = [
+    "Action",
+    "ActionCategory",
+    "ActionProvenance",
+]
+
 from enum import Enum
 
 from pydantic import BaseModel, ConfigDict

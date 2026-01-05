@@ -15,6 +15,8 @@ Usage:
 
 from __future__ import annotations
 
+__all__ = ["ToolListSanitizer"]
+
 import logging
 from typing import Any
 

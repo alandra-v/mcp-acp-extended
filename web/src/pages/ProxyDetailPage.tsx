@@ -86,7 +86,7 @@ export function ProxyDetailPage() {
                 className={cn(
                   'w-2 h-2 rounded-full',
                   isActive
-                    ? 'bg-success shadow-[0_0_8px_oklch(0.7_0.15_145_/_0.5)]'
+                    ? 'bg-success shadow-[0_0_8px_var(--success-border)]'
                     : 'bg-base-600'
                 )}
               />

@@ -16,6 +16,8 @@ Design decisions:
 
 from __future__ import annotations
 
+__all__ = ["DeviceHealthMonitor"]
+
 import asyncio
 import traceback
 from typing import TYPE_CHECKING
