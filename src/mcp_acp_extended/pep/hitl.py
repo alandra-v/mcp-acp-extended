@@ -32,6 +32,7 @@ from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 
 if TYPE_CHECKING:
     from mcp_acp_extended.context import DecisionContext
+    from mcp_acp_extended.manager.state import ProxyState
     from mcp_acp_extended.pdp.policy import HITLConfig
 
 __all__ = [
@@ -90,6 +91,10 @@ class HITLHandler:
         self._system_logger = get_system_logger()
         self.is_supported = sys.platform == "darwin"
 
+        # ProxyState for web UI integration (set via set_proxy_state after creation)
+        # When set and UI is connected, HITL uses web UI instead of osascript
+        self._proxy_state: "ProxyState | None" = None
+
         # Track pending approval requests for queue indicator.
         # NOTE: This queuing logic is currently ineffective with the macOS
         # osascript implementation because _show_macos_dialog uses synchronous
@@ -112,6 +117,71 @@ class HITLHandler:
                 }
             )
 
+    def set_proxy_state(self, proxy_state: "ProxyState") -> None:
+        """Set ProxyState for web UI integration.
+
+        Called after ProxyState is created to enable web-based HITL approvals.
+        When proxy_state is set and UI is connected via SSE, HITL requests
+        are routed to the web UI instead of osascript dialogs.
+
+        Args:
+            proxy_state: ProxyState instance for UI connectivity checks.
+        """
+        self._proxy_state = proxy_state
+
+    async def _request_approval_via_ui(
+        self,
+        context: "DecisionContext",
+        matched_rule: str | None,
+        will_cache: bool,
+    ) -> HITLResult:
+        """Request approval via web UI.
+
+        Creates a pending approval in ProxyState and waits for user decision
+        via the web UI. The pending approval is broadcast to SSE subscribers.
+
+        Args:
+            context: Decision context with operation details.
+            matched_rule: The rule ID that triggered HITL.
+            will_cache: Whether approval can be cached (affects UI display).
+
+        Returns:
+            HITLResult with user's decision and response time.
+        """
+        start_time = time.perf_counter()
+        timeout_seconds = self.config.timeout_seconds
+
+        # Extract context for pending approval
+        tool_name = context.resource.tool.name if context.resource.tool else "unknown"
+        path = context.resource.resource.path if context.resource.resource else None
+        subject_id = context.subject.id
+        request_id = context.environment.request_id
+
+        # Create pending approval (broadcasts to SSE subscribers)
+        pending = self._proxy_state.create_pending(
+            tool_name=tool_name,
+            path=path,
+            subject_id=subject_id,
+            timeout_seconds=timeout_seconds,
+            request_id=request_id,
+        )
+
+        # Wait for decision from web UI
+        decision = await self._proxy_state.wait_for_decision(pending.id, timeout_seconds)
+        response_time_ms = (time.perf_counter() - start_time) * 1000
+
+        if decision == "allow":
+            # Return USER_ALLOWED if caching is possible, USER_ALLOWED_ONCE otherwise
+            outcome = HITLOutcome.USER_ALLOWED if will_cache else HITLOutcome.USER_ALLOWED_ONCE
+            return HITLResult(outcome=outcome, response_time_ms=response_time_ms)
+
+        elif decision == "deny":
+            return HITLResult(outcome=HITLOutcome.USER_DENIED, response_time_ms=response_time_ms)
+
+        else:
+            # Timeout (decision is None)
+            return HITLResult(outcome=HITLOutcome.TIMEOUT, response_time_ms=response_time_ms)
+
     async def request_approval(
         self,
         context: "DecisionContext",
@@ -120,8 +190,13 @@ class HITLHandler:
     ) -> HITLResult:
         """Request user approval for an operation.
 
-        Shows a native dialog and waits for user response.
-        On unsupported platforms, immediately returns USER_DENIED.
+        Routes to web UI if connected, otherwise falls back to native OS dialog.
+        On unsupported platforms (non-macOS without UI), returns USER_DENIED.
+
+        Approval flow:
+        1. If web UI is connected (SSE subscriber): use web-based approval
+        2. Else if macOS: show native osascript dialog
+        3. Else: auto-deny (platform unsupported)
 
         Args:
             context: Decision context with operation details.
@@ -133,7 +208,11 @@ class HITLHandler:
         Returns:
             HITLResult with user's decision and response time.
         """
-        # Short-circuit on unsupported platforms
+        # Check if web UI is connected (preferred over osascript)
+        if self._proxy_state is not None and self._proxy_state.is_ui_connected:
+            return await self._request_approval_via_ui(context, matched_rule, will_cache)
+
+        # Fall back to osascript on macOS
         if not self.is_supported:
             return HITLResult(
                 outcome=HITLOutcome.USER_DENIED,

@@ -45,6 +45,7 @@ from mcp_acp_extended.telemetry.audit.decision_logger import create_decision_log
 from mcp_acp_extended.utils.logging.logging_context import get_request_id, get_session_id
 
 if TYPE_CHECKING:
+    from mcp_acp_extended.manager.state import ProxyState
     from mcp_acp_extended.pdp.policy import PolicyConfig
 
 _system_logger = get_system_logger()
@@ -125,6 +126,18 @@ class PolicyEnforcementMiddleware(Middleware):
         """Get the approval store for cache management."""
         return self._approval_store
 
+    def set_proxy_state(self, proxy_state: "ProxyState") -> None:
+        """Set ProxyState for web UI HITL integration.
+
+        Called after ProxyState is created to enable web-based HITL approvals.
+        When proxy_state is set and UI is connected, HITL requests are routed
+        to the web UI instead of osascript dialogs.
+
+        Args:
+            proxy_state: ProxyState instance for UI connectivity checks.
+        """
+        self._hitl_handler.set_proxy_state(proxy_state)
+
     def reload_policy(self, new_policy: "PolicyConfig", policy_version: str | None = None) -> dict[str, int]:
         """Reload policy configuration for hot reload.
 
@@ -160,7 +173,11 @@ class PolicyEnforcementMiddleware(Middleware):
             self._engine.reload_policy(new_policy)
 
             # Update HITL handler and config (in case TTL or settings changed)
+            # Preserve proxy_state reference for web UI integration
+            old_proxy_state = self._hitl_handler._proxy_state
             self._hitl_handler = HITLHandler(new_policy.hitl)
+            if old_proxy_state is not None:
+                self._hitl_handler.set_proxy_state(old_proxy_state)
             self._hitl_config = new_policy.hitl
 
             # Update RateBreachHandler's HITL reference (uses new timeout settings)
