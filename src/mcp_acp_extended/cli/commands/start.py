@@ -4,6 +4,10 @@ Starts the proxy server for manual testing.
 """
 
 import sys
+import warnings
+
+# Suppress websockets deprecation warnings from uvicorn
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="websockets")
 
 __all__ = [
     "start",
@@ -36,7 +40,8 @@ BOOTSTRAP_LOG_FILENAME = "bootstrap.jsonl"
 
 
 @click.command()
-def start() -> None:
+@click.option("--no-ui", is_flag=True, help="Don't open web UI in browser")
+def start(no_ui: bool) -> None:
     """Start the proxy server manually (for testing).
 
     Loads configuration from the OS-appropriate location.
@@ -94,6 +99,7 @@ def start() -> None:
             loaded_config,
             config_version=config_version,
             policy_version=policy_version,
+            open_ui=not no_ui,
         )
 
         # Display actual transport used (after detection)
@@ -110,8 +116,23 @@ def start() -> None:
         click.echo("-" * 50, err=True)
 
         click.echo("Proxy server ready - listening on STDIO", err=True)
+        click.echo("Press Ctrl+C to stop", err=True)
+
+        # Set up clean shutdown on Ctrl+C
+        import signal
+        import os
+
+        def handle_sigint(signum: int, frame: object) -> None:
+            # Force exit without waiting for cleanup
+            os._exit(0)
+
+        signal.signal(signal.SIGINT, handle_sigint)
+
         # proxy server listens for clients via STDIO
-        proxy.run()
+        try:
+            proxy.run()
+        except (KeyboardInterrupt, SystemExit):
+            pass  # Clean exit
 
     except FileNotFoundError as e:
         error_msg = str(e).lower()

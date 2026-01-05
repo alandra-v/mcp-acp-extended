@@ -29,6 +29,9 @@ class ProxyResponse(BaseModel):
     pid: int
     api_port: int
     uptime_seconds: float
+    command: str | None = None
+    args: list[str] | None = None
+    url: str | None = None
 
 
 @router.get("")
@@ -49,6 +52,9 @@ async def list_proxies(state: ProxyStateDep) -> list[ProxyResponse]:
             pid=info.pid,
             api_port=info.api_port,
             uptime_seconds=info.uptime_seconds,
+            command=info.command,
+            args=info.args,
+            url=info.url,
         )
     ]
 
@@ -80,4 +86,7 @@ async def get_proxy(proxy_id: str, state: ProxyStateDep) -> ProxyResponse:
         pid=info.pid,
         api_port=info.api_port,
         uptime_seconds=info.uptime_seconds,
+        command=info.command,
+        args=info.args,
+        url=info.url,
     )

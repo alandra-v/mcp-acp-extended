@@ -61,6 +61,9 @@ class ProxyInfo:
         pid: Process ID of the proxy.
         api_port: Port the management API is listening on.
         uptime_seconds: Seconds since proxy started.
+        command: Backend command (for STDIO transport).
+        args: Backend command arguments (for STDIO transport).
+        url: Backend URL (for HTTP transport).
     """
 
     id: str
@@ -70,6 +73,9 @@ class ProxyInfo:
     pid: int
     api_port: int
     uptime_seconds: float
+    command: str | None = None
+    args: list[str] | None = None
+    url: str | None = None
 
 
 @dataclass(frozen=True)
@@ -184,6 +190,9 @@ class ProxyState:
         api_port: int,
         approval_store: "ApprovalStore",
         session_manager: "SessionManager",
+        command: str | None = None,
+        args: list[str] | None = None,
+        url: str | None = None,
     ) -> None:
         """Initialize proxy state.
 
@@ -192,6 +201,9 @@ class ProxyState:
             api_port: Port the management API is listening on.
             approval_store: Existing approval cache store.
             session_manager: Existing session manager.
+            command: Backend command (for STDIO transport).
+            args: Backend command arguments (for STDIO transport).
+            url: Backend URL (for HTTP transport).
         """
         # Generate unique proxy ID: 8-char UUID prefix + backend ID
         self._id = f"{uuid.uuid4().hex[:8]}:{backend_id}"
@@ -200,6 +212,9 @@ class ProxyState:
         self._approval_store = approval_store
         self._session_manager = session_manager
         self._started_at = datetime.now(UTC)
+        self._command = command
+        self._args = args
+        self._url = url
 
         # Pending approvals (for SSE)
         self._pending: dict[str, PendingApprovalRequest] = {}
@@ -227,6 +242,9 @@ class ProxyState:
             pid=os.getpid(),
             api_port=self._api_port,
             uptime_seconds=(now - self._started_at).total_seconds(),
+            command=self._command,
+            args=self._args,
+            url=self._url,
         )
 
     # =========================================================================

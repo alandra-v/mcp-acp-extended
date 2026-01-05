@@ -25,6 +25,7 @@ __all__ = [
 import asyncio
 import os
 import signal
+import webbrowser
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
 
@@ -84,6 +85,7 @@ def create_proxy(
     config: AppConfig,
     config_version: str | None = None,
     policy_version: str | None = None,
+    open_ui: bool = True,
 ) -> tuple[FastMCP, str]:
     """Create a transparent proxy that forwards all requests to backend.
 
@@ -333,26 +335,51 @@ def create_proxy(
                 delete_manager_file,
             )
 
+            # Check if UI is already running (port in use = another instance running)
+            import socket
+
+            def is_port_in_use(port: int) -> bool:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                    return s.connect_ex(("127.0.0.1", port)) == 0
+
+            ui_already_running = is_port_in_use(DEFAULT_API_PORT)
+
             # Generate API token and write manager.json for CLI/UI discovery
             api_token = generate_token()
             write_manager_file(port=DEFAULT_API_PORT, token=api_token)
 
             api_app = create_api_app(token=api_token)
+
+            # Suppress uvicorn's error logging during shutdown
+            import logging
+
+            for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+                logging.getLogger(logger_name).setLevel(logging.CRITICAL)
+
             api_config = uvicorn.Config(
                 api_app,
                 host="127.0.0.1",
                 port=DEFAULT_API_PORT,
-                log_level="warning",  # Quiet - don't spam proxy logs
+                log_config=None,  # Disable uvicorn logging
             )
             api_server = uvicorn.Server(api_config)
-            api_task = asyncio.create_task(api_server.serve())
-            system_logger.info(
-                {
-                    "event": "api_server_started",
-                    "port": DEFAULT_API_PORT,
-                    "url": f"http://127.0.0.1:{DEFAULT_API_PORT}",
-                }
-            )
+
+            # Wrapper to suppress shutdown errors and avoid signal capture
+            async def run_api_server() -> None:
+                try:
+                    # Use _serve() to avoid uvicorn capturing SIGINT/SIGTERM
+                    await api_server._serve()
+                except asyncio.CancelledError:
+                    pass  # Clean shutdown
+
+            api_task = asyncio.create_task(run_api_server())
+
+            # Auto-open management UI in browser (only if not already running)
+            if open_ui and not ui_already_running:
+                try:
+                    webbrowser.open(f"http://127.0.0.1:{DEFAULT_API_PORT}")
+                except Exception:
+                    pass  # Non-fatal - UI can be opened manually
 
             # Create policy reloader and store on API app for endpoint access
             # enforcement_middleware is captured from enclosing scope (created after lifespan definition)
@@ -599,6 +626,9 @@ def create_proxy(
         api_port=DEFAULT_API_PORT,
         approval_store=enforcement_middleware.approval_store,
         session_manager=session_manager,
+        command=config.backend.stdio.command if config.backend.stdio else None,
+        args=config.backend.stdio.args if config.backend.stdio else None,
+        url=config.backend.http.url if config.backend.http else None,
     )
 
     # DoS protection: FastMCP's rate limiter as outermost layer
