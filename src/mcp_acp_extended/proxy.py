@@ -386,6 +386,13 @@ def create_proxy(
 
                 api_task = asyncio.create_task(run_api_server())
 
+                # Wait for server to be ready before opening browser
+                # Poll until port accepts connections (max 2 seconds)
+                for _ in range(20):
+                    await asyncio.sleep(0.1)
+                    if is_port_in_use(DEFAULT_API_PORT):
+                        break
+
                 # Auto-open management UI in browser (only if not already running)
                 if not ui_already_running:
                     try:
@@ -625,6 +632,10 @@ def create_proxy(
         args=config.backend.stdio.args if config.backend.stdio else None,
         url=config.backend.http.url if config.backend.http else None,
     )
+
+    # Wire proxy state to HITL handler for web UI integration
+    # This allows HITL to check is_ui_connected and use web approvals
+    enforcement_middleware.set_proxy_state(proxy_state)
 
     # DoS protection: FastMCP's rate limiter as outermost layer
     # Token bucket: 10 req/s sustained, 50 burst capacity
