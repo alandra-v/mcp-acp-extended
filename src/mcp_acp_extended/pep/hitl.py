@@ -167,13 +167,15 @@ class HITLHandler:
         path = context.resource.resource.path if context.resource.resource else None
         subject_id = context.subject.id
         request_id = context.environment.request_id
+        backend_id = context.resource.server.id
 
         # Build structured message
         message_parts: list[str] = []
         timeout_seconds = self.config.timeout_seconds
 
-        # Header: What operation
+        # Header: What operation and which backend
         message_parts.append(f"Tool: {tool_name}")
+        message_parts.append(f"Backend: {backend_id}")
 
         # Target path if present
         if path:

@@ -43,7 +43,7 @@ def _show_shutdown_popup(failure_type: str, log_dir: Path) -> None:
     script = f"""
     display alert "MCP ACP" message "Proxy shut down due to {failure_type}.
 
-Restart your MCP client (e.g., Claude Desktop).
+Restart your MCP client.
 
 Details: {crash_file}" as critical buttons {{"OK"}} default button "OK"
     """

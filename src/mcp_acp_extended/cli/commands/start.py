@@ -120,7 +120,7 @@ def start() -> None:
             show_startup_error_popup(
                 title="MCP ACP",
                 message="mTLS certificate not found.",
-                detail=f"{e}\n\nCheck certificate paths in config or run:\n  mcp-acp-extended init",
+                detail=f"{e}\n\nCheck the mTLS section in:\n  {config_path}",
                 backoff=True,
             )
             click.echo(f"\nError: mTLS certificate not found: {e}", err=True)
@@ -170,7 +170,7 @@ def start() -> None:
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Invalid policy.",
-                detail=f"{error_msg}\n\nFix policy file or run:\n  mcp-acp-extended init",
+                detail=f"{error_msg}",
                 backoff=True,
             )
             click.echo(f"\nError: Invalid policy: {e}", err=True)
@@ -178,7 +178,7 @@ def start() -> None:
             show_startup_error_popup(
                 title="MCP ACP",
                 message="Invalid configuration.",
-                detail=f"{error_msg}\n\nFix config file or run:\n  mcp-acp-extended init",
+                detail=f"{error_msg}",
                 backoff=True,
             )
             click.echo(f"\nError: Invalid configuration: {e}", err=True)
@@ -299,7 +299,7 @@ def start() -> None:
         show_startup_error_popup(
             title="MCP ACP",
             message="Proxy startup failed.",
-            detail=f"{e}\n\nCheck file permissions and system configuration.",
+            detail=f"{e}",
             backoff=True,
         )
         click.echo(f"Error: Proxy startup failed: {e}", err=True)
