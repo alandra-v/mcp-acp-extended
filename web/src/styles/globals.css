@@ -1,0 +1,329 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    /* oklch color palette from vibe-mockup.html */
+    --base-50: oklch(0.9867 0.0017 219.35);
+    --base-100: oklch(0.9701 0.0035 220.38);
+    --base-200: oklch(0.9292 0.0071 220.94);
+    --base-300: oklch(0.8695 0.0105 222.21);
+    --base-400: oklch(0.6386 0.0159 224.62);
+    --base-500: oklch(0.5541 0.0212 225.44);
+    --base-600: oklch(0.4463 0.0202 225.58);
+    --base-700: oklch(0.373 0.0183 225.41);
+    --base-800: oklch(0.2779 0.0162 226.51);
+    --base-900: oklch(0.21 0.0139 227.92);
+    --base-950: oklch(0.1324 0.0125 228.42);
+    --base-1000: oklch(0.0822 0.0116 228.77);
+
+    --radius: 0.625rem;
+
+    /* Status colors (oklch) */
+    --success: oklch(0.7 0.15 145);
+    --warning: oklch(0.75 0.15 85);
+    --error: oklch(0.704 0.191 22.216);
+    --info: oklch(0.7 0.15 230);
+
+    /* Dark theme using oklch - only dark theme */
+    --background: var(--base-1000);
+    --foreground: var(--base-200);
+    --card: var(--base-950);
+    --card-foreground: var(--base-200);
+    --popover: var(--base-900);
+    --popover-foreground: var(--base-200);
+    --primary: var(--base-50);
+    --primary-foreground: var(--base-900);
+    --secondary: var(--base-800);
+    --secondary-foreground: var(--base-200);
+    --muted: var(--base-900);
+    --muted-foreground: var(--base-400);
+    --accent: var(--base-800);
+    --accent-foreground: var(--base-200);
+    --destructive: var(--error);
+    --destructive-foreground: var(--base-50);
+    --border: var(--base-800);
+    --border-subtle: oklch(0.2 0.01 228 / 0.5);
+    --input: var(--base-800);
+    --ring: var(--base-400);
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    font-family: 'Nunito', system-ui, sans-serif;
+    @apply bg-background text-foreground;
+    font-size: 14px;
+    line-height: 1.5;
+    min-height: 100vh;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Custom scrollbar */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--base-700);
+    border-radius: 4px;
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--base-600);
+  }
+}
+
+@layer utilities {
+  /* Font families */
+  .font-display {
+    font-family: 'Figtree', sans-serif;
+  }
+
+  .font-text {
+    font-family: 'Nunito', sans-serif;
+  }
+
+  .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  .font-brand {
+    font-family: 'Orbitron', sans-serif;
+  }
+
+  /* Smooth transitions */
+  .transition-smooth {
+    @apply transition-all duration-200 ease-out;
+  }
+}
+
+@layer components {
+  /* Stat Card with gradient border */
+  .stat-card {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    flex: 1;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    padding: 1px;
+    background: linear-gradient(135deg, oklch(0.3 0.015 228) 0%, oklch(0.15 0.008 228) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  .stat-card-inner {
+    background: linear-gradient(160deg, oklch(0.20 0.012 228) 0%, oklch(0.16 0.01 228) 100%);
+    padding: 24px 32px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 4px;
+    text-align: left;
+  }
+
+  .stat-card:hover .stat-card-inner {
+    background: linear-gradient(160deg, oklch(0.22 0.014 228) 0%, oklch(0.18 0.012 228) 100%);
+  }
+
+  .stat-card:hover::before {
+    background: linear-gradient(135deg, oklch(0.4 0.025 228) 0%, oklch(0.22 0.012 228) 100%);
+  }
+
+  .stat-card.active .stat-card-inner {
+    background: linear-gradient(160deg, oklch(0.22 0.014 228) 0%, oklch(0.18 0.012 228) 100%);
+  }
+
+  .stat-card.active::before {
+    background: linear-gradient(135deg, oklch(0.6 0.035 228) 0%, oklch(0.4 0.025 228) 100%);
+  }
+
+  .stat-value {
+    font-family: 'Figtree', sans-serif;
+    font-size: 28px;
+    font-weight: 600;
+  }
+
+  .stat-label {
+    font-size: 12px;
+    color: var(--muted-foreground);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+
+  /* Proxy Card with gradient border */
+  .proxy-card {
+    position: relative;
+    border-radius: var(--radius);
+    overflow: hidden;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .proxy-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: var(--radius);
+    padding: 1px;
+    background: linear-gradient(135deg, oklch(0.35 0.02 228) 0%, oklch(0.18 0.01 228) 50%, oklch(0.25 0.015 228) 100%);
+    -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+    -webkit-mask-composite: xor;
+    mask-composite: exclude;
+  }
+
+  .proxy-card-inner {
+    background: linear-gradient(145deg, oklch(0.20 0.014 228) 0%, oklch(0.16 0.012 228) 100%);
+    padding: 24px;
+    height: 100%;
+    position: relative;
+  }
+
+  .proxy-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px oklch(0.15 0.01 228 / 0.2);
+  }
+
+  .proxy-card:hover::before {
+    background: linear-gradient(135deg, oklch(0.38 0.022 228) 0%, oklch(0.2 0.012 228) 50%, oklch(0.28 0.018 228) 100%);
+  }
+
+  .proxy-card:hover .proxy-card-inner {
+    background: linear-gradient(145deg, oklch(0.24 0.016 228) 0%, oklch(0.20 0.014 228) 100%);
+  }
+
+  .proxy-name {
+    font-family: 'Figtree', sans-serif;
+    font-size: 17px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+  }
+
+  .proxy-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--muted-foreground);
+  }
+
+  .status-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--success);
+    box-shadow: 0 0 8px oklch(0.7 0.15 145 / 0.5);
+  }
+
+  .status-dot.inactive {
+    background: var(--base-600);
+    box-shadow: none;
+  }
+
+  .proxy-meta {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--muted-foreground);
+    margin-bottom: 16px;
+  }
+
+  .proxy-meta-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .proxy-meta-label {
+    color: var(--base-600);
+    min-width: 40px;
+  }
+
+  .proxy-meta-value {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    color: var(--base-400);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .proxy-stats {
+    display: flex;
+    gap: 24px;
+    padding-top: 16px;
+    border-top: 1px solid var(--border-subtle);
+  }
+
+  .proxy-stat {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .proxy-stat-value {
+    font-family: 'Figtree', sans-serif;
+    font-size: 18px;
+    font-weight: 600;
+    color: var(--foreground);
+  }
+
+  .proxy-stat-label {
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--base-500);
+  }
+
+  /* Pending badge */
+  .pending-badge {
+    position: absolute;
+    top: 16px;
+    right: 16px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 10px;
+    background: oklch(0.75 0.15 85 / 0.15);
+    border: 1px solid oklch(0.75 0.15 85 / 0.3);
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    color: oklch(0.85 0.12 85);
+  }
+
+  .pending-badge .pulse {
+    width: 6px;
+    height: 6px;
+    background: oklch(0.8 0.15 85);
+    border-radius: 50%;
+    animation: pulse 2s ease-in-out infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.5; transform: scale(1.2); }
+  }
+}

@@ -1,0 +1,79 @@
+import { useState, useEffect, useCallback } from 'react'
+import {
+  getAuthStatus,
+  logout as apiLogout,
+  logoutFederated as apiLogoutFederated,
+  type AuthStatus,
+} from '@/api/auth'
+
+interface UseAuthReturn {
+  status: AuthStatus | null
+  loading: boolean
+  error: string | null
+  logout: () => Promise<void>
+  logoutFederated: () => Promise<void>
+  refresh: () => Promise<void>
+}
+
+export function useAuth(): UseAuthReturn {
+  const [status, setStatus] = useState<AuthStatus | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  const fetchStatus = useCallback(async () => {
+    try {
+      setLoading(true)
+      setError(null)
+      const data = await getAuthStatus()
+      setStatus(data)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to get auth status')
+      // Set unauthenticated on error
+      setStatus({
+        authenticated: false,
+        subject_id: null,
+        email: null,
+        name: null,
+        token_expires_in_hours: null,
+        has_refresh_token: null,
+        storage_backend: null,
+        provider: null,
+      })
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchStatus()
+  }, [fetchStatus])
+
+  const logout = useCallback(async () => {
+    try {
+      await apiLogout()
+      await fetchStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Logout failed')
+    }
+  }, [fetchStatus])
+
+  const logoutFederated = useCallback(async () => {
+    try {
+      const response = await apiLogoutFederated()
+      // Open logout URL in new window/tab
+      window.open(response.logout_url, '_blank')
+      await fetchStatus()
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Federated logout failed')
+    }
+  }, [fetchStatus])
+
+  return {
+    status,
+    loading,
+    error,
+    logout,
+    logoutFederated,
+    refresh: fetchStatus,
+  }
+}
