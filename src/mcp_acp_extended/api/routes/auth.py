@@ -61,6 +61,7 @@ class AuthStatusResponse(BaseModel):
     token_expires_in_hours: float | None = None
     has_refresh_token: bool | None = None
     storage_backend: str | None = None
+    provider: str | None = None  # OIDC issuer domain (e.g., "Auth0")
 
 
 class DeviceFlowStartResponse(BaseModel):
@@ -140,12 +141,27 @@ def _cleanup_expired_flows() -> None:
 # =============================================================================
 
 
-def _unauthenticated_response() -> AuthStatusResponse:
+def _get_provider_name(issuer: str) -> str:
+    """Extract provider name from OIDC issuer URL."""
+    # Extract domain from issuer URL (e.g., "https://foo.auth0.com" -> "Auth0")
+    try:
+        from urllib.parse import urlparse
+
+        domain = urlparse(issuer).netloc
+        if "auth0.com" in domain:
+            return "Auth0"
+        return domain
+    except Exception:
+        return issuer
+
+
+def _unauthenticated_response(oidc_config: "OIDCConfig") -> AuthStatusResponse:
     """Build standard unauthenticated response with storage info."""
     storage_info = get_token_storage_info()
     return AuthStatusResponse(
         authenticated=False,
         storage_backend=storage_info.get("backend"),
+        provider=_get_provider_name(oidc_config.issuer),
     )
 
 
@@ -156,7 +172,7 @@ def _get_identity_provider_optional(request: Request) -> "OIDCIdentityProvider |
 
 
 @router.get("/status")
-async def get_auth_status(request: Request) -> AuthStatusResponse:
+async def get_auth_status(request: Request, oidc_config: OIDCConfigDep) -> AuthStatusResponse:
     """Get authentication status and user info.
 
     Returns current auth state including:
@@ -164,36 +180,111 @@ async def get_auth_status(request: Request) -> AuthStatusResponse:
     - User info (subject_id, email, name) if authenticated
     - Token expiry and refresh token status
     - Storage backend info
+
+    Works in two modes:
+    1. Full proxy mode: uses identity provider from app.state
+    2. Standalone/API mode: reads directly from token storage (keychain)
     """
+    storage_info = get_token_storage_info()
+
+    # Try identity provider first (if running in full proxy mode)
     provider = _get_identity_provider_optional(request)
-    if provider is None or not provider.is_authenticated:
-        return _unauthenticated_response()
+    if provider is not None and provider.is_authenticated:
+        try:
+            identity = await provider.get_identity()
+            token = provider._current_token
 
-    # Get identity and token info
-    try:
-        identity = await provider.get_identity()
-        # Access internal token for expiry info (get_identity populates this)
-        # TODO: Add public get_token_info() method to OIDCIdentityProvider
-        token = provider._current_token
+            expires_in_hours = None
+            has_refresh = None
+            email = identity.subject_claims.get("email")
+            name = identity.subject_claims.get("name")
 
-        expires_in_hours = None
-        has_refresh = None
-        if token:
-            expires_in_hours = token.seconds_until_expiry / 3600
-            has_refresh = bool(token.refresh_token)
+            if token:
+                expires_in_hours = token.seconds_until_expiry / 3600
+                has_refresh = bool(token.refresh_token)
 
-        storage_info = get_token_storage_info()
+                # If email/name not in access token claims, try ID token
+                if (not email or not name) and token.id_token:
+                    try:
+                        from mcp_acp_extended.security.auth.jwt_validator import JWTValidator
+
+                        validator = JWTValidator(oidc_config)
+                        id_claims = validator.decode_without_validation(token.id_token)
+                        if not email:
+                            email = id_claims.get("email")
+                        if not name:
+                            name = id_claims.get("name")
+                    except (ValueError, KeyError):
+                        pass  # Can't decode ID token - not critical
+
+            return AuthStatusResponse(
+                authenticated=True,
+                subject_id=identity.subject_id,
+                email=email,
+                name=name,
+                token_expires_in_hours=expires_in_hours,
+                has_refresh_token=has_refresh,
+                storage_backend=storage_info.get("backend"),
+                provider=_get_provider_name(oidc_config.issuer),
+            )
+        except AuthenticationError:
+            pass  # Fall through to token storage check
+
+    # Fall back to reading directly from token storage (like CLI does)
+    storage = create_token_storage(oidc_config)
+    provider_name = _get_provider_name(oidc_config.issuer)
+
+    if not storage.exists():
         return AuthStatusResponse(
-            authenticated=True,
-            subject_id=identity.subject_id,
-            email=identity.subject_claims.get("email"),
-            name=identity.subject_claims.get("name"),
-            token_expires_in_hours=expires_in_hours,
-            has_refresh_token=has_refresh,
+            authenticated=False,
             storage_backend=storage_info.get("backend"),
+            provider=provider_name,
         )
+
+    try:
+        token = storage.load()
     except AuthenticationError:
-        return _unauthenticated_response()
+        return AuthStatusResponse(
+            authenticated=False,
+            storage_backend=storage_info.get("backend"),
+            provider=provider_name,
+        )
+
+    if token is None or token.is_expired:
+        return AuthStatusResponse(
+            authenticated=False,
+            storage_backend=storage_info.get("backend"),
+            provider=provider_name,
+        )
+
+    # Token is valid - extract user info from ID token
+    email = None
+    name = None
+    subject_id = None
+
+    if token.id_token:
+        try:
+            from mcp_acp_extended.security.auth.jwt_validator import JWTValidator
+
+            validator = JWTValidator(oidc_config)
+            claims = validator.decode_without_validation(token.id_token)
+
+            email = claims.get("email")
+            name = claims.get("name")
+            subject_id = claims.get("sub")
+        except (ValueError, KeyError):
+            pass  # Can't decode ID token - not critical
+
+    return AuthStatusResponse(
+        authenticated=True,
+        subject_id=subject_id,
+        email=email,
+        name=name,
+        token_expires_in_hours=token.seconds_until_expiry / 3600,
+        has_refresh_token=bool(token.refresh_token),
+        storage_backend=storage_info.get("backend"),
+        provider=provider_name,
+    )
 
 
 @router.post("/login")

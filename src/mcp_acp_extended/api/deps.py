@@ -154,7 +154,10 @@ def get_identity_provider(request: Request) -> "OIDCIdentityProvider":
 
 
 def get_oidc_config(request: Request) -> "OIDCConfig":
-    """Get OIDCConfig from app.state.config.
+    """Get OIDCConfig from app.state or config file.
+
+    Tries app.state.config first (proxy running), then falls back to
+    loading from config file (for standalone API/CLI-style usage).
 
     Args:
         request: FastAPI request object.
@@ -163,16 +166,49 @@ def get_oidc_config(request: Request) -> "OIDCConfig":
         OIDCConfig instance.
 
     Raises:
-        HTTPException: 503 if config not available.
-        HTTPException: 400 if OIDC not configured.
+        HTTPException: 400 if OIDC not configured anywhere.
     """
-    config = get_config(request)
-    if config.auth is None or config.auth.oidc is None:
-        raise HTTPException(
-            status_code=400,
-            detail="Authentication not configured. Add 'auth.oidc' section to config.",
-        )
-    return config.auth.oidc
+    # Try app.state first (proxy running)
+    from mcp_acp_extended.config import AppConfig, OIDCConfig
+
+    config = getattr(request.app.state, "config", None)
+    if config is not None and isinstance(config, AppConfig):
+        if config.auth is not None and config.auth.oidc is not None:
+            return cast(OIDCConfig, config.auth.oidc)
+
+    # Fall back to config file (like CLI does)
+    oidc_config = _load_oidc_config_from_file()
+    if oidc_config is not None:
+        return oidc_config
+
+    raise HTTPException(
+        status_code=400,
+        detail="Authentication not configured. Add 'auth.oidc' section to config.",
+    )
+
+
+def _load_oidc_config_from_file() -> "OIDCConfig | None":
+    """Load OIDC config from config file (like CLI does).
+
+    Returns:
+        OIDCConfig if found and valid, None otherwise.
+    """
+    # Import here to avoid circular imports
+    from mcp_acp_extended.config import AppConfig
+    from mcp_acp_extended.utils.config import get_config_path
+
+    try:
+        config_path = get_config_path()
+        if not config_path.exists():
+            return None
+
+        config = AppConfig.load_from_files(config_path)
+        if config.auth is None or config.auth.oidc is None:
+            return None
+
+        return config.auth.oidc
+    except Exception:
+        return None
 
 
 # =============================================================================

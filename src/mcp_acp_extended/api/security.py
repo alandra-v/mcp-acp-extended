@@ -252,7 +252,15 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         # 7. Add security headers
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = "default-src 'self'"
+        # CSP: allow Google Fonts and inline styles for UI
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'self'; "
+            "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+            "font-src 'self' https://fonts.gstatic.com; "
+            "script-src 'self' 'unsafe-inline'; "
+            "img-src 'self' data:; "
+            "connect-src 'self'"
+        )
         response.headers["Cache-Control"] = "no-store"
         response.headers["Referrer-Policy"] = "same-origin"
         # Disable unnecessary browser features

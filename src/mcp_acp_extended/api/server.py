@@ -34,12 +34,18 @@ Usage:
 """
 
 import os
+from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
+from fastapi.staticfiles import StaticFiles
 
 from .routes import approvals, auth, config, control, logs, pending, policy, proxies, sessions
 from .security import SecurityMiddleware
+
+# Static files directory (built React app)
+STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
 
 
 def create_api_app(token: str | None = None) -> FastAPI:
@@ -57,6 +63,9 @@ def create_api_app(token: str | None = None) -> FastAPI:
         description="Management API for MCP-ACP Extended proxy",
         version="0.1.0",
     )
+
+    # Store token for injection into index.html
+    app.state.api_token = token
 
     # Security middleware (must be added before CORS)
     # Only enabled when token is provided (proxy mode)
@@ -91,10 +100,29 @@ def create_api_app(token: str | None = None) -> FastAPI:
     app.include_router(config.router, prefix="/api/config", tags=["config"])
     app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 
-    # TODO: Serve static files (built React app)
-    # static_dir = Path(__file__).parent.parent / "web" / "static"
-    # if static_dir.exists():
-    #     app.mount("/assets", StaticFiles(directory=static_dir / "assets"), name="assets")
-    #     # SPA fallback route
+    # Serve static files (built React app)
+    if STATIC_DIR.exists():
+        assets_dir = STATIC_DIR / "assets"
+        if assets_dir.exists():
+            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+        # SPA fallback: serve index.html for all non-API routes
+        index_file = STATIC_DIR / "index.html"
+        if index_file.exists():
+
+            @app.get("/{path:path}")
+            async def serve_spa(path: str, request: Request) -> HTMLResponse:
+                """Serve index.html with token injection for SPA routing."""
+                # Read HTML fresh each time (supports hot reload during dev)
+                html = index_file.read_text()
+
+                # Inject API token into HTML for frontend authentication
+                api_token = getattr(request.app.state, "api_token", None)
+                if api_token:
+                    # Inject token script before </head>
+                    token_script = f'<script>window.__API_TOKEN__ = "{api_token}";</script>'
+                    html = html.replace("</head>", f"{token_script}\n  </head>")
+
+                return HTMLResponse(content=html)
 
     return app

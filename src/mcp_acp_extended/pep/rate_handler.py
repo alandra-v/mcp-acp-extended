@@ -143,7 +143,7 @@ class RateBreachHandler:
                 hitl_cache_hit=False,  # Rate limits never cached
             )
 
-            self._system_logger.info(
+            self._system_logger.warning(
                 {
                     "event": "rate_limit_approved",
                     "message": f"User approved rate limit breach for {tool_name}",
@@ -172,7 +172,7 @@ class RateBreachHandler:
                 hitl_cache_hit=False,  # Rate limits never cached
             )
 
-            self._system_logger.info(
+            self._system_logger.warning(
                 {
                     "event": "rate_limit_denied",
                     "message": f"{reason} for rate limit breach on {tool_name}",

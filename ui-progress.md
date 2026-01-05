@@ -35,34 +35,6 @@ State classes live in proxy process. Proxy owns all state (approvals, sessions, 
   - [x] Create `ProxyState` in lifespan with approval_store + session_manager
   - [x] Attach to `api_app.state`: proxy_state, config, policy_reloader, approval_store, identity_provider
 
-- [x] **Best practices applied**
-  - [x] All routes in `api/routes/`, state classes in `manager/`
-  - [x] Centralized dependencies in `api/deps.py` with `Annotated[T, Depends()]` pattern
-  - [x] Type aliases: `ProxyStateDep`, `ConfigDep`, `PolicyReloaderDep`, `ApprovalStoreDep`, etc.
-  - [x] Separated API model (PendingApprovalInfo) from internal waiter (PendingApprovalRequest)
-  - [x] Added `SessionManager.get_all_sessions()` public accessor
-  - [x] Bounded SSE queues to maxsize=100 (memory safety)
-  - [x] SSE connect/disconnect logging for observability
-  - [x] Fixed type annotations (cast, AsyncIterator, NamedTuple)
-
-**Route organization**:
-| Package | Routes | Purpose |
-|---------|--------|---------|
-| `api/routes/approvals.py` | `/api/approvals/cached` | Cached HITL approvals (debug) |
-| `api/routes/pending.py` | `/api/approvals/pending/*` | Pending HITL approvals (SSE + actions) |
-| `api/routes/proxies.py` | `/api/proxies/*` | Proxy info |
-| `api/routes/sessions.py` | `/api/auth-sessions` | Auth sessions |
-| `api/routes/control.py` | `/api/control/*` | Status and policy reload |
-| `api/routes/policy.py` | `/api/policy/*` | Policy CRUD with auto-reload |
-| `api/routes/auth.py` | `/api/auth/*` | Device flow auth, logout |
-| `api/routes/config.py` | `/api/config` | Config read/update |
-| `api/routes/logs.py` | `/api/logs/*` | JSONL log viewing |
-
-**Terminology**:
-- **Cached approvals** = Previously approved HITL decisions (reduces dialog fatigue)
-- **Pending approvals** = HITL requests waiting for user decision
-- **Auth sessions** = User authentication bindings (JWT → session), not proxy lifecycle
-
 **Deliverable**: `curl http://127.0.0.1:8765/api/proxies` returns real proxy data. ✓
 
 ---
@@ -72,8 +44,6 @@ State classes live in proxy process. Proxy owns all state (approvals, sessions, 
 **Status: COMPLETE**
 
 Implement security from ui-security.md.
-
-### Required
 
 - [x] **Token generation** (`api/security.py`)
   - [x] Generate random bearer token on startup (32 bytes, hex encoded)
@@ -97,9 +67,6 @@ Implement security from ui-security.md.
 - [x] **SSE authentication**
   - [x] Same-origin requests (no Origin header) → allow SSE without token
   - [x] Cross-origin (dev mode) → accept token in query param for SSE only
-  - [x] Never accept query param token for mutations
-
-### Recommended
 
 - [x] **Response security headers**
   - [x] `X-Content-Type-Options: nosniff`
@@ -112,11 +79,6 @@ Implement security from ui-security.md.
 - [x] **Request limits**
   - [x] Max request size: 1MB
 
-### Enterprise Hardening (Future)
-
-- [ ] Rate limiting - deferred (enterprise compliance)
-- [ ] Failed auth lockout - deferred (enterprise compliance)
-
 **Deliverable**: API rejects unauthorized requests, prevents DNS rebinding. ✓
 
 ---
@@ -124,8 +86,6 @@ Implement security from ui-security.md.
 ## Phase 3: Core API Endpoints
 
 **Status: COMPLETE**
-
-### P0: Critical - DONE
 
 - [x] `GET /api/proxies` - list proxies
 - [x] `GET /api/proxies/{id}` - proxy details
@@ -137,8 +97,6 @@ Implement security from ui-security.md.
 - [x] `POST /api/approvals/{id}/approve` - approve pending
 - [x] `POST /api/approvals/{id}/deny` - deny pending
 
-### P1: Important - DONE
-
 - [x] **Policy endpoints** (`api/routes/policy.py`)
   - [x] `GET /api/policy` - read policy with metadata
   - [x] `GET /api/policy/rules` - list rules
@@ -146,7 +104,7 @@ Implement security from ui-security.md.
   - [x] `PUT /api/policy/rules/{id}` - update rule (auto-reload)
   - [x] `DELETE /api/policy/rules/{id}` - delete rule (auto-reload)
 - [x] **Auth endpoints** (`api/routes/auth.py`)
-  - [x] `GET /api/auth/status` - auth status + user info
+  - [x] `GET /api/auth/status` - auth status + user info + provider
   - [x] `POST /api/auth/login` - start device flow
   - [x] `GET /api/auth/login/poll` - poll for completion
   - [x] `POST /api/auth/logout` - local logout (keychain)
@@ -164,9 +122,7 @@ Implement security from ui-security.md.
 
 ## Phase 4: HITL Integration
 
-**Status: Infrastructure Ready, Integration Pending**
-
-### Done (via Phase 1)
+**Status: COMPLETE**
 
 - [x] `ProxyState.create_pending()` - create pending approval
 - [x] `ProxyState.resolve_pending()` - resolve with allow/deny
@@ -177,80 +133,130 @@ Implement security from ui-security.md.
 - [x] SSE broadcast of pending/resolved/timeout events
 - [x] Approval endpoints (approve/deny)
 
-### TODO
+- [x] **HITL handler integration** (`pep/hitl.py`)
+  - [x] `HITLHandler.set_proxy_state()` - wire ProxyState after creation
+  - [x] `HITLHandler._request_approval_via_ui()` - web UI flow
+  - [x] Check `is_ui_connected` before creating pending
+  - [x] If UI connected: use `create_pending()` + `wait_for_decision()`
+  - [x] If timeout or no UI: fall back to osascript
+  - [x] Never show both simultaneously
 
-- [ ] **Modify HITL handler** (`pep/hitl.py`)
-  - [ ] Check `is_ui_connected` before creating pending
-  - [ ] If UI connected: use `wait_for_decision()`
-  - [ ] If timeout or no UI: fall back to osascript
-  - [ ] Never show both simultaneously
-
-- [ ] **Integration test**: trigger HITL, approve in browser
-
-**Deliverable**: Browser approvals work, osascript fallback when UI closed.
+**Deliverable**: Browser approvals work, osascript fallback when UI closed. ✓
 
 ---
 
-## Phase 5-7: React Integration, Editors, Polish
+## Phase 5: React UI
 
-**Status: Not Started**
+**Status: COMPLETE**
 
-See full details in sections below.
+Full React UI with real-time data.
+
+### Pages Implemented
+
+- [x] **Proxies page** (`/`)
+  - [x] Stats row with filter cards (All, Active, Inactive, Pending)
+  - [x] Proxy grid showing all registered proxies
+  - [x] Click proxy to navigate to detail page
+  - [x] Pending approvals drawer (slide-in from right)
+
+- [x] **Proxy detail page** (`/proxy/:id`)
+  - [x] Breadcrumb navigation
+  - [x] Sidebar with section navigation (Overview, Logs, Policy, Config)
+  - [x] Stats section with metrics
+  - [x] Approvals section (pending for this proxy)
+  - [x] Activity section (recent decisions)
+
+- [x] **Global logs page** (`/logs`)
+  - [x] Page header matching Proxies page style
+  - [x] Placeholder for log viewer (coming soon)
+
+- [x] **Auth page** (`/auth`)
+  - [x] Auth status display (authenticated/not authenticated)
+  - [x] Provider info (Auth0, etc.)
+  - [x] Storage backend info
+  - [x] User details when authenticated (Subject ID, Email, Token Expires, Refresh Token)
+  - [x] Login/Logout/Federated Logout actions
+
+### Components Implemented
+
+- [x] **Layout components**
+  - [x] Header with nav links and auth dropdown
+  - [x] Footer with version info
+  - [x] Layout wrapper
+
+- [x] **Auth dropdown** (in Header)
+  - [x] Status indicator (green/red dot)
+  - [x] Login dialog with device flow
+  - [x] Logout and federated logout options
+  - [x] Disabled states when not applicable
+
+- [x] **Proxy components**
+  - [x] StatsRow with filter cards
+  - [x] ProxyGrid with proxy cards
+  - [x] ProxyCard with status indicator
+  - [x] PendingDrawer for approval queue
+
+- [x] **Detail components**
+  - [x] DetailSidebar with section navigation
+  - [x] StatsSection with metrics
+  - [x] ApprovalsSection with approve/deny
+  - [x] ActivitySection with recent logs
+
+- [x] **shadcn/ui components**
+  - [x] Button, Card, Badge
+  - [x] DropdownMenu
+  - [x] Dialog
+  - [x] Sheet (drawer)
+
+### Hooks Implemented
+
+- [x] `useProxies` - fetch proxy list
+- [x] `usePendingApprovals` - SSE subscription for pending + approve/deny
+- [x] `useLogs` - fetch log entries
+- [x] `useAuth` - auth status + login/logout
+
+### API Client
+
+- [x] Base client with token injection
+- [x] Proxy endpoints
+- [x] Approval endpoints
+- [x] Auth endpoints
+- [x] Log endpoints
+
+### Styling
+
+- [x] Tailwind CSS with custom theme
+- [x] OKLCH color palette from ui-aesthetics.md
+- [x] Figtree (display), Nunito (text), JetBrains Mono (mono)
+- [x] CSS variables for dynamic theming
+- [x] Smooth transitions and hover effects
 
 ---
 
-## Future: Proxy Lifecycle Management (Multi-Backend)
+## Phase 6: Production Build
 
-**Status: Deferred** (requires multi-proxy Manager architecture)
+**Status: COMPLETE**
 
-Manage proxy processes from the UI. Only applicable when running multiple backend proxies.
-
-### Endpoints (not yet implemented)
-
-- [ ] `POST /api/proxies/{id}/start` - start a proxy
-- [ ] `POST /api/proxies/{id}/stop` - stop a proxy
-- [ ] `POST /api/proxies/{id}/restart` - restart a proxy
-- [ ] `DELETE /api/proxies/{id}` - remove proxy from registry
-
-### Prerequisites
-
-- Multi-proxy Manager process (separate from proxy workers)
-- Worker registration/heartbeat protocol
-- Process spawning/supervision
-
-### Notes
-
-- In single-proxy mode, stopping the proxy kills the CLI process and UI
-- Proxy lifecycle is currently managed by the MCP client (e.g., Claude Desktop)
-- This feature makes sense when Manager can spawn/supervise multiple backend proxies
+- [x] Vite build outputs to `src/mcp_acp_extended/web/static/`
+- [x] FastAPI serves static files
+- [x] SPA fallback for client-side routing
+- [x] Token injection via server-side template
+- [x] Auto-open browser on proxy start (if not already running)
+- [x] `--no-ui` flag to disable auto-open
 
 ---
 
-## Dependencies
+## Phase 7: Polish & Refinements
 
-```
-Phase 1 (Backend) ──► Phase 2 (Security) ──► Phase 3 (Endpoints) ──► Phase 4 (HITL)
-     ✓                       ✓                       ✓                infra ✓
-                                                                      NEXT
-                                                                          │
-                                                                          ▼
-                                                                    Phase 5 (React)
-                                                                          │
-                                                                          ▼
-                                                                    Phase 6 (Editors)
-                                                                          │
-                                                                          ▼
-                                                                    Phase 7 (Polish)
-```
+**Status: IN PROGRESS**
 
----
-
-## Completion Criteria
-
-- [x] API returns real proxy/session/approval data
-- [x] Security middleware prevents unauthorized access
-- [ ] Web-based HITL approvals work
-- [ ] osascript fallback when UI not connected
-- [x] Config/Policy editable from browser (API complete, UI pending)
-- [x] Auth status visible in UI (API complete, UI pending)
-- [ ] Build pipeline produces shippable static files
+- [x] Clean Ctrl+C shutdown (no traceback spam)
+- [x] Suppress uvicorn error logging on shutdown
+- [x] Login dialog message matches Auth0 prompt
+- [x] Federated logout disabled when not authenticated
+- [x] Global Logs title font matches Proxies page
+- [x] Stop/Restart buttons removed from proxy detail (Phase 2 feature)
+- [x] Auth page shows provider info
+- [ ] Log viewer implementation
+- [ ] Policy editor implementation
+- [ ] Config editor implementation
