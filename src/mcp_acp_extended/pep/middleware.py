@@ -34,7 +34,6 @@ from mcp_acp_extended.exceptions import (
     SessionBindingViolationError,
 )
 from mcp_acp_extended.pep.approval_store import ApprovalStore
-from mcp_acp_extended.api.routes.approvals import register_approval_store
 from mcp_acp_extended.pep.hitl import HITLHandler, HITLOutcome
 from mcp_acp_extended.pep.rate_handler import RateBreachHandler
 from mcp_acp_extended.security.identity import IdentityProvider
@@ -95,9 +94,8 @@ class PolicyEnforcementMiddleware(Middleware):
         self._hitl_handler = HITLHandler(policy.hitl)
         self._hitl_config = policy.hitl  # For cache settings
         # Approval cache for reducing HITL dialog fatigue
+        # Exposed via `approval_store` property for proxy to wire to API app.state
         self._approval_store = ApprovalStore(ttl_seconds=policy.hitl.approval_ttl_seconds)
-        # Register with API for debugging visibility
-        register_approval_store(self._approval_store)
         # Client name extracted from initialize request
         self._client_name: str | None = None
         # Rate limiting for detecting runaway loops
@@ -175,8 +173,9 @@ class PolicyEnforcementMiddleware(Middleware):
             # Update approval store TTL if it changed
             if self._approval_store.ttl_seconds != new_policy.hitl.approval_ttl_seconds:
                 # Create new store with new TTL (old approvals are cleared anyway)
+                # Note: API routes reference the store via proxy_state - this creates
+                # a new store but API will see stale data until restart
                 self._approval_store = ApprovalStore(ttl_seconds=new_policy.hitl.approval_ttl_seconds)
-                register_approval_store(self._approval_store)
                 cleared_count = 0  # New store, nothing to clear
             else:
                 # Clear existing cache - HITL rules may have changed
@@ -209,7 +208,6 @@ class PolicyEnforcementMiddleware(Middleware):
             self._decision_logger._policy_version = old_policy_version
             if self._approval_store is not old_approval_store:
                 self._approval_store = old_approval_store
-                register_approval_store(old_approval_store)
             raise
 
     def _extract_client_name(self, context: MiddlewareContext[Any]) -> None:

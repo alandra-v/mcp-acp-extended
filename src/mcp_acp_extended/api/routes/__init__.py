@@ -6,13 +6,22 @@ Route organization:
 - proxies: Proxy information
 - sessions: Auth sessions (user authentication bindings)
 - control: Proxy control (status, policy reload)
-
-Future additions:
-- config: Configuration management
-- policy: Policy management
-- logs: Log viewer
+- policy: Policy management (CRUD)
+- auth: Authentication management (login, logout, status)
+- config: Configuration management (read, update)
+- logs: Log viewer (decisions, operations, auth, system)
 """
 
-from . import approvals, control, pending, proxies, sessions
+from . import approvals, auth, config, control, logs, pending, policy, proxies, sessions
 
-__all__ = ["approvals", "control", "pending", "proxies", "sessions"]
+__all__ = [
+    "approvals",
+    "auth",
+    "config",
+    "control",
+    "logs",
+    "pending",
+    "policy",
+    "proxies",
+    "sessions",
+]

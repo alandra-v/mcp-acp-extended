@@ -369,6 +369,15 @@ def create_proxy(
             # proxy_state is captured from enclosing scope (created after lifespan definition)
             api_app.state.proxy_state = proxy_state
 
+            # Wire identity provider and config for auth/config API routes
+            # identity_provider is captured from enclosing scope
+            api_app.state.identity_provider = identity_provider
+            api_app.state.config = config
+
+            # Wire approval store for cached approvals API
+            # enforcement_middleware is captured from enclosing scope
+            api_app.state.approval_store = enforcement_middleware.approval_store
+
             # Setup SIGHUP handler for policy hot reload (Unix only)
             def handle_sighup() -> None:
                 """Handle SIGHUP signal by scheduling policy reload."""

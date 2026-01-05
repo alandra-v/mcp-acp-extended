@@ -16,11 +16,11 @@ import logging
 from datetime import datetime
 from typing import AsyncIterator
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
-from mcp_acp_extended.api.deps import get_proxy_state
+from mcp_acp_extended.api.deps import ProxyStateDep
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ class ApprovalActionResponse(BaseModel):
 
 
 @router.get("")
-async def pending_approvals_stream(request: Request) -> StreamingResponse:
+async def pending_approvals_stream(state: ProxyStateDep) -> StreamingResponse:
     """SSE stream of pending approvals.
 
     Streams events for:
@@ -66,7 +66,6 @@ async def pending_approvals_stream(request: Request) -> StreamingResponse:
         - pending_timeout: Approval timed out
         - snapshot: Initial list of pending approvals
     """
-    state = get_proxy_state(request)
 
     async def event_generator() -> AsyncIterator[str]:
         queue = state.subscribe()
@@ -104,13 +103,12 @@ async def pending_approvals_stream(request: Request) -> StreamingResponse:
 
 
 @router.get("/list", response_model=list[PendingApprovalResponse])
-async def list_pending_approvals(request: Request) -> list[PendingApprovalResponse]:
+async def list_pending_approvals(state: ProxyStateDep) -> list[PendingApprovalResponse]:
     """List pending approvals (non-SSE).
 
     Alternative to SSE stream for clients that don't support SSE.
     Returns current pending approvals without streaming.
     """
-    state = get_proxy_state(request)
     pending = state.get_pending_approvals()
 
     return [
@@ -129,11 +127,12 @@ async def list_pending_approvals(request: Request) -> list[PendingApprovalRespon
 
 
 @router.post("/{approval_id}/approve", response_model=ApprovalActionResponse)
-async def approve_pending(approval_id: str, request: Request) -> ApprovalActionResponse:
+async def approve_pending(approval_id: str, state: ProxyStateDep) -> ApprovalActionResponse:
     """Approve a pending request.
 
     Args:
         approval_id: The pending approval ID.
+        state: Proxy state (injected).
 
     Returns:
         Status confirmation.
@@ -141,8 +140,6 @@ async def approve_pending(approval_id: str, request: Request) -> ApprovalActionR
     Raises:
         HTTPException: 404 if approval not found.
     """
-    state = get_proxy_state(request)
-
     if not state.resolve_pending(approval_id, "allow"):
         raise HTTPException(
             status_code=404,
@@ -153,11 +150,12 @@ async def approve_pending(approval_id: str, request: Request) -> ApprovalActionR
 
 
 @router.post("/{approval_id}/deny", response_model=ApprovalActionResponse)
-async def deny_pending(approval_id: str, request: Request) -> ApprovalActionResponse:
+async def deny_pending(approval_id: str, state: ProxyStateDep) -> ApprovalActionResponse:
     """Deny a pending request.
 
     Args:
         approval_id: The pending approval ID.
+        state: Proxy state (injected).
 
     Returns:
         Status confirmation.
@@ -165,8 +163,6 @@ async def deny_pending(approval_id: str, request: Request) -> ApprovalActionResp
     Raises:
         HTTPException: 404 if approval not found.
     """
-    state = get_proxy_state(request)
-
     if not state.resolve_pending(approval_id, "deny"):
         raise HTTPException(
             status_code=404,

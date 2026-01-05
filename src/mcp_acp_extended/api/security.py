@@ -48,8 +48,8 @@ MANAGER_FILE = Path.home() / ".mcp-acp-extended" / "manager.json"
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
 ALLOWED_ORIGINS = {
     # Production (API served from same origin)
-    "http://localhost:8080",
-    "http://127.0.0.1:8080",
+    "http://localhost:8765",
+    "http://127.0.0.1:8765",
     # Development (Vite dev server)
     "http://localhost:3000",
     "http://127.0.0.1:3000",

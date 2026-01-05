@@ -4,46 +4,21 @@ Provides visibility into the HITL approval cache for debugging and management.
 These are CACHED approvals (previously approved HITL decisions), not pending
 HITL requests waiting for user decision.
 
-The approval store is registered by the middleware at startup.
-
 Routes mounted at: /api/approvals/cached
 """
 
 from __future__ import annotations
 
-__all__ = [
-    "router",
-    "register_approval_store",
-    "get_approval_store",
-]
+__all__ = ["router"]
 
 import time
-from typing import TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-if TYPE_CHECKING:
-    from mcp_acp_extended.pep.approval_store import ApprovalStore
+from mcp_acp_extended.api.deps import ApprovalStoreDep
 
 router = APIRouter()
-
-# Registry for approval store - set by middleware at startup
-_approval_store: "ApprovalStore | None" = None
-
-
-def register_approval_store(store: "ApprovalStore") -> None:
-    """Register the approval store for API access.
-
-    Called by middleware during initialization.
-    """
-    global _approval_store
-    _approval_store = store
-
-
-def get_approval_store() -> "ApprovalStore | None":
-    """Get the registered approval store."""
-    return _approval_store
 
 
 class CachedApprovalResponse(BaseModel):
@@ -67,26 +42,17 @@ class ApprovalCacheResponse(BaseModel):
 
 
 @router.get("")
-async def get_approvals() -> ApprovalCacheResponse:
+async def get_approvals(store: ApprovalStoreDep) -> ApprovalCacheResponse:
     """Get all cached approvals.
 
     Returns the current state of the approval cache for debugging.
     Note: May include expired entries (lazy expiration on lookup).
-
-    Raises:
-        HTTPException: 503 if approval store not registered (proxy not running).
     """
-    if _approval_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Approval store not registered. Is the proxy running?",
-        )
-
     now = time.monotonic()
-    ttl = _approval_store.ttl_seconds
+    ttl = store.ttl_seconds
 
     approvals = []
-    for _key, approval in _approval_store.iter_all():
+    for _key, approval in store.iter_all():
         age = now - approval.stored_at
         approvals.append(
             CachedApprovalResponse(
@@ -115,19 +81,9 @@ class ClearApprovalsResponse(BaseModel):
 
 
 @router.delete("")
-async def clear_approvals() -> ClearApprovalsResponse:
-    """Clear all cached approvals.
-
-    Raises:
-        HTTPException: 503 if approval store not registered (proxy not running).
-    """
-    if _approval_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Approval store not registered. Is the proxy running?",
-        )
-
-    count = _approval_store.clear()
+async def clear_approvals(store: ApprovalStoreDep) -> ClearApprovalsResponse:
+    """Clear all cached approvals."""
+    count = store.clear()
     return ClearApprovalsResponse(cleared=count, status="ok")
 
 
@@ -140,6 +96,7 @@ class DeleteApprovalResponse(BaseModel):
 
 @router.delete("/entry")
 async def delete_approval(
+    store: ApprovalStoreDep,
     subject_id: str,
     tool_name: str,
     path: str | None = None,
@@ -147,21 +104,15 @@ async def delete_approval(
     """Delete a specific cached approval.
 
     Args:
+        store: Approval store (injected).
         subject_id: The user who approved.
         tool_name: The tool that was approved.
         path: The path that was approved (optional).
 
     Raises:
-        HTTPException: 503 if approval store not registered.
         HTTPException: 404 if approval not found.
     """
-    if _approval_store is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Approval store not registered. Is the proxy running?",
-        )
-
-    deleted = _approval_store.delete(subject_id, tool_name, path)
+    deleted = store.delete(subject_id, tool_name, path)
     if not deleted:
         raise HTTPException(
             status_code=404,

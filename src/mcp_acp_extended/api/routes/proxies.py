@@ -11,10 +11,10 @@ __all__ = ["router"]
 
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from mcp_acp_extended.api.deps import get_proxy_state
+from mcp_acp_extended.api.deps import ProxyStateDep
 
 router = APIRouter()
 
@@ -31,14 +31,13 @@ class ProxyResponse(BaseModel):
     uptime_seconds: float
 
 
-@router.get("", response_model=list[ProxyResponse])
-async def list_proxies(request: Request) -> list[ProxyResponse]:
+@router.get("")
+async def list_proxies(state: ProxyStateDep) -> list[ProxyResponse]:
     """List all proxies.
 
     Returns array with single entry for this proxy.
     In multi-proxy Phase 2, Manager will aggregate from multiple proxies.
     """
-    state = get_proxy_state(request)
     info = state.get_proxy_info()
 
     return [
@@ -54,12 +53,13 @@ async def list_proxies(request: Request) -> list[ProxyResponse]:
     ]
 
 
-@router.get("/{proxy_id}", response_model=ProxyResponse)
-async def get_proxy(proxy_id: str, request: Request) -> ProxyResponse:
+@router.get("/{proxy_id}")
+async def get_proxy(proxy_id: str, state: ProxyStateDep) -> ProxyResponse:
     """Get details for a specific proxy.
 
     Args:
         proxy_id: The proxy ID to look up.
+        state: Proxy state (injected).
 
     Returns:
         ProxyResponse with proxy details.
@@ -67,7 +67,6 @@ async def get_proxy(proxy_id: str, request: Request) -> ProxyResponse:
     Raises:
         HTTPException: 404 if proxy not found.
     """
-    state = get_proxy_state(request)
     info = state.get_proxy_info()
 
     if info.id != proxy_id:

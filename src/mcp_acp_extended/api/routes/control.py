@@ -14,13 +14,10 @@ __all__ = [
     "ReloadResponse",
 ]
 
-from typing import TYPE_CHECKING, cast
-
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-if TYPE_CHECKING:
-    from mcp_acp_extended.pep.reloader import PolicyReloader
+from mcp_acp_extended.api.deps import PolicyReloaderDep
 
 router = APIRouter()
 
@@ -47,30 +44,13 @@ class ReloadResponse(BaseModel):
     policy_version: str | None = None
 
 
-def _get_reloader(request: Request) -> "PolicyReloader":
-    """Get PolicyReloader from app state.
-
-    Raises:
-        HTTPException: If reloader not configured (proxy not fully started).
-    """
-    reloader = getattr(request.app.state, "policy_reloader", None)
-    if reloader is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Policy reloader not available. Proxy may still be starting.",
-        )
-    return cast("PolicyReloader", reloader)
-
-
 @router.get("/status")
-async def get_status(request: Request) -> ProxyStatus:
+async def get_status(reloader: PolicyReloaderDep) -> ProxyStatus:
     """Get current proxy and policy status.
 
     Returns:
         ProxyStatus with uptime, policy version, rules count, reload info.
     """
-    reloader = _get_reloader(request)
-
     return ProxyStatus(
         running=True,
         uptime_seconds=reloader.uptime_seconds,
@@ -82,7 +62,7 @@ async def get_status(request: Request) -> ProxyStatus:
 
 
 @router.post("/reload-policy")
-async def reload_policy(request: Request) -> ReloadResponse:
+async def reload_policy(reloader: PolicyReloaderDep) -> ReloadResponse:
     """Reload policy from disk without restarting proxy.
 
     Validates the new policy before applying. On validation failure,
@@ -91,7 +71,6 @@ async def reload_policy(request: Request) -> ReloadResponse:
     Returns:
         ReloadResponse with status, rule counts, and version info.
     """
-    reloader = _get_reloader(request)
     result = await reloader.reload()
 
     return ReloadResponse(

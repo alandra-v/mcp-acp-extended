@@ -33,11 +33,12 @@ State classes live in proxy process. Proxy owns all state (approvals, sessions, 
 
 - [x] **Wire up in proxy** (`proxy.py`)
   - [x] Create `ProxyState` in lifespan with approval_store + session_manager
-  - [x] Attach to `api_app.state.proxy_state`
+  - [x] Attach to `api_app.state`: proxy_state, config, policy_reloader, approval_store, identity_provider
 
 - [x] **Best practices applied**
   - [x] All routes in `api/routes/`, state classes in `manager/`
-  - [x] Shared route helpers in `api/deps.py` (FastAPI convention)
+  - [x] Centralized dependencies in `api/deps.py` with `Annotated[T, Depends()]` pattern
+  - [x] Type aliases: `ProxyStateDep`, `ConfigDep`, `PolicyReloaderDep`, `ApprovalStoreDep`, etc.
   - [x] Separated API model (PendingApprovalInfo) from internal waiter (PendingApprovalRequest)
   - [x] Added `SessionManager.get_all_sessions()` public accessor
   - [x] Bounded SSE queues to maxsize=100 (memory safety)
@@ -52,13 +53,17 @@ State classes live in proxy process. Proxy owns all state (approvals, sessions, 
 | `api/routes/proxies.py` | `/api/proxies/*` | Proxy info |
 | `api/routes/sessions.py` | `/api/auth-sessions` | Auth sessions |
 | `api/routes/control.py` | `/api/control/*` | Status and policy reload |
+| `api/routes/policy.py` | `/api/policy/*` | Policy CRUD with auto-reload |
+| `api/routes/auth.py` | `/api/auth/*` | Device flow auth, logout |
+| `api/routes/config.py` | `/api/config` | Config read/update |
+| `api/routes/logs.py` | `/api/logs/*` | JSONL log viewing |
 
 **Terminology**:
 - **Cached approvals** = Previously approved HITL decisions (reduces dialog fatigue)
 - **Pending approvals** = HITL requests waiting for user decision
 - **Auth sessions** = User authentication bindings (JWT → session), not proxy lifecycle
 
-**Deliverable**: `curl http://127.0.0.1:8080/api/proxies` returns real proxy data. ✓
+**Deliverable**: `curl http://127.0.0.1:8765/api/proxies` returns real proxy data. ✓
 
 ---
 
@@ -118,7 +123,7 @@ Implement security from ui-security.md.
 
 ## Phase 3: Core API Endpoints
 
-**Status: Partially Complete** (P0 done via Phase 1)
+**Status: COMPLETE**
 
 ### P0: Critical - DONE
 
@@ -132,12 +137,28 @@ Implement security from ui-security.md.
 - [x] `POST /api/approvals/{id}/approve` - approve pending
 - [x] `POST /api/approvals/{id}/deny` - deny pending
 
-### P1: Important - TODO
+### P1: Important - DONE
 
-- [ ] **Config endpoints** (`GET/PUT /api/config`)
-- [ ] **Policy endpoints** (`GET/PUT /api/policy`, `POST /api/policy/reload`)
-- [ ] **Log endpoints** (`GET /api/logs`, `GET /api/logs/stream` SSE)
-- [ ] **Auth endpoint** (`GET /api/auth/status`, login, logout, logout federated)
+- [x] **Policy endpoints** (`api/routes/policy.py`)
+  - [x] `GET /api/policy` - read policy with metadata
+  - [x] `GET /api/policy/rules` - list rules
+  - [x] `POST /api/policy/rules` - add rule (auto-reload)
+  - [x] `PUT /api/policy/rules/{id}` - update rule (auto-reload)
+  - [x] `DELETE /api/policy/rules/{id}` - delete rule (auto-reload)
+- [x] **Auth endpoints** (`api/routes/auth.py`)
+  - [x] `GET /api/auth/status` - auth status + user info
+  - [x] `POST /api/auth/login` - start device flow
+  - [x] `GET /api/auth/login/poll` - poll for completion
+  - [x] `POST /api/auth/logout` - local logout (keychain)
+  - [x] `POST /api/auth/logout-federated` - federated logout URL
+- [x] **Config endpoints** (`api/routes/config.py`)
+  - [x] `GET /api/config` - read config (redacted)
+  - [x] `PUT /api/config` - update config (validated, restart required)
+- [x] **Log endpoints** (`api/routes/logs.py`)
+  - [x] `GET /api/logs/decisions` - policy decisions
+  - [x] `GET /api/logs/operations` - operation audit
+  - [x] `GET /api/logs/auth` - auth events
+  - [x] `GET /api/logs/system` - system logs
 
 ---
 
@@ -209,8 +230,9 @@ Manage proxy processes from the UI. Only applicable when running multiple backen
 
 ```
 Phase 1 (Backend) ──► Phase 2 (Security) ──► Phase 3 (Endpoints) ──► Phase 4 (HITL)
-     ✓                       ✓                  P0 ✓, P1 TODO         infra ✓
-                                                     NEXT                 │
+     ✓                       ✓                       ✓                infra ✓
+                                                                      NEXT
+                                                                          │
                                                                           ▼
                                                                     Phase 5 (React)
                                                                           │
@@ -229,6 +251,6 @@ Phase 1 (Backend) ──► Phase 2 (Security) ──► Phase 3 (Endpoints) ─
 - [x] Security middleware prevents unauthorized access
 - [ ] Web-based HITL approvals work
 - [ ] osascript fallback when UI not connected
-- [ ] Config/Policy editable from browser
-- [ ] Auth status visible in UI
+- [x] Config/Policy editable from browser (API complete, UI pending)
+- [x] Auth status visible in UI (API complete, UI pending)
 - [ ] Build pipeline produces shippable static files

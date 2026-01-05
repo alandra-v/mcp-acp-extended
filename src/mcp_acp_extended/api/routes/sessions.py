@@ -13,10 +13,10 @@ __all__ = ["router"]
 
 from datetime import datetime
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
 from pydantic import BaseModel
 
-from mcp_acp_extended.api.deps import get_proxy_state
+from mcp_acp_extended.api.deps import ProxyStateDep
 
 router = APIRouter()
 
@@ -36,7 +36,7 @@ class AuthSessionResponse(BaseModel):
 
 @router.get("", response_model=list[AuthSessionResponse])
 async def list_auth_sessions(
-    request: Request,
+    state: ProxyStateDep,
     proxy_id: str | None = None,
 ) -> list[AuthSessionResponse]:
     """List all active authentication sessions.
@@ -45,12 +45,12 @@ async def list_auth_sessions(
     These are NOT proxy lifecycle sessions.
 
     Args:
+        state: Proxy state (injected).
         proxy_id: Optional filter by proxy ID (for multi-proxy future).
 
     Returns:
         List of active auth sessions.
     """
-    state = get_proxy_state(request)
 
     # In single-proxy, proxy_id filter is ignored (all sessions are ours)
     # In multi-proxy Phase 2, Manager will filter by proxy

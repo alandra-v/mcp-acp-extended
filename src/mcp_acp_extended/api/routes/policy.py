@@ -1,0 +1,314 @@
+"""Policy API endpoints.
+
+Provides full CRUD access to policy rules:
+- GET /api/policy - Read current policy with metadata
+- GET /api/policy/rules - List rules (simplified view)
+- POST /api/policy/rules - Add a new rule
+- PUT /api/policy/rules/{id} - Update a rule
+- DELETE /api/policy/rules/{id} - Delete a rule
+
+Changes are saved to disk and auto-reloaded (no restart needed).
+
+Routes mounted at: /api/policy
+"""
+
+from __future__ import annotations
+
+__all__ = ["router"]
+
+import json
+from typing import Any, Literal
+
+from fastapi import APIRouter, HTTPException
+from pydantic import BaseModel, ValidationError
+
+from mcp_acp_extended.api.deps import PolicyReloaderDep
+from mcp_acp_extended.pdp.policy import PolicyConfig, PolicyRule, RuleConditions
+from mcp_acp_extended.pep.reloader import PolicyReloader
+from mcp_acp_extended.utils.policy import get_policy_path, load_policy
+
+router = APIRouter()
+
+
+def _load_policy_or_raise() -> PolicyConfig:
+    """Load policy from disk, raising HTTPException on error."""
+    try:
+        return load_policy()
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Policy file not found")
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=f"Invalid policy: {e}")
+
+
+class PolicyResponse(BaseModel):
+    """Policy response with metadata."""
+
+    version: str
+    default_action: str
+    rules_count: int
+    rules: list[dict[str, Any]]
+    hitl: dict[str, Any]
+    policy_version: str | None
+    policy_path: str
+
+
+class PolicyRuleResponse(BaseModel):
+    """Single policy rule for API response."""
+
+    id: str | None
+    effect: str
+    conditions: dict[str, Any]
+    description: str | None
+
+
+class PolicyRuleCreate(BaseModel):
+    """Request body for creating/updating a rule."""
+
+    id: str | None = None
+    description: str | None = None
+    effect: Literal["allow", "deny", "hitl"]
+    conditions: dict[str, Any]
+
+
+class PolicyRuleMutationResponse(BaseModel):
+    """Response after creating/updating a rule."""
+
+    rule: PolicyRuleResponse
+    policy_version: str | None
+    rules_count: int
+
+
+@router.get("")
+async def get_policy(reloader: PolicyReloaderDep) -> PolicyResponse:
+    """Get current policy configuration.
+
+    Returns the active policy with metadata including version info.
+    """
+    policy = _load_policy_or_raise()
+
+    return PolicyResponse(
+        version=policy.version,
+        default_action=policy.default_action,
+        rules_count=len(policy.rules),
+        rules=[rule.model_dump() for rule in policy.rules],
+        hitl=policy.hitl.model_dump(),
+        policy_version=reloader.current_version,
+        policy_path=str(get_policy_path()),
+    )
+
+
+@router.get("/rules")
+async def get_policy_rules() -> list[PolicyRuleResponse]:
+    """Get just the policy rules (simplified view)."""
+    policy = _load_policy_or_raise()
+
+    return [
+        PolicyRuleResponse(
+            id=rule.id,
+            effect=rule.effect,
+            conditions=rule.conditions.model_dump(),
+            description=rule.description,
+        )
+        for rule in policy.rules
+    ]
+
+
+async def _save_and_reload(reloader: PolicyReloader, policy: PolicyConfig) -> str | None:
+    """Save policy to file and trigger reload.
+
+    Args:
+        reloader: PolicyReloader instance (from dependency injection).
+        policy: The new PolicyConfig to save.
+
+    Returns:
+        New policy version after reload.
+    """
+    policy_path = get_policy_path()
+
+    # Save to file (atomically via temp file)
+    temp_path = policy_path.with_suffix(".tmp")
+    try:
+        with open(temp_path, "w", encoding="utf-8") as f:
+            json.dump(policy.model_dump(), f, indent=2)
+        # Set secure permissions (owner read/write only)
+        temp_path.chmod(0o600)
+        temp_path.replace(policy_path)
+    except Exception:
+        # Clean up temp file on error
+        temp_path.unlink(missing_ok=True)
+        raise
+
+    # Trigger reload via PolicyReloader
+    result = await reloader.reload()
+
+    if result.status != "success":
+        raise HTTPException(
+            status_code=500,
+            detail=f"Policy reload failed: {result.error}",
+        )
+
+    return result.policy_version
+
+
+def _rule_to_response(rule: PolicyRule) -> PolicyRuleResponse:
+    """Convert PolicyRule to API response."""
+    return PolicyRuleResponse(
+        id=rule.id,
+        effect=rule.effect,
+        conditions=rule.conditions.model_dump(),
+        description=rule.description,
+    )
+
+
+@router.post("/rules", status_code=201)
+async def add_policy_rule(
+    reloader: PolicyReloaderDep,
+    rule_data: PolicyRuleCreate,
+) -> PolicyRuleMutationResponse:
+    """Add a new policy rule.
+
+    The rule is appended to the existing rules and policy is auto-reloaded.
+    If id is not provided, one will be auto-generated.
+    """
+    policy = _load_policy_or_raise()
+
+    # Check for duplicate ID if provided
+    if rule_data.id:
+        for existing in policy.rules:
+            if existing.id == rule_data.id:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Rule with id '{rule_data.id}' already exists",
+                )
+
+    # Validate conditions
+    try:
+        conditions = RuleConditions.model_validate(rule_data.conditions)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid conditions: {e}")
+
+    # Create new rule
+    new_rule = PolicyRule(
+        id=rule_data.id,
+        description=rule_data.description,
+        effect=rule_data.effect,
+        conditions=conditions,
+    )
+
+    # Append to rules (PolicyConfig is frozen, so we need to rebuild)
+    new_rules = list(policy.rules) + [new_rule]
+
+    # Rebuild policy - this will auto-generate ID if not provided
+    try:
+        updated_policy = PolicyConfig(
+            version=policy.version,
+            default_action=policy.default_action,
+            rules=new_rules,
+            hitl=policy.hitl,
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
+
+    # Get the final rule (may have auto-generated ID)
+    final_rule = updated_policy.rules[-1]
+
+    # Save and reload
+    policy_version = await _save_and_reload(reloader, updated_policy)
+
+    return PolicyRuleMutationResponse(
+        rule=_rule_to_response(final_rule),
+        policy_version=policy_version,
+        rules_count=len(updated_policy.rules),
+    )
+
+
+@router.put("/rules/{rule_id}")
+async def update_policy_rule(
+    reloader: PolicyReloaderDep,
+    rule_id: str,
+    rule_data: PolicyRuleCreate,
+) -> PolicyRuleMutationResponse:
+    """Update an existing policy rule.
+
+    The rule is replaced and policy is auto-reloaded.
+    """
+    policy = _load_policy_or_raise()
+
+    # Validate conditions
+    try:
+        conditions = RuleConditions.model_validate(rule_data.conditions)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid conditions: {e}")
+
+    # Find and replace rule
+    new_rules = []
+    found = False
+    for r in policy.rules:
+        if r.id == rule_id:
+            # Replace with updated rule (keep original ID)
+            new_rules.append(
+                PolicyRule(
+                    id=rule_id,
+                    description=rule_data.description,
+                    effect=rule_data.effect,
+                    conditions=conditions,
+                )
+            )
+            found = True
+        else:
+            new_rules.append(r)
+
+    if not found:
+        raise HTTPException(status_code=404, detail=f"Rule '{rule_id}' not found")
+
+    # Rebuild policy
+    try:
+        updated_policy = PolicyConfig(
+            version=policy.version,
+            default_action=policy.default_action,
+            rules=new_rules,
+            hitl=policy.hitl,
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
+
+    # Get the updated rule
+    updated_rule = next(r for r in updated_policy.rules if r.id == rule_id)
+
+    # Save and reload
+    policy_version = await _save_and_reload(reloader, updated_policy)
+
+    return PolicyRuleMutationResponse(
+        rule=_rule_to_response(updated_rule),
+        policy_version=policy_version,
+        rules_count=len(updated_policy.rules),
+    )
+
+
+@router.delete("/rules/{rule_id}", status_code=204)
+async def delete_policy_rule(reloader: PolicyReloaderDep, rule_id: str) -> None:
+    """Delete a policy rule.
+
+    The rule is removed and policy is auto-reloaded.
+    """
+    policy = _load_policy_or_raise()
+
+    # Remove rule
+    new_rules = [r for r in policy.rules if r.id != rule_id]
+
+    if len(new_rules) == len(policy.rules):
+        raise HTTPException(status_code=404, detail=f"Rule '{rule_id}' not found")
+
+    # Rebuild policy
+    try:
+        updated_policy = PolicyConfig(
+            version=policy.version,
+            default_action=policy.default_action,
+            rules=new_rules,
+            hitl=policy.hitl,
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
+
+    # Save and reload
+    await _save_and_reload(reloader, updated_policy)
