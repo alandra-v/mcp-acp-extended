@@ -82,9 +82,25 @@ def policy_reload() -> None:
         0: Policy reloaded successfully
         1: Reload failed (validation error, file error, or proxy not running)
     """
+    from mcp_acp_extended.api.security import read_manager_file
+
+    # Read token from manager.json
+    manager_info = read_manager_file()
+    if not manager_info:
+        click.echo("✗ Error: Cannot connect to proxy API", err=True)
+        click.echo("  Either the proxy is not running, or it was started with --no-ui", err=True)
+        click.echo("  Start the proxy with: mcp-acp-extended start", err=True)
+        sys.exit(1)
+
+    token = manager_info.get("token")
+    if not token:
+        click.echo("✗ Error: Invalid manager.json (no token)", err=True)
+        sys.exit(1)
+
     try:
         response = httpx.post(
             f"http://127.0.0.1:{DEFAULT_API_PORT}/api/control/reload-policy",
+            headers={"Authorization": f"Bearer {token}"},
             timeout=10.0,
         )
         response.raise_for_status()

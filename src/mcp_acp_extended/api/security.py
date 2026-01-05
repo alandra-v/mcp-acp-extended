@@ -221,17 +221,31 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             )
 
         # 4. Require Origin for mutations (CSRF protection)
+        # Exception: CLI requests with valid bearer token don't need Origin
+        # (CSRF is a browser vulnerability - CLI tools aren't affected)
         if request.method in ("POST", "PUT", "DELETE"):
             if not origin:
-                logger.warning(
-                    "Rejected mutation without origin: %s %s",
-                    request.method,
-                    request.url.path,
-                )
-                return JSONResponse(
-                    status_code=403,
-                    content={"error": "Origin header required for mutations"},
-                )
+                # Allow if valid bearer token present (CLI access)
+                auth_header = request.headers.get("authorization", "")
+                if auth_header.startswith("Bearer "):
+                    token = auth_header[7:]
+                    if validate_token(token, self.token):
+                        pass  # CLI with valid token - allow without Origin
+                    else:
+                        return JSONResponse(
+                            status_code=401,
+                            content={"error": "Invalid token"},
+                        )
+                else:
+                    logger.warning(
+                        "Rejected mutation without origin: %s %s",
+                        request.method,
+                        request.url.path,
+                    )
+                    return JSONResponse(
+                        status_code=403,
+                        content={"error": "Origin header required for mutations"},
+                    )
 
         # 5. Token validation for /api/* endpoints
         if request.url.path.startswith("/api/"):
