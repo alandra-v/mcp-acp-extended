@@ -26,8 +26,13 @@ __all__ = [
     # Audit trail hashing
     "create_arguments_summary",
     "create_response_summary",
+    # Sensitive data hashing
+    "hash_sensitive_id",
+    "hash_auth_event_ids",
+    "sanitize_config_snapshot",
 ]
 
+import copy
 import hashlib
 import json
 import logging
@@ -461,3 +466,135 @@ def create_response_summary(response: Any) -> "ResponseSummary | None":
         )
     except (AttributeError, TypeError, ValueError):
         return None
+
+
+# ============================================================================
+# Sensitive Data Hashing
+# ============================================================================
+
+
+def hash_sensitive_id(value: str, prefix_length: int = 8) -> str:
+    """Hash a sensitive ID for logging while preserving some identifiability.
+
+    Creates a shortened hash that allows log correlation without exposing
+    the full identifier. The hash is deterministic, so the same input always
+    produces the same output.
+
+    Args:
+        value: The sensitive ID to hash (e.g., subject_id, session_id).
+        prefix_length: Number of hex characters to keep (default: 8).
+                      8 chars = 32 bits of entropy, enough for log correlation
+                      while being compact.
+
+    Returns:
+        str: Hashed value in format "sha256:<prefix>" (e.g., "sha256:a1b2c3d4").
+
+    Example:
+        >>> hash_sensitive_id("auth0|<user_id>")
+        'sha256:a1b2c3d4'
+
+        >>> hash_sensitive_id("user123:wvshAZY3R2kM5PMWESGz7k14OJxcyNKmYGlWUL-s1N8")
+        'sha256:e5f6g7h8'
+    """
+    if not value:
+        return "sha256:empty"
+
+    hash_bytes = hashlib.sha256(value.encode("utf-8")).hexdigest()
+    return f"sha256:{hash_bytes[:prefix_length]}"
+
+
+def hash_auth_event_ids(event_data: dict[str, Any]) -> dict[str, Any]:
+    """Hash sensitive IDs in an auth event dict before logging.
+
+    Creates a new dict with sensitive identifiers replaced by their hashed
+    versions. This preserves log correlation ability while protecting PII.
+    The original dict is not modified.
+
+    Hashed fields:
+    - bound_session_id: Full session ID (user:token format)
+    - subject.subject_id: User identifier from OIDC token
+
+    Args:
+        event_data: Serialized auth event dictionary.
+
+    Returns:
+        dict: New dictionary with sensitive IDs hashed.
+
+    Example:
+        >>> event = {"bound_session_id": "user123:token456", "subject": {"subject_id": "auth0|abc"}}
+        >>> hashed = hash_auth_event_ids(event)
+        >>> hashed
+        {'bound_session_id': 'sha256:a1b2c3d4', 'subject': {'subject_id': 'sha256:e5f6g7h8'}}
+        >>> event["bound_session_id"]  # Original unchanged
+        'user123:token456'
+    """
+    result = copy.deepcopy(event_data)
+
+    # Hash bound_session_id if present
+    if "bound_session_id" in result and result["bound_session_id"]:
+        result["bound_session_id"] = hash_sensitive_id(result["bound_session_id"])
+
+    # Hash subject.subject_id if present
+    if "subject" in result and isinstance(result["subject"], dict):
+        if "subject_id" in result["subject"] and result["subject"]["subject_id"]:
+            result["subject"]["subject_id"] = hash_sensitive_id(result["subject"]["subject_id"])
+
+    return result
+
+
+# Fields to redact from config snapshots (paths to sensitive data)
+_SENSITIVE_CONFIG_FIELDS = frozenset(
+    {
+        "client_key_path",  # mTLS private key location
+        "client_secret",  # OIDC client secret (if ever added)
+        "private_key",  # Any private key content
+        "password",  # Any password field
+        "secret",  # Any secret field
+    }
+)
+
+
+def sanitize_config_snapshot(config: dict[str, Any]) -> dict[str, Any]:
+    """Remove sensitive fields from a config snapshot before logging.
+
+    Recursively traverses the config dict and removes fields that could
+    expose sensitive information (private key paths, secrets, etc.).
+
+    Args:
+        config: Configuration dictionary to sanitize.
+
+    Returns:
+        dict: New dictionary with sensitive fields removed.
+
+    Example:
+        >>> sanitize_config_snapshot({
+        ...     "auth": {
+        ...         "mtls": {
+        ...             "client_cert_path": "/path/to/cert.pem",
+        ...             "client_key_path": "/path/to/key.pem",
+        ...         }
+        ...     }
+        ... })
+        {'auth': {'mtls': {'client_cert_path': '/path/to/cert.pem'}}}
+    """
+    if not isinstance(config, dict):
+        return config
+
+    result: dict[str, Any] = {}
+    for key, value in config.items():
+        # Skip sensitive fields
+        if key in _SENSITIVE_CONFIG_FIELDS:
+            continue
+
+        # Recursively sanitize nested dicts
+        if isinstance(value, dict):
+            result[key] = sanitize_config_snapshot(value)
+        elif isinstance(value, list):
+            # Handle lists of dicts
+            result[key] = [
+                sanitize_config_snapshot(item) if isinstance(item, dict) else item for item in value
+            ]
+        else:
+            result[key] = value
+
+    return result

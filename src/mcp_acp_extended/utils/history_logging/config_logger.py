@@ -28,6 +28,7 @@ from mcp_acp_extended.utils.history_logging.base import (
     log_entity_validation_failed,
     log_history_event,
 )
+from mcp_acp_extended.utils.logging.logging_helpers import sanitize_config_snapshot
 
 # Re-export for backwards compatibility
 __all__ = [
@@ -42,6 +43,8 @@ __all__ = [
 
 
 # Configuration for the config history logger
+# - sanitize_snapshot: removes sensitive fields like client_key_path from snapshots
+# - log_path_field=False: excludes config_path from logged events (avoids logging filesystem paths)
 _CONFIG_LOGGER_CONFIG = HistoryLoggerConfig(
     version_field="config_version",
     path_field="config_path",
@@ -52,6 +55,8 @@ _CONFIG_LOGGER_CONFIG = HistoryLoggerConfig(
     compute_checksum=compute_config_checksum,
     created_change_type="initial_load",
     manual_change_message="Configuration file modified outside of CLI",
+    sanitize_snapshot=sanitize_config_snapshot,
+    log_path_field=False,
 )
 
 
@@ -194,6 +199,9 @@ def log_config_updated(
     new_version = get_next_version(last_info.version)
     checksum = compute_config_checksum(config_path)
 
+    # Sanitize snapshot to remove sensitive fields (e.g., client_key_path)
+    sanitized_config = sanitize_config_snapshot(new_config)
+
     event = ConfigHistoryEvent(
         event="config_updated",
         message=f"Configuration updated ({len(changes)} change(s))",
@@ -201,11 +209,11 @@ def log_config_updated(
         previous_version=last_info.version,
         change_type="cli_update",
         component="cli",
-        config_path=str(config_path),
+        # config_path intentionally omitted - avoid logging filesystem paths
         source=source,
         checksum=checksum,
         snapshot_format="json",
-        snapshot=json.dumps(new_config, indent=2),
+        snapshot=json.dumps(sanitized_config, indent=2),
         changes=changes,
     )
 

@@ -34,7 +34,10 @@ from mcp_acp_extended.telemetry.models.audit import (
 )
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 from mcp_acp_extended.utils.logging.logger_setup import setup_failclosed_audit_logger
-from mcp_acp_extended.utils.logging.logging_helpers import serialize_audit_event
+from mcp_acp_extended.utils.logging.logging_helpers import (
+    hash_auth_event_ids,
+    serialize_audit_event,
+)
 
 _system_logger = get_system_logger()
 
@@ -72,6 +75,8 @@ class AuthLogger:
         """
         # Use json_mode=True for OIDC token data with datetime/enum values
         event_data = serialize_audit_event(event, json_mode=True)
+        # Hash sensitive IDs (subject_id, bound_session_id) before logging
+        event_data = hash_auth_event_ids(event_data)
         success, _ = log_with_fallback(
             primary_logger=self._logger,
             system_logger=_system_logger,

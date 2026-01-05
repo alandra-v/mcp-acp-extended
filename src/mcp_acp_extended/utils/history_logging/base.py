@@ -67,6 +67,10 @@ class HistoryLoggerConfig:
         compute_checksum: Function to compute checksum for the file.
         created_change_type: change_type value for created events.
         manual_change_message: Message for manual change detection.
+        sanitize_snapshot: Optional function to sanitize snapshot before logging.
+                          Used to remove sensitive fields like private key paths.
+        log_path_field: Whether to include the path field in logged events.
+                       Set to False for config to avoid logging filesystem paths.
     """
 
     version_field: str
@@ -78,6 +82,8 @@ class HistoryLoggerConfig:
     compute_checksum: Callable[[Path], str]
     created_change_type: str
     manual_change_message: str
+    sanitize_snapshot: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    log_path_field: bool = True
 
 
 def get_last_version_info_for_entity(
@@ -148,20 +154,28 @@ def log_entity_created(
         new_version = INITIAL_VERSION
         previous_version = None
 
+    # Sanitize snapshot if sanitizer provided (e.g., remove sensitive fields)
+    snapshot_to_log = snapshot
+    if config.sanitize_snapshot is not None:
+        snapshot_to_log = config.sanitize_snapshot(snapshot)
+
     # Build event kwargs dynamically based on config
-    event_kwargs = {
+    event_kwargs: dict[str, Any] = {
         "event": f"{config.entity_name_lower}_created",
         "message": f"{config.entity_name} created",
         config.version_field: new_version,
         "previous_version": previous_version,
         "change_type": config.created_change_type,
         "component": "cli",
-        config.path_field: str(file_path),
         "source": source,
         "checksum": checksum,
         "snapshot_format": "json",
-        "snapshot": json.dumps(snapshot, indent=2),
+        "snapshot": json.dumps(snapshot_to_log, indent=2),
     }
+
+    # Only include path field if configured to do so
+    if config.log_path_field:
+        event_kwargs[config.path_field] = str(file_path)
 
     event = config.event_class(**event_kwargs)
     log_history_event(history_path, event, config)
@@ -203,37 +217,48 @@ def log_entity_loaded(
         manual_change = True
         current_version = get_next_version(last_info.version)
 
+        # Sanitize snapshot if sanitizer provided (e.g., remove sensitive fields)
+        snapshot_to_log = snapshot
+        if config.sanitize_snapshot is not None:
+            snapshot_to_log = config.sanitize_snapshot(snapshot)
+
         # Log manual change detected
-        manual_event_kwargs = {
+        manual_event_kwargs: dict[str, Any] = {
             "event": "manual_change_detected",
             "message": config.manual_change_message,
             config.version_field: current_version,
             "previous_version": last_info.version,
             "change_type": "manual_edit",
             "component": component,
-            config.path_field: str(file_path),
             "source": "file_change",
             "checksum": current_checksum,
             "snapshot_format": "json",
-            "snapshot": json.dumps(snapshot, indent=2),
+            "snapshot": json.dumps(snapshot_to_log, indent=2),
         }
+        # Only include path field if configured to do so
+        if config.log_path_field:
+            manual_event_kwargs[config.path_field] = str(file_path)
+
         manual_event = config.event_class(**manual_event_kwargs)
         log_history_event(history_path, manual_event, config)
 
     # Log entity loaded
-    loaded_event_kwargs = {
+    loaded_event_kwargs: dict[str, Any] = {
         "event": f"{config.entity_name_lower}_loaded",
         "message": f"{config.entity_name} loaded",
         config.version_field: current_version,
         "previous_version": None,  # Not applicable for loaded events
         "change_type": "startup_load",
         "component": component,
-        config.path_field: str(file_path),
         "source": source,
         "checksum": current_checksum,
         "snapshot_format": "json",
         "snapshot": None,  # Don't duplicate snapshot for load events
     }
+    # Only include path field if configured to do so
+    if config.log_path_field:
+        loaded_event_kwargs[config.path_field] = str(file_path)
+
     loaded_event = config.event_class(**loaded_event_kwargs)
     log_history_event(history_path, loaded_event, config)
 
@@ -270,14 +295,13 @@ def log_entity_validation_failed(
 
     last_info = get_last_version_info_for_entity(history_path, config)
 
-    event_kwargs = {
+    event_kwargs: dict[str, Any] = {
         "event": f"{config.entity_name_lower}_validation_failed",
         "message": f"{config.entity_name} validation failed: {error_type}",
         config.version_field: last_info.version or "unknown",
         "previous_version": None,
         "change_type": "validation_error",
         "component": component,
-        config.path_field: str(file_path),
         "source": source,
         "checksum": checksum,
         "snapshot_format": "json",
@@ -285,6 +309,10 @@ def log_entity_validation_failed(
         "error_type": error_type,
         "error_message": error_message,
     }
+
+    # Only include path field if configured to do so
+    if config.log_path_field:
+        event_kwargs[config.path_field] = str(file_path)
 
     event = config.event_class(**event_kwargs)
     log_history_event(history_path, event, config)
