@@ -85,7 +85,7 @@ def create_proxy(
     config: AppConfig,
     config_version: str | None = None,
     policy_version: str | None = None,
-    open_ui: bool = True,
+    enable_ui: bool = True,
 ) -> tuple[FastMCP, str]:
     """Create a transparent proxy that forwards all requests to backend.
 
@@ -326,62 +326,7 @@ def create_proxy(
             # (stored directly, not ContextVars, to work across async tasks/threads)
             shutdown_coordinator.set_session_info(bound_session_id, session_identity)
 
-            # Start management API server (shares memory for sessions/approvals)
-            # Lazy import to avoid circular import (proxy -> api -> cli -> proxy)
-            from mcp_acp_extended.api.server import create_api_app
-            from mcp_acp_extended.api.security import (
-                generate_token,
-                write_manager_file,
-                delete_manager_file,
-            )
-
-            # Check if UI is already running (port in use = another instance running)
-            import socket
-
-            def is_port_in_use(port: int) -> bool:
-                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-                    return s.connect_ex(("127.0.0.1", port)) == 0
-
-            ui_already_running = is_port_in_use(DEFAULT_API_PORT)
-
-            # Generate API token and write manager.json for CLI/UI discovery
-            api_token = generate_token()
-            write_manager_file(port=DEFAULT_API_PORT, token=api_token)
-
-            api_app = create_api_app(token=api_token)
-
-            # Suppress uvicorn's error logging during shutdown
-            import logging
-
-            for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
-                logging.getLogger(logger_name).setLevel(logging.CRITICAL)
-
-            api_config = uvicorn.Config(
-                api_app,
-                host="127.0.0.1",
-                port=DEFAULT_API_PORT,
-                log_config=None,  # Disable uvicorn logging
-            )
-            api_server = uvicorn.Server(api_config)
-
-            # Wrapper to suppress shutdown errors and avoid signal capture
-            async def run_api_server() -> None:
-                try:
-                    # Use _serve() to avoid uvicorn capturing SIGINT/SIGTERM
-                    await api_server._serve()
-                except asyncio.CancelledError:
-                    pass  # Clean shutdown
-
-            api_task = asyncio.create_task(run_api_server())
-
-            # Auto-open management UI in browser (only if not already running)
-            if open_ui and not ui_already_running:
-                try:
-                    webbrowser.open(f"http://127.0.0.1:{DEFAULT_API_PORT}")
-                except Exception:
-                    pass  # Non-fatal - UI can be opened manually
-
-            # Create policy reloader and store on API app for endpoint access
+            # Create policy reloader for SIGHUP handling (works with or without UI)
             # enforcement_middleware is captured from enclosing scope (created after lifespan definition)
             policy_reloader = PolicyReloader(
                 middleware=enforcement_middleware,
@@ -390,20 +335,70 @@ def create_proxy(
                 policy_history_path=get_policy_history_path(config),
                 initial_version=policy_version,
             )
-            api_app.state.policy_reloader = policy_reloader
 
-            # Wire proxy state to API app for manager routes
-            # proxy_state is captured from enclosing scope (created after lifespan definition)
-            api_app.state.proxy_state = proxy_state
+            # Start management API server only if UI is enabled
+            # When disabled (--no-ui), no HTTP server runs - reduces attack surface
+            # HITL approvals fall back to osascript dialogs when UI is disabled
+            if enable_ui:
+                # Lazy import to avoid circular import (proxy -> api -> cli -> proxy)
+                from mcp_acp_extended.api.server import create_api_app
+                from mcp_acp_extended.api.security import (
+                    generate_token,
+                    write_manager_file,
+                )
 
-            # Wire identity provider and config for auth/config API routes
-            # identity_provider is captured from enclosing scope
-            api_app.state.identity_provider = identity_provider
-            api_app.state.config = config
+                # Check if UI is already running (port in use = another instance running)
+                import socket
 
-            # Wire approval store for cached approvals API
-            # enforcement_middleware is captured from enclosing scope
-            api_app.state.approval_store = enforcement_middleware.approval_store
+                def is_port_in_use(port: int) -> bool:
+                    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                        return s.connect_ex(("127.0.0.1", port)) == 0
+
+                ui_already_running = is_port_in_use(DEFAULT_API_PORT)
+
+                # Generate API token and write manager.json for CLI/UI discovery
+                api_token = generate_token()
+                write_manager_file(port=DEFAULT_API_PORT, token=api_token)
+
+                api_app = create_api_app(token=api_token)
+
+                # Suppress uvicorn's error logging during shutdown
+                import logging
+
+                for logger_name in ("uvicorn", "uvicorn.error", "uvicorn.access"):
+                    logging.getLogger(logger_name).setLevel(logging.CRITICAL)
+
+                api_config = uvicorn.Config(
+                    api_app,
+                    host="127.0.0.1",
+                    port=DEFAULT_API_PORT,
+                    log_config=None,  # Disable uvicorn logging
+                )
+                api_server = uvicorn.Server(api_config)
+
+                # Wrapper to suppress shutdown errors and avoid signal capture
+                async def run_api_server() -> None:
+                    try:
+                        # Use _serve() to avoid uvicorn capturing SIGINT/SIGTERM
+                        await api_server._serve()
+                    except asyncio.CancelledError:
+                        pass  # Clean shutdown
+
+                api_task = asyncio.create_task(run_api_server())
+
+                # Auto-open management UI in browser (only if not already running)
+                if not ui_already_running:
+                    try:
+                        webbrowser.open(f"http://127.0.0.1:{DEFAULT_API_PORT}")
+                    except Exception:
+                        pass  # Non-fatal - UI can be opened manually
+
+                # Wire state to API app for manager routes
+                api_app.state.policy_reloader = policy_reloader
+                api_app.state.proxy_state = proxy_state
+                api_app.state.identity_provider = identity_provider
+                api_app.state.config = config
+                api_app.state.approval_store = enforcement_middleware.approval_store
 
             # Setup SIGHUP handler for policy hot reload (Unix only)
             def handle_sighup() -> None:

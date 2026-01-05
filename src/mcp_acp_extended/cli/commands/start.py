@@ -40,7 +40,7 @@ BOOTSTRAP_LOG_FILENAME = "bootstrap.jsonl"
 
 
 @click.command()
-@click.option("--no-ui", is_flag=True, help="Don't open web UI in browser")
+@click.option("--no-ui", is_flag=True, help="Disable web UI completely (no HTTP server)")
 def start(no_ui: bool) -> None:
     """Start the proxy server manually (for testing).
 
@@ -99,7 +99,7 @@ def start(no_ui: bool) -> None:
             loaded_config,
             config_version=config_version,
             policy_version=policy_version,
-            open_ui=not no_ui,
+            enable_ui=not no_ui,
         )
 
         # Display actual transport used (after detection)

@@ -68,10 +68,20 @@ Interactive mode prompts for values; non-interactive requires all flags. Use `--
 ### `mcp-acp-extended start` - Start the proxy server
 
 ```bash
-mcp-acp-extended start
+mcp-acp-extended start [OPTIONS]
+
+Options:
+  --no-ui    Disable web UI completely (no HTTP server)
 ```
 
-No options - all settings come from config file. Runs in foreground (Ctrl+C to stop). Normally started by MCP client, not manually.
+All settings come from config file. Runs in foreground (Ctrl+C to stop). Normally started by MCP client, not manually.
+
+**Web UI behavior:**
+- By default, the web UI starts on port 8765 and opens in your browser
+- Use `--no-ui` to completely disable the web UI (no HTTP server runs)
+- When UI is disabled, HITL approvals use system dialogs (osascript on macOS)
+
+**Security note:** The `--no-ui` flag eliminates the HTTP server attack surface entirely. For high-security environments, use `--no-ui` and rely on CLI commands and system dialogs.
 
 ---
 
@@ -220,6 +230,20 @@ nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
   }
 }
 ```
+
+**To disable the web UI** (more secure, uses system dialogs for HITL):
+
+```json
+{
+  "mcpServers": {
+    "mcp-acp-extended": {
+      "command": "/full/path/to/mcp-acp-extended",
+      "args": ["start", "--no-ui"]
+    }
+  }
+}
+```
+
 **And configure the backend server in the proxy config.**
 
 **Finding the full path:**
