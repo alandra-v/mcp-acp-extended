@@ -327,8 +327,17 @@ def create_proxy(
             # Start management API server (shares memory for sessions/approvals)
             # Lazy import to avoid circular import (proxy -> api -> cli -> proxy)
             from mcp_acp_extended.api.server import create_api_app
+            from mcp_acp_extended.api.security import (
+                generate_token,
+                write_manager_file,
+                delete_manager_file,
+            )
 
-            api_app = create_api_app()
+            # Generate API token and write manager.json for CLI/UI discovery
+            api_token = generate_token()
+            write_manager_file(port=DEFAULT_API_PORT, token=api_token)
+
+            api_app = create_api_app(token=api_token)
             api_config = uvicorn.Config(
                 api_app,
                 host="127.0.0.1",
@@ -450,6 +459,12 @@ def create_proxy(
                     except asyncio.CancelledError:
                         pass
                 system_logger.info({"event": "api_server_stopped"})
+
+                # Delete manager.json on shutdown (cleanup token file)
+                # Import here in case we never reached the startup import
+                from mcp_acp_extended.api.security import delete_manager_file
+
+                delete_manager_file()
 
             await device_monitor.stop()
             await audit_monitor.stop()

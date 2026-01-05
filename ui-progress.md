@@ -64,49 +64,55 @@ State classes live in proxy process. Proxy owns all state (approvals, sessions, 
 
 ## Phase 2: Security Middleware
 
-**Status: Not Started** ← NEXT
+**Status: COMPLETE**
 
 Implement security from ui-security.md.
 
 ### Required
 
-- [ ] **Token generation** (`manager/security.py`)
-  - [ ] Generate random bearer token on startup (32 bytes, hex encoded)
-  - [ ] Write to `~/.mcp-acp-extended/manager.json` with port
-  - [ ] Delete file on shutdown
+- [x] **Token generation** (`api/security.py`)
+  - [x] Generate random bearer token on startup (32 bytes, hex encoded)
+  - [x] Write to `~/.mcp-acp-extended/manager.json` with port
+  - [x] Delete file on shutdown
 
-- [ ] **Token validation middleware**
-  - [ ] Extract `Authorization: Bearer <token>` header
-  - [ ] Constant-time comparison (`hmac.compare_digest`)
-  - [ ] Return 401 if missing/invalid
+- [x] **Token validation middleware**
+  - [x] Extract `Authorization: Bearer <token>` header
+  - [x] Constant-time comparison (`hmac.compare_digest`)
+  - [x] Return 401 if missing/invalid
 
-- [ ] **Host header validation**
-  - [ ] Allow only: `localhost`, `127.0.0.1`, `[::1]`
-  - [ ] Return 403 if invalid
+- [x] **Host header validation**
+  - [x] Allow only: `localhost`, `127.0.0.1`, `[::1]`
+  - [x] Return 403 if invalid
 
-- [ ] **Origin header validation**
-  - [ ] Allow only localhost origins
-  - [ ] Reject if present and not allowed
-  - [ ] Require Origin for mutation requests (POST/PUT/DELETE)
+- [x] **Origin header validation**
+  - [x] Allow only localhost origins
+  - [x] Reject if present and not allowed
+  - [x] Require Origin for mutation requests (POST/PUT/DELETE)
 
-- [ ] **SSE authentication**
-  - [ ] Same-origin requests (no Origin header) → allow SSE without token
-  - [ ] Cross-origin (dev mode) → accept token in query param for SSE only
-  - [ ] Never accept query param token for mutations
+- [x] **SSE authentication**
+  - [x] Same-origin requests (no Origin header) → allow SSE without token
+  - [x] Cross-origin (dev mode) → accept token in query param for SSE only
+  - [x] Never accept query param token for mutations
 
 ### Recommended
 
-- [ ] **Response security headers**
-  - [ ] `X-Content-Type-Options: nosniff`
-  - [ ] `X-Frame-Options: DENY`
-  - [ ] `Content-Security-Policy: default-src 'self'`
-  - [ ] `Cache-Control: no-store`
+- [x] **Response security headers**
+  - [x] `X-Content-Type-Options: nosniff`
+  - [x] `X-Frame-Options: DENY`
+  - [x] `Content-Security-Policy: default-src 'self'`
+  - [x] `Cache-Control: no-store`
+  - [x] `Referrer-Policy: same-origin`
+  - [x] `Permissions-Policy: camera=(), microphone=(), geolocation=()`
 
-- [ ] **Request limits**
-  - [ ] Max request size: 1MB
-  - [ ] Rate limiting: per-IP (100 req/min)
+- [x] **Request limits**
+  - [x] Max request size: 1MB
 
-**Deliverable**: API rejects unauthorized requests, prevents DNS rebinding.
+### Enterprise Hardening (Future)
+
+- [ ] Rate limiting - deferred (enterprise compliance)
+- [ ] Failed auth lockout - deferred (enterprise compliance)
+
+**Deliverable**: API rejects unauthorized requests, prevents DNS rebinding. ✓
 
 ---
 
@@ -131,7 +137,7 @@ Implement security from ui-security.md.
 - [ ] **Config endpoints** (`GET/PUT /api/config`)
 - [ ] **Policy endpoints** (`GET/PUT /api/policy`, `POST /api/policy/reload`)
 - [ ] **Log endpoints** (`GET /api/logs`, `GET /api/logs/stream` SSE)
-- [ ] **Auth endpoint** (`GET /api/auth/status`)
+- [ ] **Auth endpoint** (`GET /api/auth/status`, login, logout, logout federated)
 
 ---
 
@@ -203,8 +209,8 @@ Manage proxy processes from the UI. Only applicable when running multiple backen
 
 ```
 Phase 1 (Backend) ──► Phase 2 (Security) ──► Phase 3 (Endpoints) ──► Phase 4 (HITL)
-     ✓                    NEXT                  P0 ✓, P1 TODO         infra ✓
-                                                                          │
+     ✓                       ✓                  P0 ✓, P1 TODO         infra ✓
+                                                     NEXT                 │
                                                                           ▼
                                                                     Phase 5 (React)
                                                                           │
@@ -220,7 +226,7 @@ Phase 1 (Backend) ──► Phase 2 (Security) ──► Phase 3 (Endpoints) ─
 ## Completion Criteria
 
 - [x] API returns real proxy/session/approval data
-- [ ] Security middleware prevents unauthorized access
+- [x] Security middleware prevents unauthorized access
 - [ ] Web-based HITL approvals work
 - [ ] osascript fallback when UI not connected
 - [ ] Config/Policy editable from browser
