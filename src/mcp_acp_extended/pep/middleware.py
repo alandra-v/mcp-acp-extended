@@ -485,8 +485,6 @@ class PolicyEnforcementMiddleware(Middleware):
             }
         )
         if self._hitl_handler._proxy_state is not None:
-            from mcp_acp_extended.manager.state import SSEEventType as SSEType
-
             self._hitl_handler._proxy_state.emit_system_event(
                 event_type,
                 severity="error",
