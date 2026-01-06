@@ -164,6 +164,8 @@ class HITLHandler:
             subject_id=subject_id,
             timeout_seconds=timeout_seconds,
             request_id=request_id,
+            can_cache=will_cache,
+            cache_ttl_seconds=self.config.approval_ttl_seconds if will_cache else None,
         )
 
         # Wait for decision from web UI
@@ -171,9 +173,13 @@ class HITLHandler:
         response_time_ms = (time.perf_counter() - start_time) * 1000
 
         if decision == "allow":
-            # Return USER_ALLOWED if caching is possible, USER_ALLOWED_ONCE otherwise
+            # Allow with caching (if caching is possible)
             outcome = HITLOutcome.USER_ALLOWED if will_cache else HITLOutcome.USER_ALLOWED_ONCE
             return HITLResult(outcome=outcome, response_time_ms=response_time_ms)
+
+        elif decision == "allow_once":
+            # Allow without caching (user explicitly chose not to cache)
+            return HITLResult(outcome=HITLOutcome.USER_ALLOWED_ONCE, response_time_ms=response_time_ms)
 
         elif decision == "deny":
             return HITLResult(outcome=HITLOutcome.USER_DENIED, response_time_ms=response_time_ms)

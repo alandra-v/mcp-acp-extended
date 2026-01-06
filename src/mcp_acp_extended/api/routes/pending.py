@@ -149,6 +149,29 @@ async def approve_pending(approval_id: str, state: ProxyStateDep) -> ApprovalAct
     return ApprovalActionResponse(status="approved", approval_id=approval_id)
 
 
+@router.post("/{approval_id}/allow-once", response_model=ApprovalActionResponse)
+async def allow_once_pending(approval_id: str, state: ProxyStateDep) -> ApprovalActionResponse:
+    """Allow a pending request without caching.
+
+    Args:
+        approval_id: The pending approval ID.
+        state: Proxy state (injected).
+
+    Returns:
+        Status confirmation.
+
+    Raises:
+        HTTPException: 404 if approval not found.
+    """
+    if not state.resolve_pending(approval_id, "allow_once"):
+        raise HTTPException(
+            status_code=404,
+            detail=f"Pending approval '{approval_id}' not found or already resolved",
+        )
+
+    return ApprovalActionResponse(status="allowed_once", approval_id=approval_id)
+
+
 @router.post("/{approval_id}/deny", response_model=ApprovalActionResponse)
 async def deny_pending(approval_id: str, state: ProxyStateDep) -> ApprovalActionResponse:
     """Deny a pending request.

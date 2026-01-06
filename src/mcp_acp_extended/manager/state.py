@@ -94,6 +94,7 @@ class PendingApprovalInfo:
         created_at: When the request was created.
         timeout_seconds: How long to wait for decision.
         request_id: Original MCP request ID for correlation.
+        can_cache: Whether this approval can be cached.
     """
 
     id: str
@@ -104,6 +105,8 @@ class PendingApprovalInfo:
     created_at: datetime
     timeout_seconds: int
     request_id: str
+    can_cache: bool = True
+    cache_ttl_seconds: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Convert to JSON-serializable dict for SSE."""
@@ -116,6 +119,8 @@ class PendingApprovalInfo:
             "created_at": self.created_at.isoformat(),
             "timeout_seconds": self.timeout_seconds,
             "request_id": self.request_id,
+            "can_cache": self.can_cache,
+            "cache_ttl_seconds": self.cache_ttl_seconds,
         }
 
 
@@ -307,6 +312,8 @@ class ProxyState:
         subject_id: str,
         timeout_seconds: int,
         request_id: str,
+        can_cache: bool = True,
+        cache_ttl_seconds: int | None = None,
     ) -> PendingApprovalRequest:
         """Create a pending approval request.
 
@@ -319,6 +326,8 @@ class ProxyState:
             subject_id: The user making the request.
             timeout_seconds: How long to wait for decision.
             request_id: Original MCP request ID for correlation.
+            can_cache: Whether this approval can be cached.
+            cache_ttl_seconds: How long cached approval will last (for UI display).
 
         Returns:
             PendingApprovalRequest that can be waited on.
@@ -333,6 +342,8 @@ class ProxyState:
             created_at=datetime.now(UTC),
             timeout_seconds=timeout_seconds,
             request_id=request_id,
+            can_cache=can_cache,
+            cache_ttl_seconds=cache_ttl_seconds,
         )
         request = PendingApprovalRequest(info)
 
