@@ -31,6 +31,7 @@ __all__ = [
     "tool_name_var",
 ]
 
+import time
 from contextvars import ContextVar
 from typing import Any, cast
 
@@ -62,8 +63,18 @@ bound_user_id_var: ContextVar[str | None] = ContextVar("bound_user_id", default=
 # up request handlers - the middleware runs in a context snapshot taken BEFORE the
 # ProxyClient call happens, so ContextVar changes don't propagate back.
 # The request_id IS available in both places, so we use it as a key.
+#
+# TTL cleanup: Entries older than _TOOL_CONTEXT_TTL_SECONDS are purged on each
+# set_tool_context() call to prevent unbounded growth from missed cleanups.
 _tool_context_by_request: dict[str, dict[str, Any]] = {}
-"""Tool context keyed by request_id. Contains 'tool_name' and 'arguments'."""
+"""Tool context keyed by request_id. Contains 'tool_name', 'arguments', and '_created_at'."""
+
+# TTL for tool context entries (5 minutes - requests should complete well before this)
+_TOOL_CONTEXT_TTL_SECONDS = 300
+
+# Counter to trigger periodic cleanup (every N calls)
+_cleanup_counter = 0
+_CLEANUP_INTERVAL = 50
 
 # Legacy ContextVars - kept for backwards compatibility and for cases where
 # code runs within the same async context
@@ -210,17 +221,36 @@ def get_tool_arguments(request_id: str | None = None) -> dict[str, Any] | None:
     return tool_arguments_var.get()
 
 
+def _cleanup_stale_tool_contexts() -> None:
+    """Remove tool context entries older than TTL.
+
+    Called periodically to prevent unbounded memory growth from missed cleanups.
+    """
+    now = time.monotonic()
+    stale_keys = [
+        key
+        for key, value in _tool_context_by_request.items()
+        if now - value.get("_created_at", 0) > _TOOL_CONTEXT_TTL_SECONDS
+    ]
+    for key in stale_keys:
+        del _tool_context_by_request[key]
+
+
 def set_tool_context(tool_name: str, arguments: dict[str, Any] | None, request_id: str | None = None) -> None:
     """Set tool call context for audit logging.
 
     Called by LoggingProxyClient.call_tool_mcp() before executing tool.
     Read by audit middleware in finally block after call_next() returns.
 
+    Includes periodic TTL cleanup to prevent unbounded memory growth.
+
     Args:
         tool_name: Name of the tool being called.
         arguments: Tool arguments.
         request_id: Request ID for dict-based storage. If None, only sets context vars.
     """
+    global _cleanup_counter
+
     # Set context vars (for same-context usage)
     tool_name_var.set(tool_name)
     tool_arguments_var.set(arguments)
@@ -230,7 +260,14 @@ def set_tool_context(tool_name: str, arguments: dict[str, Any] | None, request_i
         _tool_context_by_request[request_id] = {
             "tool_name": tool_name,
             "arguments": arguments,
+            "_created_at": time.monotonic(),
         }
+
+        # Periodic cleanup every N calls
+        _cleanup_counter += 1
+        if _cleanup_counter >= _CLEANUP_INTERVAL:
+            _cleanup_counter = 0
+            _cleanup_stale_tool_contexts()
 
 
 def clear_tool_context(request_id: str | None = None) -> None:

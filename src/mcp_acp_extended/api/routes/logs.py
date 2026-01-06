@@ -52,12 +52,20 @@ def _get_log_base_path(config: "AppConfig") -> Path:
     return Path(config.logging.log_dir) / "mcp_acp_extended_logs"
 
 
+# Maximum bytes to read from a log file (10MB)
+# Prevents OOM on very large log files
+_MAX_READ_BYTES = 10 * 1024 * 1024
+
+
 def _read_jsonl_tail(
     path: Path,
     limit: int,
     offset: int,
 ) -> tuple[list[dict[str, Any]], bool]:
     """Read last N entries from JSONL file (newest first).
+
+    Uses reverse file reading to efficiently get recent entries without
+    loading the entire file into memory. Limited to last 10MB of file.
 
     Args:
         path: Path to JSONL file.
@@ -71,7 +79,24 @@ def _read_jsonl_tail(
         return [], False
 
     try:
-        content = path.read_text(encoding="utf-8")
+        file_size = path.stat().st_size
+        if file_size == 0:
+            return [], False
+
+        # Read at most _MAX_READ_BYTES from end of file
+        read_size = min(file_size, _MAX_READ_BYTES)
+
+        with path.open("rb") as f:
+            # Seek to position to start reading
+            f.seek(max(0, file_size - read_size))
+
+            # If we didn't start at beginning, skip partial first line
+            if file_size > read_size:
+                f.readline()  # Discard partial line
+
+            # Read remaining content
+            content = f.read().decode("utf-8", errors="replace")
+
     except Exception:
         return [], False
 
@@ -81,7 +106,7 @@ def _read_jsonl_tail(
     # Reverse for newest first
     lines = list(reversed(lines))
 
-    # Check if there are more entries
+    # Check if there are more entries (approximate if file was truncated)
     total = len(lines)
     has_more = offset + limit < total
 

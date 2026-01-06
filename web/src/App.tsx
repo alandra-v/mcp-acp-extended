@@ -1,7 +1,8 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { ConnectionStatusBanner } from '@/components/ConnectionStatusBanner'
 import { Toaster } from '@/components/ui/sonner'
-import { PendingApprovalsProvider } from '@/context/PendingApprovalsContext'
+import { AppStateProvider } from '@/context/AppStateContext'
 import { ProxiesPage } from '@/pages/ProxiesPage'
 import { ProxyDetailPage } from '@/pages/ProxyDetailPage'
 import { GlobalLogsPage } from '@/pages/GlobalLogsPage'
@@ -10,7 +11,8 @@ import { AuthPage } from '@/pages/AuthPage'
 export function App() {
   return (
     <ErrorBoundary>
-      <PendingApprovalsProvider>
+      <AppStateProvider>
+        <ConnectionStatusBanner />
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<ProxiesPage />} />
@@ -21,7 +23,7 @@ export function App() {
           </Routes>
         </BrowserRouter>
         <Toaster position="bottom-right" />
-      </PendingApprovalsProvider>
+      </AppStateProvider>
     </ErrorBoundary>
   )
 }

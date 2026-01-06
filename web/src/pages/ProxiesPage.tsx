@@ -4,11 +4,11 @@ import { StatsRow, type FilterType } from '@/components/proxies/StatsRow'
 import { ProxyGrid } from '@/components/proxies/ProxyGrid'
 import { PendingDrawer } from '@/components/proxies/PendingDrawer'
 import { useProxies } from '@/hooks/useProxies'
-import { usePendingApprovalsContext } from '@/context/PendingApprovalsContext'
+import { useAppState } from '@/context/AppStateContext'
 
 export function ProxiesPage() {
   const { proxies, loading: proxiesLoading } = useProxies()
-  const { pending, approve, approveOnce, deny } = usePendingApprovalsContext()
+  const { pending, approve, approveOnce, deny } = useAppState()
   const [filter, setFilter] = useState<FilterType>('all')
   const [drawerOpen, setDrawerOpen] = useState(false)
 

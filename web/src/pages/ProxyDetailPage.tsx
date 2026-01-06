@@ -9,7 +9,7 @@ import { ApprovalsSection } from '@/components/detail/ApprovalsSection'
 import { CachedSection } from '@/components/detail/CachedSection'
 import { ActivitySection } from '@/components/detail/ActivitySection'
 import { useProxies } from '@/hooks/useProxies'
-import { usePendingApprovalsContext } from '@/context/PendingApprovalsContext'
+import { useAppState } from '@/context/AppStateContext'
 import { useCachedApprovals } from '@/hooks/useCachedApprovals'
 import { useLogs } from '@/hooks/useLogs'
 import { cn } from '@/lib/utils'
@@ -18,7 +18,7 @@ export function ProxyDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { proxies, loading: proxiesLoading } = useProxies()
-  const { pending, approve, approveOnce, deny } = usePendingApprovalsContext()
+  const { pending, approve, approveOnce, deny } = useAppState()
   const { cached, loading: cachedLoading, clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
   const { logs, loading: logsLoading } = useLogs('decisions')
   const [activeSection, setActiveSection] = useState<DetailSection>('overview')

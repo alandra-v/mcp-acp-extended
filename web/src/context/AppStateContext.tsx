@@ -94,20 +94,27 @@ function showSystemToast(event: SSEEvent) {
   }
 }
 
-interface PendingApprovalsContextValue {
+export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected'
+
+interface AppStateContextValue {
   pending: PendingApproval[]
   connected: boolean
+  connectionStatus: ConnectionStatus
   error: Error | null
   approve: (id: string) => Promise<void>
   approveOnce: (id: string) => Promise<void>
   deny: (id: string) => Promise<void>
 }
 
-const PendingApprovalsContext = createContext<PendingApprovalsContextValue | null>(null)
+const AppStateContext = createContext<AppStateContextValue | null>(null)
 
-export function PendingApprovalsProvider({ children }: { children: ReactNode }) {
+// Max errors before showing "disconnected" instead of "reconnecting"
+const MAX_RECONNECT_ERRORS = 5
+
+export function AppStateProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<PendingApproval[]>([])
   const [connected, setConnected] = useState(false)
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('reconnecting')
   const [error, setError] = useState<Error | null>(null)
 
   // Track connection errors to avoid spamming toasts on repeated reconnect failures
@@ -131,6 +138,7 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
         case 'snapshot':
           setPending(event.approvals || [])
           setConnected(true)
+          setConnectionStatus('connected')
           // Reset error count on successful reconnect
           errorCountRef.current = 0
           break
@@ -171,18 +179,23 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
     }
 
     const handleError = () => {
-      // Don't spam toasts if proxy shut down or after first error
+      // Don't spam toasts if proxy shut down
       if (isShutdownRef.current) return
 
       setConnected(false)
       setError(new Error('SSE connection lost'))
-
-      // Only show toast and play sound on first error
-      if (errorCountRef.current === 0) {
-        toast.error('Connection lost')
-        playErrorSound()
-      }
       errorCountRef.current++
+
+      // Update connection status based on error count
+      if (errorCountRef.current >= MAX_RECONNECT_ERRORS) {
+        setConnectionStatus('disconnected')
+        // Only play error sound when transitioning to disconnected
+        if (errorCountRef.current === MAX_RECONNECT_ERRORS) {
+          playErrorSound()
+        }
+      } else {
+        setConnectionStatus('reconnecting')
+      }
     }
 
     const es = subscribeToPendingApprovals(handleEvent, handleError)
@@ -224,16 +237,16 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
   }, [])
 
   return (
-    <PendingApprovalsContext.Provider value={{ pending, connected, error, approve, approveOnce, deny }}>
+    <AppStateContext.Provider value={{ pending, connected, connectionStatus, error, approve, approveOnce, deny }}>
       {children}
-    </PendingApprovalsContext.Provider>
+    </AppStateContext.Provider>
   )
 }
 
-export function usePendingApprovalsContext() {
-  const context = useContext(PendingApprovalsContext)
+export function useAppState() {
+  const context = useContext(AppStateContext)
   if (!context) {
-    throw new Error('usePendingApprovalsContext must be used within PendingApprovalsProvider')
+    throw new Error('useAppState must be used within AppStateProvider')
   }
   return context
 }
