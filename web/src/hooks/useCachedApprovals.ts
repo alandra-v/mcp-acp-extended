@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { toast } from '@/components/ui/sonner'
-import { getCachedApprovals, clearCachedApprovals } from '@/api/approvals'
+import { getCachedApprovals, clearCachedApprovals, deleteCachedApproval } from '@/api/approvals'
 import { playErrorSound } from '@/hooks/useErrorSound'
 import type { CachedApproval } from '@/types/api'
 
@@ -10,6 +10,7 @@ interface UseCachedApprovalsReturn {
   loading: boolean
   error: Error | null
   clear: () => Promise<void>
+  deleteEntry: (subjectId: string, toolName: string, path: string | null) => Promise<void>
   refresh: () => Promise<void>
 }
 
@@ -57,6 +58,24 @@ export function useCachedApprovals(): UseCachedApprovalsReturn {
     }
   }, [])
 
+  const deleteEntry = useCallback(async (subjectId: string, toolName: string, path: string | null) => {
+    try {
+      await deleteCachedApproval(subjectId, toolName, path)
+      if (mountedRef.current) {
+        setCached((prev) => prev.filter(
+          (c) => !(c.subject_id === subjectId && c.tool_name === toolName && c.path === path)
+        ))
+      }
+      // Note: Success toast comes from SSE event (cache_entry_deleted)
+    } catch (e) {
+      if (mountedRef.current) {
+        setError(e instanceof Error ? e : new Error('Failed to delete cached approval'))
+      }
+      toast.error('Failed to delete cached approval')
+      playErrorSound()
+    }
+  }, [])
+
   useEffect(() => {
     mountedRef.current = true
     fetchCached()
@@ -69,5 +88,5 @@ export function useCachedApprovals(): UseCachedApprovalsReturn {
     }
   }, [fetchCached])
 
-  return { cached, ttlSeconds, loading, error, clear, refresh: fetchCached }
+  return { cached, ttlSeconds, loading, error, clear, deleteEntry, refresh: fetchCached }
 }

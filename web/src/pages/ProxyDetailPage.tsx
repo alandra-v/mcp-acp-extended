@@ -19,7 +19,7 @@ export function ProxyDetailPage() {
   const navigate = useNavigate()
   const { proxies, loading: proxiesLoading } = useProxies()
   const { pending, approve, approveOnce, deny } = usePendingApprovalsContext()
-  const { cached, loading: cachedLoading, clear: clearCached } = useCachedApprovals()
+  const { cached, loading: cachedLoading, clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
   const { logs, loading: logsLoading } = useLogs('decisions')
   const [activeSection, setActiveSection] = useState<DetailSection>('overview')
   const [loaded, setLoaded] = useState(false)
@@ -122,6 +122,7 @@ export function ProxyDetailPage() {
                 cached={cached}
                 loading={cachedLoading}
                 onClear={clearCached}
+                onDelete={deleteCached}
                 loaded={loaded}
               />
               <ActivitySection

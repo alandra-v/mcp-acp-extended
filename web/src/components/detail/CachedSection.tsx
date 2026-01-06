@@ -7,6 +7,7 @@ interface CachedSectionProps {
   cached: CachedApproval[]
   loading?: boolean
   onClear: () => void
+  onDelete: (subjectId: string, toolName: string, path: string | null) => void
   loaded?: boolean
 }
 
@@ -14,6 +15,7 @@ export function CachedSection({
   cached,
   loading = false,
   onClear,
+  onDelete,
   loaded = true,
 }: CachedSectionProps) {
   return (
@@ -44,7 +46,7 @@ export function CachedSection({
               </Button>
             </div>
             {cached.map((item) => (
-              <CachedItem key={item.request_id} item={item} />
+              <CachedItem key={item.request_id} item={item} onDelete={onDelete} />
             ))}
           </>
         )}
@@ -55,14 +57,15 @@ export function CachedSection({
 
 interface CachedItemProps {
   item: CachedApproval
+  onDelete: (subjectId: string, toolName: string, path: string | null) => void
 }
 
-function CachedItem({ item }: CachedItemProps) {
+function CachedItem({ item, onDelete }: CachedItemProps) {
   const expiresMin = Math.floor(item.expires_in_seconds / 60)
   const expiresSec = Math.round(item.expires_in_seconds % 60)
 
   return (
-    <div className="flex items-center gap-4 p-3 bg-gradient-to-br from-[oklch(0.16_0.012_228)] to-[oklch(0.13_0.01_228)] border border-[var(--border-subtle)] rounded-lg">
+    <div className="flex items-center gap-4 p-3 bg-gradient-to-br from-[oklch(0.16_0.012_228)] to-[oklch(0.13_0.01_228)] border border-[var(--border-subtle)] rounded-lg group">
       <span className="font-mono text-sm text-base-300 bg-base-800 px-2 py-1 rounded">
         {item.tool_name}
       </span>
@@ -72,6 +75,13 @@ function CachedItem({ item }: CachedItemProps) {
       <span className="text-xs text-base-600">
         expires in {expiresMin}m {expiresSec}s
       </span>
+      <button
+        onClick={() => onDelete(item.subject_id, item.tool_name, item.path)}
+        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-base-700 rounded text-base-500 hover:text-base-300"
+        title="Delete this cached approval"
+      >
+        <Trash2 className="w-3.5 h-3.5" />
+      </button>
     </div>
   )
 }

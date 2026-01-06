@@ -37,3 +37,13 @@ export async function getCachedApprovals(): Promise<CachedApprovalsResponse> {
 export async function clearCachedApprovals(): Promise<{ cleared: number; status: string }> {
   return apiDelete('/approvals/cached')
 }
+
+export async function deleteCachedApproval(
+  subjectId: string,
+  toolName: string,
+  path: string | null
+): Promise<{ deleted: boolean; status: string }> {
+  const params = new URLSearchParams({ subject_id: subjectId, tool_name: toolName })
+  if (path) params.set('path', path)
+  return apiDelete(`/approvals/cached/entry?${params}`)
+}
