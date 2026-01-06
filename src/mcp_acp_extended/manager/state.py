@@ -20,7 +20,6 @@ __all__ = [
 ]
 
 import asyncio
-import logging
 import os
 import time
 import uuid
@@ -28,6 +27,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+
+from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 
 
 class SSEEventType(str, Enum):
@@ -106,7 +107,7 @@ class SSEEventType(str, Enum):
 # Severity type for toast styling
 EventSeverity = Literal["success", "warning", "error", "critical", "info"]
 
-logger = logging.getLogger(__name__)
+logger = get_system_logger()
 
 
 class CachedApprovalSummary(NamedTuple):

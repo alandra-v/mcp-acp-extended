@@ -30,7 +30,6 @@ __all__ = [
 
 import hmac
 import json
-import logging
 import secrets
 from datetime import UTC, datetime
 from pathlib import Path
@@ -40,7 +39,9 @@ from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoin
 from starlette.responses import JSONResponse, Response
 from starlette.types import ASGIApp
 
-logger = logging.getLogger(__name__)
+from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
+
+logger = get_system_logger()
 
 # Token file location
 MANAGER_FILE = Path.home() / ".mcp-acp-extended" / "manager.json"

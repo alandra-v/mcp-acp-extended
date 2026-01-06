@@ -12,7 +12,6 @@ __all__ = ["router"]
 
 import asyncio
 import json
-import logging
 from datetime import datetime
 from typing import AsyncIterator
 
@@ -22,8 +21,9 @@ from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import ProxyStateDep
 from mcp_acp_extended.manager.state import SSEEventType
+from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 
-logger = logging.getLogger(__name__)
+logger = get_system_logger()
 
 router = APIRouter()
 
