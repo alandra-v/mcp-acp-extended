@@ -14,6 +14,7 @@ interface PendingDrawerProps {
   onOpenChange: (open: boolean) => void
   approvals: PendingApproval[]
   onApprove: (id: string) => void
+  onApproveOnce: (id: string) => void
   onDeny: (id: string) => void
 }
 
@@ -22,6 +23,7 @@ export function PendingDrawer({
   onOpenChange,
   approvals,
   onApprove,
+  onApproveOnce,
   onDeny,
 }: PendingDrawerProps) {
   return (
@@ -53,6 +55,7 @@ export function PendingDrawer({
                   key={approval.id}
                   approval={approval}
                   onApprove={() => onApprove(approval.id)}
+                  onApproveOnce={() => onApproveOnce(approval.id)}
                   onDeny={() => onDeny(approval.id)}
                   showProxyId
                 />

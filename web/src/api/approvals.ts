@@ -21,6 +21,10 @@ export async function approveRequest(id: string): Promise<{ status: string; appr
   return apiPost(`/approvals/pending/${id}/approve`)
 }
 
+export async function approveOnceRequest(id: string): Promise<{ status: string; approval_id: string }> {
+  return apiPost(`/approvals/pending/${id}/allow-once`)
+}
+
 export async function denyRequest(id: string): Promise<{ status: string; approval_id: string }> {
   return apiPost(`/approvals/pending/${id}/deny`)
 }

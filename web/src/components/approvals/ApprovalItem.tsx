@@ -4,6 +4,7 @@ import type { PendingApproval } from '@/types/api'
 interface ApprovalItemProps {
   approval: PendingApproval
   onApprove: () => void
+  onApproveOnce: () => void
   onDeny: () => void
   /** Show proxy ID badge (for global list) */
   showProxyId?: boolean
@@ -14,10 +15,14 @@ interface ApprovalItemProps {
 export function ApprovalItem({
   approval,
   onApprove,
+  onApproveOnce,
   onDeny,
   showProxyId = false,
   compact = false,
 }: ApprovalItemProps) {
+  // Calculate TTL in minutes for button label
+  const ttlMinutes = approval.cache_ttl_seconds ? Math.floor(approval.cache_ttl_seconds / 60) : null
+
   if (compact) {
     return (
       <div className="flex items-center gap-4 p-4 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
@@ -36,13 +41,33 @@ export function ApprovalItem({
           >
             Deny
           </Button>
-          <Button
-            size="sm"
-            onClick={onApprove}
-            className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover text-xs px-3 py-1.5"
-          >
-            Allow
-          </Button>
+          {approval.can_cache ? (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={onApprove}
+                className="bg-base-800 text-base-400 border-[var(--border-subtle)] hover:bg-base-700 text-xs px-3 py-1.5"
+              >
+                Allow ({ttlMinutes}m)
+              </Button>
+              <Button
+                size="sm"
+                onClick={onApproveOnce}
+                className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover text-xs px-3 py-1.5"
+              >
+                Allow once
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              onClick={onApproveOnce}
+              className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover text-xs px-3 py-1.5"
+            >
+              Allow
+            </Button>
+          )}
         </div>
       </div>
     )
@@ -76,13 +101,33 @@ export function ApprovalItem({
         >
           Deny
         </Button>
-        <Button
-          size="sm"
-          onClick={onApprove}
-          className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover"
-        >
-          Allow
-        </Button>
+        {approval.can_cache ? (
+          <>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={onApprove}
+              className="bg-base-800 text-base-400 border-[var(--border-subtle)] hover:bg-base-700"
+            >
+              Allow ({ttlMinutes}m)
+            </Button>
+            <Button
+              size="sm"
+              onClick={onApproveOnce}
+              className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover"
+            >
+              Allow once
+            </Button>
+          </>
+        ) : (
+          <Button
+            size="sm"
+            onClick={onApproveOnce}
+            className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover"
+          >
+            Allow
+          </Button>
+        )}
       </div>
     </div>
   )

@@ -5,6 +5,7 @@ import type { PendingApproval } from '@/types/api'
 interface ApprovalsSectionProps {
   approvals: PendingApproval[]
   onApprove: (id: string) => void
+  onApproveOnce: (id: string) => void
   onDeny: (id: string) => void
   loaded?: boolean
 }
@@ -12,6 +13,7 @@ interface ApprovalsSectionProps {
 export function ApprovalsSection({
   approvals,
   onApprove,
+  onApproveOnce,
   onDeny,
   loaded = true,
 }: ApprovalsSectionProps) {
@@ -28,6 +30,7 @@ export function ApprovalsSection({
               key={approval.id}
               approval={approval}
               onApprove={() => onApprove(approval.id)}
+              onApproveOnce={() => onApproveOnce(approval.id)}
               onDeny={() => onDeny(approval.id)}
               compact
             />

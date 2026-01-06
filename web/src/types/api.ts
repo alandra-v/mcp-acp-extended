@@ -22,6 +22,8 @@ export interface PendingApproval {
   created_at: string
   timeout_seconds: number
   request_id: string
+  can_cache: boolean
+  cache_ttl_seconds: number | null
 }
 
 export interface CachedApproval {

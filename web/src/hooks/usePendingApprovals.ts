@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { subscribeToPendingApprovals, approveRequest, denyRequest } from '@/api/approvals'
+import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest } from '@/api/approvals'
 import { playApprovalChime } from './useNotificationSound'
 import type { PendingApproval, SSEEvent } from '@/types/api'
 
@@ -64,6 +64,15 @@ export function usePendingApprovals() {
     }
   }, [])
 
+  const approveOnce = useCallback(async (id: string) => {
+    try {
+      await approveOnceRequest(id)
+      // Will be removed via SSE event
+    } catch (e) {
+      setError(e instanceof Error ? e : new Error('Failed to approve'))
+    }
+  }, [])
+
   const deny = useCallback(async (id: string) => {
     try {
       await denyRequest(id)
@@ -73,5 +82,5 @@ export function usePendingApprovals() {
     }
   }, [])
 
-  return { pending, connected, error, approve, deny }
+  return { pending, connected, error, approve, approveOnce, deny }
 }
