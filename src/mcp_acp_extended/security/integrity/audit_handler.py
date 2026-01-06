@@ -188,19 +188,12 @@ def verify_audit_writable(audit_path: Path) -> None:
     except OSError as e:
         raise AuditFailure(f"Failed to create audit log directory: {e}") from e
 
-    # Verify we can write to the file (valid JSON for JSONL compatibility)
-    test_event = {
-        "time": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.%f")[:-3] + "Z",
-        "event": "startup_write_test",
-        "status": "Success",
-        "message": "Audit log write verification",
-    }
-    test_content = json.dumps(test_event) + "\n"
+    # Verify we can write to the file (empty write to test permissions)
     try:
         with audit_path.open("a", encoding="utf-8") as f:
-            f.write(test_content)
+            f.write("")  # Empty write to verify access
             f.flush()
-            os.fsync(f.fileno())  # Ensure written to disk
+            os.fsync(f.fileno())  # Ensure we can persist to disk
     except PermissionError as e:
         raise AuditFailure(f"Audit log not writable (permission denied): {e}") from e
     except OSError as e:
