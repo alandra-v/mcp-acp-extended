@@ -44,7 +44,7 @@ export function AuthPage() {
             <h2 className="font-display text-lg font-semibold">Authentication</h2>
           </div>
 
-          <div className="p-6 bg-gradient-to-br from-[oklch(0.14_0.01_228)] to-[oklch(0.12_0.008_228)] border border-[var(--border-subtle)] rounded-lg">
+          <div className="p-6 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
             {/* Status */}
             <div className="flex items-center justify-between mb-6 pb-6 border-b border-[var(--border-subtle)]">
               <div className="flex items-center gap-3">
@@ -82,6 +82,12 @@ export function AuthPage() {
             {/* Details */}
             {status && (
               <div className="grid grid-cols-2 gap-4 mb-6 pb-6 border-b border-[var(--border-subtle)]">
+                <div>
+                  <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Identity Provider</div>
+                  <div className="font-mono text-sm text-base-300">
+                    {status.provider || '--'}
+                  </div>
+                </div>
                 <div>
                   <div className="text-xs text-base-500 uppercase tracking-wide mb-1">Storage Backend</div>
                   <div className="font-mono text-sm text-base-300">

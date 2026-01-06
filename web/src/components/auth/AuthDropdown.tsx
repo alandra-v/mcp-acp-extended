@@ -18,6 +18,7 @@ export function AuthDropdown() {
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
 
   const isAuthenticated = status?.authenticated ?? false
+  const hasProvider = !!status?.provider
   const displayName = status?.email || status?.name || (isAuthenticated ? 'Authenticated' : 'Not logged in')
 
   const handleLogout = async () => {
@@ -50,27 +51,21 @@ export function AuthDropdown() {
           <ChevronDown className="w-3 h-3 text-base-500" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          <DropdownMenuItem
-            onClick={() => setLoginDialogOpen(true)}
-            disabled={isAuthenticated}
-            className={isAuthenticated ? 'opacity-40 cursor-not-allowed' : ''}
-          >
-            Login
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={handleLogout}
-            disabled={!isAuthenticated}
-            className={!isAuthenticated ? 'opacity-40 cursor-not-allowed' : ''}
-          >
-            Logout
-          </DropdownMenuItem>
-          <DropdownMenuItem
-            onClick={handleLogoutFederated}
-            disabled={!isAuthenticated}
-            className={!isAuthenticated ? 'opacity-40 cursor-not-allowed' : ''}
-          >
-            Logout (federated)
-          </DropdownMenuItem>
+          {!isAuthenticated && (
+            <DropdownMenuItem onClick={() => setLoginDialogOpen(true)}>
+              Login
+            </DropdownMenuItem>
+          )}
+          {isAuthenticated && (
+            <DropdownMenuItem onClick={handleLogout}>
+              Logout
+            </DropdownMenuItem>
+          )}
+          {hasProvider && (
+            <DropdownMenuItem onClick={handleLogoutFederated}>
+              Logout (federated)
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleSettings}>
             Auth details
