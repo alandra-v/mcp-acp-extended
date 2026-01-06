@@ -22,6 +22,7 @@ __all__ = [
     "SecurityMiddleware",
     "delete_manager_file",
     "generate_token",
+    "is_valid_token_format",
     "read_manager_file",
     "validate_token",
     "write_manager_file",
@@ -74,6 +75,24 @@ def generate_token() -> str:
         64-character hex string (32 bytes of randomness).
     """
     return secrets.token_hex(32)
+
+
+def is_valid_token_format(token: str) -> bool:
+    """Validate token format for safe HTML injection.
+
+    Ensures token only contains hex characters to prevent XSS.
+    This is defense-in-depth since json.dumps also escapes,
+    but validates at the source.
+
+    Args:
+        token: Token to validate.
+
+    Returns:
+        True if token is valid hex format, False otherwise.
+    """
+    if not token or len(token) != 64:
+        return False
+    return all(c in "0123456789abcdef" for c in token.lower())
 
 
 def validate_token(provided: str, expected: str) -> bool:
@@ -303,19 +322,46 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             if validate_token(token, self.token):
                 return True
 
-        # SSE endpoints have special handling
+        # SSE endpoints have special handling because EventSource API
+        # doesn't support custom headers (can't send Authorization).
         if request.method == "GET" and self._is_sse_endpoint(request.url.path):
-            # Same-origin requests (no Origin header) are trusted
-            # Browser doesn't send Origin for same-origin requests
-            if not request.headers.get("origin"):
+            origin = request.headers.get("origin")
+
+            # Same-origin requests (no Origin header) are trusted.
+            # This is secure because:
+            # 1. Host header was already validated (DNS rebinding protection)
+            # 2. Browsers don't send Origin for same-origin requests
+            # 3. Non-browser clients without Origin would need to know the URL
+            #    which requires local access (API is localhost-only)
+            if not origin:
+                # Additional check: if Referer present, validate it
+                referer = request.headers.get("referer", "")
+                if referer and not self._is_valid_referer(referer):
+                    logger.warning("Rejected SSE with invalid referer: %s", referer)
+                    return False
                 return True
 
-            # Cross-origin: accept token in query param (dev mode)
+            # Cross-origin: accept token in query param (dev mode only)
             # This is for EventSource which can't send custom headers
             token = request.query_params.get("token")
             if token and validate_token(token, self.token):
                 return True
 
+        return False
+
+    def _is_valid_referer(self, referer: str) -> bool:
+        """Check if Referer header matches allowed origins.
+
+        Args:
+            referer: Referer header value.
+
+        Returns:
+            True if referer is valid, False otherwise.
+        """
+        # Referer includes full URL, extract origin part
+        for allowed in ALLOWED_ORIGINS:
+            if referer.startswith(allowed):
+                return True
         return False
 
     def _is_sse_endpoint(self, path: str) -> bool:

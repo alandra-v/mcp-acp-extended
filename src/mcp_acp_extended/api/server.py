@@ -46,7 +46,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
 from .routes import approvals, auth, config, control, logs, pending, policy, proxies, sessions
-from .security import SecurityMiddleware
+from .security import SecurityMiddleware, is_valid_token_format
 
 # Static files directory (built React app)
 STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
@@ -152,10 +152,11 @@ def create_api_app(token: str | None = None) -> FastAPI:
                 html = index_file.read_text()
 
                 # Inject API token into HTML for frontend authentication
+                # Security: Token is validated to be hex-only before injection
+                # to prevent XSS even if token were somehow tampered with.
+                # json.dumps provides additional escaping as defense-in-depth.
                 api_token = getattr(request.app.state, "api_token", None)
-                if api_token:
-                    # Inject token script before </head>
-                    # Use json.dumps for proper escaping (defense-in-depth)
+                if api_token and is_valid_token_format(api_token):
                     token_script = f"<script>window.__API_TOKEN__ = {json.dumps(api_token)};</script>"
                     html = html.replace("</head>", f"{token_script}\n  </head>")
 

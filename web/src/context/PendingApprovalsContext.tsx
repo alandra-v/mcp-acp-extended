@@ -1,5 +1,5 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
-import { subscribeToPendingApprovals, approveRequest, denyRequest } from '@/api/approvals'
+import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest } from '@/api/approvals'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
 import type { PendingApproval, SSEEvent } from '@/types/api'
 
@@ -10,6 +10,7 @@ interface PendingApprovalsContextValue {
   connected: boolean
   error: Error | null
   approve: (id: string) => Promise<void>
+  approveOnce: (id: string) => Promise<void>
   deny: (id: string) => Promise<void>
 }
 
@@ -73,6 +74,14 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
     }
   }, [])
 
+  const approveOnce = useCallback(async (id: string) => {
+    try {
+      await approveOnceRequest(id)
+    } catch (e) {
+      setError(e instanceof Error ? e : new Error('Failed to approve once'))
+    }
+  }, [])
+
   const deny = useCallback(async (id: string) => {
     try {
       await denyRequest(id)
@@ -82,7 +91,7 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
   }, [])
 
   return (
-    <PendingApprovalsContext.Provider value={{ pending, connected, error, approve, deny }}>
+    <PendingApprovalsContext.Provider value={{ pending, connected, error, approve, approveOnce, deny }}>
       {children}
     </PendingApprovalsContext.Provider>
   )

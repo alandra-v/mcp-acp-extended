@@ -3,6 +3,13 @@ import { Section } from './Section'
 import { cn } from '@/lib/utils'
 import type { LogEntry } from '@/types/api'
 
+/** Decision values that indicate allowed access */
+const ALLOWED_DECISIONS = ['allow', 'allowed'] as const
+
+function isAllowedDecision(decision: string): boolean {
+  return ALLOWED_DECISIONS.includes(decision as typeof ALLOWED_DECISIONS[number])
+}
+
 interface ActivitySectionProps {
   logs: LogEntry[]
   loading?: boolean
@@ -15,7 +22,7 @@ export function ActivitySection({
   loaded = true,
 }: ActivitySectionProps) {
   return (
-    <Section number="003" title="Recent Activity" loaded={loaded}>
+    <Section number="004" title="Recent Activity" loaded={loaded}>
       <div className="border border-[var(--border-subtle)] rounded-lg bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] overflow-hidden">
         <ScrollArea className="h-[300px]">
           {loading ? (
@@ -29,7 +36,10 @@ export function ActivitySection({
           ) : (
             <div>
               {logs.map((log, i) => (
-                <LogEntryRow key={`${log.timestamp}-${i}`} log={log} />
+                <LogEntryRow
+                  key={`${log.timestamp}-${log.tool_name ?? log.tool ?? ''}-${log.path ?? ''}-${i}`}
+                  log={log}
+                />
               ))}
             </div>
           )}
@@ -48,7 +58,7 @@ function LogEntryRow({ log }: LogEntryRowProps) {
   const toolName = (log.tool_name as string) || (log.tool as string) || '--'
   const path = (log.path as string) || (log.resource as string) || '--'
   const decision = (log.decision as string) || (log.outcome as string) || 'unknown'
-  const isAllowed = decision === 'allow' || decision === 'allowed'
+  const isAllowed = isAllowedDecision(decision)
 
   return (
     <div className="flex items-center gap-4 px-4 py-3 border-b border-[var(--border-subtle)] last:border-b-0 hover:bg-base-900 transition-smooth text-sm">

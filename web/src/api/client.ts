@@ -14,11 +14,17 @@ declare global {
   }
 }
 
+// Capture token once and clear from window to minimize XSS exposure window.
+// The token is validated server-side to be hex-only before injection.
+const API_TOKEN = window.__API_TOKEN__
+if (window.__API_TOKEN__) {
+  delete window.__API_TOKEN__
+}
+
 function getAuthHeaders(): HeadersInit {
   const headers: HeadersInit = {}
-  const token = window.__API_TOKEN__
-  if (token) {
-    headers['Authorization'] = `Bearer ${token}`
+  if (API_TOKEN) {
+    headers['Authorization'] = `Bearer ${API_TOKEN}`
   }
   return headers
 }
@@ -98,7 +104,11 @@ export async function apiGet<T>(path: string): Promise<T> {
   if (!res.ok) {
     throw new ApiError(res.status, res.statusText, await res.text())
   }
-  return res.json()
+  try {
+    return await res.json()
+  } catch {
+    throw new ApiError(res.status, 'Invalid JSON', 'Server returned invalid JSON response')
+  }
 }
 
 export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
@@ -114,7 +124,11 @@ export async function apiPost<T>(path: string, body?: unknown): Promise<T> {
   if (!res.ok) {
     throw new ApiError(res.status, res.statusText, await res.text())
   }
-  return res.json()
+  try {
+    return await res.json()
+  } catch {
+    throw new ApiError(res.status, 'Invalid JSON', 'Server returned invalid JSON response')
+  }
 }
 
 export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
@@ -130,7 +144,11 @@ export async function apiPut<T>(path: string, body?: unknown): Promise<T> {
   if (!res.ok) {
     throw new ApiError(res.status, res.statusText, await res.text())
   }
-  return res.json()
+  try {
+    return await res.json()
+  } catch {
+    throw new ApiError(res.status, 'Invalid JSON', 'Server returned invalid JSON response')
+  }
 }
 
 export async function apiDelete<T>(path: string): Promise<T> {
@@ -141,7 +159,11 @@ export async function apiDelete<T>(path: string): Promise<T> {
   if (!res.ok) {
     throw new ApiError(res.status, res.statusText, await res.text())
   }
-  return res.json()
+  try {
+    return await res.json()
+  } catch {
+    throw new ApiError(res.status, 'Invalid JSON', 'Server returned invalid JSON response')
+  }
 }
 
 // SSE connection for pending approvals
@@ -157,10 +179,9 @@ export function createSSEConnection<T = unknown>(
 
   // Add token as query param for cross-origin dev mode
   // The security middleware accepts ?token= for SSE endpoints
-  const token = window.__API_TOKEN__
-  if (token) {
+  if (API_TOKEN) {
     const separator = url.includes('?') ? '&' : '?'
-    url = `${url}${separator}token=${encodeURIComponent(token)}`
+    url = `${url}${separator}token=${encodeURIComponent(API_TOKEN)}`
   }
 
   const es = new EventSource(url)

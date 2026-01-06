@@ -9,6 +9,7 @@ import {
 interface UseAuthReturn {
   status: AuthStatus | null
   loading: boolean
+  loggingOut: boolean
   error: string | null
   logout: () => Promise<void>
   logoutFederated: () => Promise<void>
@@ -18,6 +19,7 @@ interface UseAuthReturn {
 export function useAuth(): UseAuthReturn {
   const [status, setStatus] = useState<AuthStatus | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loggingOut, setLoggingOut] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
@@ -50,27 +52,36 @@ export function useAuth(): UseAuthReturn {
 
   const logout = useCallback(async () => {
     try {
+      setLoggingOut(true)
+      setError(null)
       await apiLogout()
       await fetchStatus()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Logout failed')
+    } finally {
+      setLoggingOut(false)
     }
   }, [fetchStatus])
 
   const logoutFederated = useCallback(async () => {
     try {
+      setLoggingOut(true)
+      setError(null)
       const response = await apiLogoutFederated()
       // Open logout URL in new window/tab
       window.open(response.logout_url, '_blank')
       await fetchStatus()
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Federated logout failed')
+    } finally {
+      setLoggingOut(false)
     }
   }, [fetchStatus])
 
   return {
     status,
     loading,
+    loggingOut,
     error,
     logout,
     logoutFederated,

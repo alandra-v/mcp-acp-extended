@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, User, Shield, Key, RefreshCw } from 'lucide-react'
+import { ArrowLeft, User, Shield, Key, RefreshCw, AlertTriangle } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { LoginDialog } from '@/components/auth/LoginDialog'
@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils'
 
 export function AuthPage() {
   const navigate = useNavigate()
-  const { status, loading, logout, logoutFederated, refresh } = useAuth()
+  const { status, loading, error, logout, logoutFederated, refresh } = useAuth()
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
 
   const isAuthenticated = status?.authenticated ?? false
@@ -36,6 +36,14 @@ export function AuthPage() {
           </button>
           <h1 className="font-display text-xl font-semibold">Auth details</h1>
         </div>
+
+        {/* Error display */}
+        {error && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+        )}
 
         {/* Auth Section */}
         <section className="mb-10">

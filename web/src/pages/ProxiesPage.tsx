@@ -1,4 +1,5 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useCallback } from 'react'
+import { AlertTriangle } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { StatsRow, type FilterType } from '@/components/proxies/StatsRow'
 import { ProxyGrid } from '@/components/proxies/ProxyGrid'
@@ -7,8 +8,8 @@ import { useProxies } from '@/hooks/useProxies'
 import { usePendingApprovalsContext } from '@/context/PendingApprovalsContext'
 
 export function ProxiesPage() {
-  const { proxies, loading: proxiesLoading } = useProxies()
-  const { pending, approve, deny } = usePendingApprovalsContext()
+  const { proxies, loading: proxiesLoading, error: proxiesError } = useProxies()
+  const { pending, approve, approveOnce, deny, error: pendingError } = usePendingApprovalsContext()
   const [filter, setFilter] = useState<FilterType>('all')
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -36,13 +37,17 @@ export function ProxiesPage() {
     }
   }, [proxies, filter])
 
-  const handleFilterChange = (newFilter: FilterType) => {
+  const handleFilterChange = useCallback((newFilter: FilterType) => {
     if (newFilter === 'pending') {
       setDrawerOpen(true)
     } else {
       setFilter(newFilter)
     }
-  }
+  }, [])
+
+  const handlePendingClick = useCallback(() => {
+    setDrawerOpen(true)
+  }, [])
 
   return (
     <Layout>
@@ -65,8 +70,18 @@ export function ProxiesPage() {
           pending={stats.pending}
           currentFilter={filter}
           onFilterChange={handleFilterChange}
-          onPendingClick={() => setDrawerOpen(true)}
+          onPendingClick={handlePendingClick}
         />
+
+        {/* Error display */}
+        {(proxiesError || pendingError) && (
+          <div className="mb-6 p-4 bg-red-500/10 border border-red-500/20 rounded-lg flex items-center gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-400 flex-shrink-0" />
+            <p className="text-sm text-red-300">
+              {proxiesError?.message || pendingError?.message}
+            </p>
+          </div>
+        )}
 
         {/* Proxy grid */}
         {proxiesLoading ? (
@@ -89,6 +104,7 @@ export function ProxiesPage() {
         onOpenChange={setDrawerOpen}
         approvals={pending}
         onApprove={approve}
+        onApproveOnce={approveOnce}
         onDeny={deny}
       />
     </Layout>

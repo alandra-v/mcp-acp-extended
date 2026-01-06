@@ -30,6 +30,17 @@ export async function playApprovalChime(): Promise<void> {
   })
 }
 
+/**
+ * Close the audio context to release system resources.
+ * Call this when the app is unmounting or audio is no longer needed.
+ */
+export async function closeAudioContext(): Promise<void> {
+  if (audioContext) {
+    await audioContext.close()
+    audioContext = null
+  }
+}
+
 export function useNotificationSound() {
-  return { playApprovalChime }
+  return { playApprovalChime, closeAudioContext }
 }
