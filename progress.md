@@ -335,75 +335,89 @@ Focused on high-value policy improvements for single-user context.
 ---
 
 ## Phase 12: CLI Enhancements for No-UI Mode
-CLI commands for runtime visibility without the web UI. Enables headless deployments, security-conscious users, scripting, and debugging.
 
-**Why**: UI introduces dependencies and attack surface. These commands provide full visibility via CLI for users who prefer not to use the UI.
+CLI commands for visibility without the web UI. Enables headless deployments, security-conscious users, scripting, and debugging.
 
-### Enhance existing
-- [ ] Add JSON output option to
-  - [ ] auth status
-  - [ ] config show
-  - [ ] policy show
+**Why**: UI introduces dependencies and attack surface. CLI should work independently, reading files directly where possible.
 
-### Status & Health
+**Approach**: File-based commands read directly from disk (work offline). Only runtime state commands need the API (require running proxy).
 
+---
+
+### File-Based Commands (no API, work offline)
+
+#### JSON Output for Existing Commands
+- [ ] `auth status --json` - Token info as JSON
+- [ ] `config show --json` - Config as JSON
+- [ ] `policy show --json` - Policy as JSON
+
+#### Log Viewing
+- [ ] **`logs` command group** (`cli/commands/logs.py`)
+  - [ ] `logs tail` - Tail log files (like `tail -f`)
+    - [ ] `--type=TYPE`: decisions, operations, auth, system (default: all)
+    - [ ] `--json` for raw JSONL output
+    - [ ] Default: formatted, human-readable output
+    - [ ] Ctrl+C to stop
+  - [ ] `logs show` - Show recent log entries
+    - [ ] `--type=TYPE`: decisions, operations, auth, system
+    - [ ] `--limit=N` (default: 50)
+    - [ ] `--json` for raw output
+
+#### Policy Management (extend `cli/commands/policy.py`)
+- [ ] `policy show` - Display current policy from file
+  - [ ] `--format=yaml|json` (default: yaml)
+  - [ ] Shows rule count, last modified
+- [ ] `policy edit` - Open policy in $EDITOR (let user know policy reload necessary or proxy restart)
+- [ ] `policy add` - Add rule interactively (let user know policy reload necessary or proxy restart)
+
+---
+
+### Runtime Commands (require running proxy via API)
+
+#### Status & Health
 - [ ] **`status` command** (`cli/commands/status.py`)
   - [ ] Proxy health (running, uptime)
-  - [ ] Policy version and rules count
-  - [ ] Auth status (valid, expired, not configured)
+  - [ ] Auth status (valid, expired)
   - [ ] Active session count
-  - [ ] Rate limit status
-  - [ ] Output: JSON or formatted table (--format flag)
+  - [ ] `--json` for scriptable output
 
-### Session Management
-
+#### Session Management
 - [ ] **`sessions list` command** (`cli/commands/sessions.py`)
   - [ ] Show active sessions
   - [ ] Columns: session_id, user_id, started_at, request_count
-  - [ ] Requires running proxy (connects via API or reads shared state)
+  - [ ] `--json` for scriptable output
 
-### Approval Management
-
+#### Approval Management
 - [ ] **`approvals` command group** (`cli/commands/approvals.py`)
   - [ ] `approvals pending` - Show pending HITL queue
     - [ ] Columns: id, tool, path, user, waiting_since
-  - [ ] `approvals cache list` - Show cached approvals
-    - [ ] Columns: tool, path, user, effect, expires_at
-  - [ ] `approvals cache clear [--all|--id=X]` - Clear cache entries
+  - [ ] `approvals cache` - Show cached approvals
+    - [ ] Columns: tool, path, user, expires_at
+  - [ ] `approvals cache clear [--all|--tool=X]` - Clear cache entries
     - [ ] `--all` clears entire cache
-    - [ ] `--id=X` clears specific entry
-    - [ ] Confirmation prompt (--yes to skip)
+    - [ ] `--tool=X` clears specific tool's approvals
+    - [ ] Confirmation prompt
 
-### Log Viewing
+#### Policy Reload (already exists)
+- [x] `policy reload` - Trigger hot reload via API
 
-- [ ] **`logs tail` command** (`cli/commands/logs.py`)
-  - [ ] Tail log files (like `tail -f`)
-  - [ ] `--type=TYPE` filter: operations, decisions, auth, system
-  - [ ] `--json` for raw JSONL output
-  - [ ] Default: formatted, human-readable output
-  - [ ] Ctrl+C to stop
-
-### Policy Management
-
-- [ ] **`policy show` command** (extend `cli/commands/policy.py`)
-  - [ ] Display current policy
-  - [ ] `--format=yaml|json` (default: yaml)
-  - [ ] Shows rule count, version, last modified
-
-- [ ] **`policy reload` command** (extend `cli/commands/policy.py`)
-  - [ ] Trigger hot reload (same as SIGHUP)
-  - [ ] Validates before applying
-  - [ ] Shows success/failure message
-
-  - [ ] **`policy edit` command** (extend `cli/commands/policy.py`)
-  - [ ] **`policy add` command** (extend `cli/commands/policy.py`)
-
+---
 
 ### Implementation Notes
 
-- Commands that need runtime data connect to proxy API (`127.0.0.1:8765`)
-- Bearer token read from `~/.mcp-acp-extended/manager.json`
-- Graceful error if proxy not running: "Proxy not running. Start with 'mcp-acp-extended start'"
-- All commands support default to formatted output wit `--json` for scriptable output
+**File-based commands:**
+- Read directly from disk using existing config/policy loaders
+- Work even when proxy is not running
+- Use `get_config_path()`, `get_log_dir()` helpers
 
-**Deliverable**: Full CLI visibility into proxy runtime state without web UI.
+**Runtime commands:**
+- Connect to proxy API (`127.0.0.1:{port}`)
+- Read port/token from `~/.mcp-acp-extended/manager.json`
+- Graceful error: "Proxy not running. Start with 'mcp-acp-extended start'"
+
+**All commands:**
+- Default: human-readable formatted output
+- `--json` flag for scriptable output
+- Follow existing CLI patterns (click groups, styled output)
+
+**Deliverable**: Full CLI visibility - file-based works offline, runtime state when proxy running.
