@@ -10,7 +10,6 @@ interface StatsRowProps {
   currentFilter: FilterType
   onFilterChange: (filter: FilterType) => void
   onPendingClick: () => void
-  sseConnected?: boolean
 }
 
 export function StatsRow({
@@ -21,7 +20,6 @@ export function StatsRow({
   currentFilter,
   onFilterChange,
   onPendingClick,
-  sseConnected = false,
 }: StatsRowProps) {
   return (
     <div className="flex gap-4 mb-8">
@@ -48,8 +46,7 @@ export function StatsRow({
         value={pending}
         active={currentFilter === 'pending'}
         onClick={onPendingClick}
-        showConnectionStatus
-        connected={sseConnected}
+        showAlert={pending > 0}
       />
     </div>
   )
@@ -60,11 +57,10 @@ interface StatCardProps {
   value: number
   active?: boolean
   onClick: () => void
-  showConnectionStatus?: boolean
-  connected?: boolean
+  showAlert?: boolean
 }
 
-function StatCard({ label, value, active, onClick, showConnectionStatus, connected }: StatCardProps) {
+function StatCard({ label, value, active, onClick, showAlert }: StatCardProps) {
   return (
     <button
       onClick={onClick}
@@ -73,10 +69,10 @@ function StatCard({ label, value, active, onClick, showConnectionStatus, connect
       <div className="stat-card-inner">
         <div className="flex items-center gap-2">
           <span className="stat-value">{value}</span>
-          {showConnectionStatus && connected && (
+          {showAlert && (
             <span
-              className="w-2 h-2 rounded-full bg-success shadow-[0_0_6px_var(--success-border)]"
-              title="Live updates connected"
+              className="w-2 h-2 rounded-full bg-error-indicator shadow-[0_0_6px_var(--error-indicator)] animate-pulse"
+              title="Pending approvals"
             />
           )}
         </div>

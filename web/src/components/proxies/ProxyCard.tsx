@@ -4,23 +4,14 @@ import type { Proxy } from '@/types/api'
 
 interface ProxyCardProps {
   proxy: Proxy
-  pendingCount?: number
 }
 
-export function ProxyCard({ proxy, pendingCount = 0 }: ProxyCardProps) {
+export function ProxyCard({ proxy }: ProxyCardProps) {
   const isActive = proxy.status === 'running'
 
   return (
     <Link to={`/proxy/${proxy.id}`} className="proxy-card">
       <div className="proxy-card-inner">
-        {/* Pending badge */}
-        {pendingCount > 0 && (
-          <div className="pending-badge">
-            <span className="pulse" />
-            {pendingCount} pending
-          </div>
-        )}
-
         {/* Header */}
         <div className="flex items-start justify-between mb-4">
           <span className="proxy-name">{proxy.backend_id}</span>

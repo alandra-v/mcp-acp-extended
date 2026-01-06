@@ -8,7 +8,7 @@ import { usePendingApprovals } from '@/hooks/usePendingApprovals'
 
 export function ProxiesPage() {
   const { proxies, loading: proxiesLoading } = useProxies()
-  const { pending, connected: sseConnected, approve, deny } = usePendingApprovals()
+  const { pending, approve, deny } = usePendingApprovals()
   const [filter, setFilter] = useState<FilterType>('all')
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -66,7 +66,6 @@ export function ProxiesPage() {
           currentFilter={filter}
           onFilterChange={handleFilterChange}
           onPendingClick={() => setDrawerOpen(true)}
-          sseConnected={sseConnected}
         />
 
         {/* Proxy grid */}
@@ -75,7 +74,7 @@ export function ProxiesPage() {
             Loading proxies...
           </div>
         ) : (
-          <ProxyGrid proxies={filteredProxies} pendingApprovals={pending} />
+          <ProxyGrid proxies={filteredProxies} />
         )}
 
         {/* Hint */}
