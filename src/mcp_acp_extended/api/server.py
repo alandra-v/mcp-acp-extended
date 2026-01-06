@@ -41,10 +41,9 @@ import json
 import os
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
-from fastapi.staticfiles import StaticFiles
 
 from .routes import approvals, auth, config, control, logs, pending, policy, proxies, sessions
 from .security import SecurityMiddleware
@@ -106,19 +105,50 @@ def create_api_app(token: str | None = None) -> FastAPI:
     app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
 
     # Serve static files (built React app)
+    # Note: We use dynamic file serving instead of StaticFiles mount so that
+    # rebuilds are picked up without server restart (for development convenience)
     if STATIC_DIR.exists():
-        assets_dir = STATIC_DIR / "assets"
-        if assets_dir.exists():
-            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-
-        # SPA fallback: serve index.html for all non-API routes
         index_file = STATIC_DIR / "index.html"
         if index_file.exists():
 
-            @app.get("/{path:path}")
-            async def serve_spa(path: str, request: Request) -> HTMLResponse:
-                """Serve index.html with token injection for SPA routing."""
-                # Read HTML fresh each time (supports hot reload during dev)
+            @app.get("/{path:path}", response_model=None)
+            async def serve_spa(path: str, request: Request) -> Response:
+                """Serve static files or index.html for SPA routing."""
+                # Media type mapping for static files
+                media_types = {
+                    ".svg": "image/svg+xml",
+                    ".ico": "image/x-icon",
+                    ".png": "image/png",
+                    ".jpg": "image/jpeg",
+                    ".jpeg": "image/jpeg",
+                    ".json": "application/json",
+                    ".js": "application/javascript",
+                    ".css": "text/css",
+                    ".woff": "font/woff",
+                    ".woff2": "font/woff2",
+                    ".ttf": "font/ttf",
+                    ".map": "application/json",
+                }
+
+                # Check for static files (root-level or in assets/)
+                if path:
+                    static_file = STATIC_DIR / path
+                    if static_file.exists() and static_file.is_file():
+                        suffix = static_file.suffix.lower()
+                        media_type = media_types.get(suffix, "application/octet-stream")
+                        # Long cache for hashed assets, short cache for root files
+                        cache_control = (
+                            "public, max-age=31536000, immutable"
+                            if path.startswith("assets/")
+                            else "public, max-age=3600"
+                        )
+                        return FileResponse(
+                            static_file,
+                            media_type=media_type,
+                            headers={"Cache-Control": cache_control},
+                        )
+
+                # SPA fallback: serve index.html
                 html = index_file.read_text()
 
                 # Inject API token into HTML for frontend authentication
@@ -129,6 +159,9 @@ def create_api_app(token: str | None = None) -> FastAPI:
                     token_script = f"<script>window.__API_TOKEN__ = {json.dumps(api_token)};</script>"
                     html = html.replace("</head>", f"{token_script}\n  </head>")
 
-                return HTMLResponse(content=html)
+                return HTMLResponse(
+                    content=html,
+                    headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
+                )
 
     return app
