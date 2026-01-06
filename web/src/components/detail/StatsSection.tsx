@@ -31,7 +31,7 @@ interface StatBoxProps {
 
 function StatBox({ label, value }: StatBoxProps) {
   return (
-    <div className="p-5 bg-gradient-to-br from-[oklch(0.14_0.01_228)] to-[oklch(0.11_0.008_228)] border border-[var(--border-subtle)] rounded-lg">
+    <div className="p-5 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
       <div className="font-display text-3xl font-semibold mb-1">{value}</div>
       <div className="text-xs uppercase tracking-wide text-muted-foreground">
         {label}

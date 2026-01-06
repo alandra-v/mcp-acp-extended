@@ -16,7 +16,7 @@ export function ActivitySection({
 }: ActivitySectionProps) {
   return (
     <Section number="003" title="Recent Activity" loaded={loaded}>
-      <div className="border border-[var(--border-subtle)] rounded-lg bg-gradient-to-br from-[oklch(0.12_0.008_228)] to-[oklch(0.10_0.006_228)] overflow-hidden">
+      <div className="border border-[var(--border-subtle)] rounded-lg bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] overflow-hidden">
         <ScrollArea className="h-[300px]">
           {loading ? (
             <div className="text-center py-8 text-muted-foreground text-sm">

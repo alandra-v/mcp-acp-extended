@@ -21,15 +21,15 @@
     --radius: 0.625rem;
 
     /* Status colors (oklch) */
-    --success: oklch(0.7 0.15 145);
-    --success-muted: oklch(0.75 0.12 145);
-    --success-bg: oklch(0.7 0.15 145 / 0.2);
-    --success-bg-hover: oklch(0.7 0.15 145 / 0.3);
-    --success-border: oklch(0.7 0.15 145 / 0.3);
+    --success: oklch(0.62 0.22 145);
+    --success-muted: oklch(0.68 0.18 145);
+    --success-bg: oklch(0.62 0.22 145 / 0.2);
+    --success-bg-hover: oklch(0.62 0.22 145 / 0.3);
+    --success-border: oklch(0.62 0.22 145 / 0.3);
     --warning: oklch(0.75 0.15 85);
-    --error: oklch(0.704 0.191 22.216);
-    --error-muted: oklch(0.7 0.15 25);
-    --error-indicator: oklch(0.65 0.2 25);
+    --error: oklch(0.50 0.18 25);
+    --error-muted: oklch(0.55 0.15 25);
+    --error-indicator: oklch(0.50 0.20 22);
     --info: oklch(0.7 0.15 230);
 
     /* Dark theme using oklch - only dark theme */

@@ -1,5 +1,4 @@
 import { Button } from '@/components/ui/button'
-import { formatTimeAgo } from '@/lib/utils'
 import type { PendingApproval } from '@/types/api'
 
 interface ApprovalItemProps {
@@ -19,18 +18,15 @@ export function ApprovalItem({
   showProxyId = false,
   compact = false,
 }: ApprovalItemProps) {
-  const timeAgo = formatTimeAgo(new Date(approval.created_at))
-
   if (compact) {
     return (
-      <div className="flex items-center gap-4 p-4 bg-gradient-to-br from-[oklch(0.14_0.01_228)] to-[oklch(0.12_0.008_228)] border border-[var(--border-subtle)] rounded-lg">
+      <div className="flex items-center gap-4 p-4 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
         <span className="font-mono text-sm text-base-300 bg-base-800 px-2.5 py-1.5 rounded">
           {approval.tool_name}
         </span>
         <span className="flex-1 font-mono text-sm text-base-400 truncate">
           {approval.path || '--'}
         </span>
-        <span className="text-xs text-base-600">{timeAgo}</span>
         <div className="flex gap-2">
           <Button
             variant="outline"
@@ -53,7 +49,7 @@ export function ApprovalItem({
   }
 
   return (
-    <div className="p-4 bg-gradient-to-br from-[oklch(0.14_0.01_228)] to-[oklch(0.12_0.008_228)] border border-[var(--border-subtle)] rounded-lg">
+    <div className="p-4 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
       <div className="flex items-center gap-3 mb-3">
         {showProxyId && (
           <span className="text-xs text-base-500 bg-base-800 px-2 py-1 rounded">
@@ -63,7 +59,6 @@ export function ApprovalItem({
         <span className="font-mono text-sm text-base-300">
           {approval.tool_name}
         </span>
-        <span className="ml-auto text-xs text-base-600">{timeAgo}</span>
       </div>
 
       {approval.path && (
