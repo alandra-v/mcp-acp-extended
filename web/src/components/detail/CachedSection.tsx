@@ -1,0 +1,77 @@
+import { Trash2 } from 'lucide-react'
+import { Section } from './Section'
+import { Button } from '@/components/ui/button'
+import type { CachedApproval } from '@/types/api'
+
+interface CachedSectionProps {
+  cached: CachedApproval[]
+  loading?: boolean
+  onClear: () => void
+  loaded?: boolean
+}
+
+export function CachedSection({
+  cached,
+  loading = false,
+  onClear,
+  loaded = true,
+}: CachedSectionProps) {
+  return (
+    <Section number="003" title="Cached Decisions" loaded={loaded}>
+      <div className="space-y-3">
+        {loading ? (
+          <div className="text-center py-8 text-muted-foreground text-sm">
+            Loading...
+          </div>
+        ) : cached.length === 0 ? (
+          <div className="text-center py-8 text-muted-foreground text-sm">
+            No cached decisions
+          </div>
+        ) : (
+          <>
+            <div className="flex items-center justify-between mb-2">
+              <span className="text-xs text-base-500">
+                {cached.length} cached decision{cached.length !== 1 ? 's' : ''}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={onClear}
+                className="text-xs text-base-500 hover:text-base-300 h-7 px-2"
+              >
+                <Trash2 className="w-3 h-3 mr-1" />
+                Clear all
+              </Button>
+            </div>
+            {cached.map((item) => (
+              <CachedItem key={item.request_id} item={item} />
+            ))}
+          </>
+        )}
+      </div>
+    </Section>
+  )
+}
+
+interface CachedItemProps {
+  item: CachedApproval
+}
+
+function CachedItem({ item }: CachedItemProps) {
+  const expiresMin = Math.floor(item.expires_in_seconds / 60)
+  const expiresSec = Math.round(item.expires_in_seconds % 60)
+
+  return (
+    <div className="flex items-center gap-4 p-3 bg-gradient-to-br from-[oklch(0.16_0.012_228)] to-[oklch(0.13_0.01_228)] border border-[var(--border-subtle)] rounded-lg">
+      <span className="font-mono text-sm text-base-300 bg-base-800 px-2 py-1 rounded">
+        {item.tool_name}
+      </span>
+      <span className="flex-1 font-mono text-xs text-base-500 truncate">
+        {item.path || '--'}
+      </span>
+      <span className="text-xs text-base-600">
+        expires in {expiresMin}m {expiresSec}s
+      </span>
+    </div>
+  )
+}

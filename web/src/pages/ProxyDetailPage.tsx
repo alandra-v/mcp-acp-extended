@@ -6,9 +6,11 @@ import { Button } from '@/components/ui/button'
 import { DetailSidebar, type DetailSection } from '@/components/detail/DetailSidebar'
 import { StatsSection } from '@/components/detail/StatsSection'
 import { ApprovalsSection } from '@/components/detail/ApprovalsSection'
+import { CachedSection } from '@/components/detail/CachedSection'
 import { ActivitySection } from '@/components/detail/ActivitySection'
 import { useProxies } from '@/hooks/useProxies'
-import { usePendingApprovals } from '@/hooks/usePendingApprovals'
+import { usePendingApprovalsContext } from '@/context/PendingApprovalsContext'
+import { useCachedApprovals } from '@/hooks/useCachedApprovals'
 import { useLogs } from '@/hooks/useLogs'
 import { cn } from '@/lib/utils'
 
@@ -16,7 +18,8 @@ export function ProxyDetailPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const { proxies, loading: proxiesLoading } = useProxies()
-  const { pending, approve, deny } = usePendingApprovals()
+  const { pending, approve, approveOnce, deny } = usePendingApprovalsContext()
+  const { cached, loading: cachedLoading, clear: clearCached } = useCachedApprovals()
   const { logs, loading: logsLoading } = useLogs('decisions')
   const [activeSection, setActiveSection] = useState<DetailSection>('overview')
   const [loaded, setLoaded] = useState(false)
@@ -111,7 +114,14 @@ export function ProxyDetailPage() {
               <ApprovalsSection
                 approvals={proxyPending}
                 onApprove={approve}
+                onApproveOnce={approveOnce}
                 onDeny={deny}
+                loaded={loaded}
+              />
+              <CachedSection
+                cached={cached}
+                loading={cachedLoading}
+                onClear={clearCached}
                 loaded={loaded}
               />
               <ActivitySection
