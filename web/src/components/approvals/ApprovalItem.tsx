@@ -12,6 +12,72 @@ interface ApprovalItemProps {
   compact?: boolean
 }
 
+interface ApprovalActionsProps {
+  canCache: boolean
+  ttlMinutes: number | null
+  onApprove: () => void
+  onApproveOnce: () => void
+  onDeny: () => void
+  /** Use compact sizing (smaller text, tighter padding) */
+  compact?: boolean
+}
+
+/**
+ * Shared approval action buttons (Deny, Allow, Allow once).
+ * Renders the appropriate button set based on whether caching is available.
+ */
+function ApprovalActions({
+  canCache,
+  ttlMinutes,
+  onApprove,
+  onApproveOnce,
+  onDeny,
+  compact = false,
+}: ApprovalActionsProps) {
+  // Compact mode adds smaller text and tighter padding
+  const compactClass = compact ? ' text-xs px-3 py-1.5' : ''
+
+  return (
+    <div className="flex gap-2">
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={onDeny}
+        className={`bg-base-800 text-base-400 border-[var(--border-subtle)] hover:bg-base-700${compactClass}`}
+      >
+        Deny
+      </Button>
+      {canCache ? (
+        <>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onApprove}
+            className={`bg-base-800 text-base-400 border-[var(--border-subtle)] hover:bg-base-700${compactClass}`}
+          >
+            Allow ({ttlMinutes}m)
+          </Button>
+          <Button
+            size="sm"
+            onClick={onApproveOnce}
+            className={`bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover${compactClass}`}
+          >
+            Allow once
+          </Button>
+        </>
+      ) : (
+        <Button
+          size="sm"
+          onClick={onApproveOnce}
+          className={`bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover${compactClass}`}
+        >
+          Allow
+        </Button>
+      )}
+    </div>
+  )
+}
+
 export function ApprovalItem({
   approval,
   onApprove,
@@ -32,43 +98,14 @@ export function ApprovalItem({
         <span className="flex-1 font-mono text-sm text-base-400 truncate">
           {approval.path || '--'}
         </span>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={onDeny}
-            className="bg-base-800 text-base-400 border-[var(--border-subtle)] hover:bg-base-700 text-xs px-3 py-1.5"
-          >
-            Deny
-          </Button>
-          {approval.can_cache ? (
-            <>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={onApprove}
-                className="bg-base-800 text-base-400 border-[var(--border-subtle)] hover:bg-base-700 text-xs px-3 py-1.5"
-              >
-                Allow ({ttlMinutes}m)
-              </Button>
-              <Button
-                size="sm"
-                onClick={onApproveOnce}
-                className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover text-xs px-3 py-1.5"
-              >
-                Allow once
-              </Button>
-            </>
-          ) : (
-            <Button
-              size="sm"
-              onClick={onApproveOnce}
-              className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover text-xs px-3 py-1.5"
-            >
-              Allow
-            </Button>
-          )}
-        </div>
+        <ApprovalActions
+          canCache={approval.can_cache}
+          ttlMinutes={ttlMinutes}
+          onApprove={onApprove}
+          onApproveOnce={onApproveOnce}
+          onDeny={onDeny}
+          compact
+        />
       </div>
     )
   }
@@ -92,43 +129,13 @@ export function ApprovalItem({
         </div>
       )}
 
-      <div className="flex gap-2">
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={onDeny}
-          className="bg-base-800 text-base-400 border-[var(--border-subtle)] hover:bg-base-700"
-        >
-          Deny
-        </Button>
-        {approval.can_cache ? (
-          <>
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={onApprove}
-              className="bg-base-800 text-base-400 border-[var(--border-subtle)] hover:bg-base-700"
-            >
-              Allow ({ttlMinutes}m)
-            </Button>
-            <Button
-              size="sm"
-              onClick={onApproveOnce}
-              className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover"
-            >
-              Allow once
-            </Button>
-          </>
-        ) : (
-          <Button
-            size="sm"
-            onClick={onApproveOnce}
-            className="bg-success-bg text-success-muted border border-success-border hover:bg-success-bg-hover"
-          >
-            Allow
-          </Button>
-        )}
-      </div>
+      <ApprovalActions
+        canCache={approval.can_cache}
+        ttlMinutes={ttlMinutes}
+        onApprove={onApprove}
+        onApproveOnce={onApproveOnce}
+        onDeny={onDeny}
+      />
     </div>
   )
 }
