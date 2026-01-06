@@ -133,22 +133,27 @@ async def list_pending_approvals(state: ProxyStateDep) -> list[PendingApprovalRe
     ]
 
 
-@router.post("/{approval_id}/approve", response_model=ApprovalActionResponse)
-async def approve_pending(approval_id: str, state: ProxyStateDep) -> ApprovalActionResponse:
-    """Approve a pending request.
+def _resolve_approval(
+    approval_id: str,
+    action: str,
+    response_status: str,
+    state: "ProxyStateDep",
+) -> ApprovalActionResponse:
+    """Resolve a pending approval with the given action.
 
     Args:
         approval_id: The pending approval ID.
+        action: Resolution action ("allow", "allow_once", "deny").
+        response_status: Status string for the response.
         state: Proxy state (injected).
 
     Returns:
-        Status confirmation.
+        ApprovalActionResponse with status confirmation.
 
     Raises:
         HTTPException: 404 if approval not found.
     """
-    if not state.resolve_pending(approval_id, "allow"):
-        # Emit SSE event for UI notification
+    if not state.resolve_pending(approval_id, action):
         state.emit_system_event(
             SSEEventType.PENDING_NOT_FOUND,
             severity="error",
@@ -160,64 +165,22 @@ async def approve_pending(approval_id: str, state: ProxyStateDep) -> ApprovalAct
             detail=f"Pending approval '{approval_id}' not found or already resolved",
         )
 
-    return ApprovalActionResponse(status="approved", approval_id=approval_id)
+    return ApprovalActionResponse(status=response_status, approval_id=approval_id)
+
+
+@router.post("/{approval_id}/approve", response_model=ApprovalActionResponse)
+async def approve_pending(approval_id: str, state: ProxyStateDep) -> ApprovalActionResponse:
+    """Approve a pending request (caches the approval)."""
+    return _resolve_approval(approval_id, "allow", "approved", state)
 
 
 @router.post("/{approval_id}/allow-once", response_model=ApprovalActionResponse)
 async def allow_once_pending(approval_id: str, state: ProxyStateDep) -> ApprovalActionResponse:
-    """Allow a pending request without caching.
-
-    Args:
-        approval_id: The pending approval ID.
-        state: Proxy state (injected).
-
-    Returns:
-        Status confirmation.
-
-    Raises:
-        HTTPException: 404 if approval not found.
-    """
-    if not state.resolve_pending(approval_id, "allow_once"):
-        # Emit SSE event for UI notification
-        state.emit_system_event(
-            SSEEventType.PENDING_NOT_FOUND,
-            severity="error",
-            message="Approval not found (may have timed out)",
-            approval_id=approval_id,
-        )
-        raise HTTPException(
-            status_code=404,
-            detail=f"Pending approval '{approval_id}' not found or already resolved",
-        )
-
-    return ApprovalActionResponse(status="allowed_once", approval_id=approval_id)
+    """Allow a pending request without caching."""
+    return _resolve_approval(approval_id, "allow_once", "allowed_once", state)
 
 
 @router.post("/{approval_id}/deny", response_model=ApprovalActionResponse)
 async def deny_pending(approval_id: str, state: ProxyStateDep) -> ApprovalActionResponse:
-    """Deny a pending request.
-
-    Args:
-        approval_id: The pending approval ID.
-        state: Proxy state (injected).
-
-    Returns:
-        Status confirmation.
-
-    Raises:
-        HTTPException: 404 if approval not found.
-    """
-    if not state.resolve_pending(approval_id, "deny"):
-        # Emit SSE event for UI notification
-        state.emit_system_event(
-            SSEEventType.PENDING_NOT_FOUND,
-            severity="error",
-            message="Approval not found (may have timed out)",
-            approval_id=approval_id,
-        )
-        raise HTTPException(
-            status_code=404,
-            detail=f"Pending approval '{approval_id}' not found or already resolved",
-        )
-
-    return ApprovalActionResponse(status="denied", approval_id=approval_id)
+    """Deny a pending request."""
+    return _resolve_approval(approval_id, "deny", "denied", state)
