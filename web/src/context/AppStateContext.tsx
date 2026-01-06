@@ -3,7 +3,7 @@ import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRe
 import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
 import { playErrorSound } from '@/hooks/useErrorSound'
-import type { PendingApproval, ProxyStats, SSEEvent, SSEEventType } from '@/types/api'
+import type { PendingApproval, ProxyStats, SSEEvent, SSEEventType, SSESystemEvent } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
 
@@ -63,7 +63,7 @@ const AUTH_CHANGE_EVENTS = new Set([
   'token_refresh_failed',
 ])
 
-function showSystemToast(event: SSEEvent) {
+function showSystemToast(event: SSESystemEvent) {
   const message = event.message || DEFAULT_MESSAGES[event.type] || event.type
   const severity = event.severity || 'info'
 
@@ -185,8 +185,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
 
         // System events with severity - show toast
         default:
-          if (event.severity) {
-            showSystemToast(event)
+          if ('severity' in event && event.severity) {
+            showSystemToast(event as SSESystemEvent)
           }
           break
       }

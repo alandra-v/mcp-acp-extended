@@ -179,12 +179,8 @@ export interface SSENewLogEntriesEvent extends SSESystemEventBase {
   count?: number
 }
 
-// Discriminated union of all SSE event types
-export type SSEEvent =
-  | SSESnapshotEvent
-  | SSEPendingCreatedEvent
-  | SSEPendingResolvedEvent
-  | SSEPendingTimeoutEvent
+// System events (extend SSESystemEventBase, have severity/message)
+export type SSESystemEvent =
   | SSEPendingNotFoundEvent
   | SSEPolicyReloadedEvent
   | SSEPolicyRollbackEvent
@@ -198,6 +194,14 @@ export type SSEEvent =
   | SSECriticalEvent
   | SSEStatsUpdatedEvent
   | SSENewLogEntriesEvent
+
+// Discriminated union of all SSE event types
+export type SSEEvent =
+  | SSESnapshotEvent
+  | SSEPendingCreatedEvent
+  | SSEPendingResolvedEvent
+  | SSEPendingTimeoutEvent
+  | SSESystemEvent
 
 // Type helper to extract event type strings
 export type SSEEventType = SSEEvent['type']
