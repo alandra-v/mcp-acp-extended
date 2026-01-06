@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react'
+import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest } from '@/api/approvals'
 import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
@@ -20,8 +20,10 @@ const DEFAULT_MESSAGES: Partial<Record<SSEEventType, string>> = {
   mtls_failed: 'mTLS handshake failed',
   cert_validation_failed: 'Server certificate validation failed',
   // Authentication
+  auth_login: 'Logged in',
+  auth_logout: 'Logged out',
   auth_session_expiring: 'Session expiring soon',
-  token_refresh_failed: 'Session expired',
+  token_refresh_failed: 'Session expired - please log in again',
   token_validation_failed: 'Token validation failed',
   auth_failure: 'Authentication failed',
   // Policy
@@ -54,6 +56,13 @@ const DEFAULT_MESSAGES: Partial<Record<SSEEventType, string>> = {
   health_monitor_failed: 'Health monitor failed',
 }
 
+// Auth event types that should trigger auth state refresh
+const AUTH_CHANGE_EVENTS = new Set([
+  'auth_login',
+  'auth_logout',
+  'token_refresh_failed',
+])
+
 function showSystemToast(event: SSEEvent) {
   const message = event.message || DEFAULT_MESSAGES[event.type] || event.type
   const severity = event.severity || 'info'
@@ -78,6 +87,11 @@ function showSystemToast(event: SSEEvent) {
     default:
       toast.info(message)
   }
+
+  // Dispatch custom event for auth state changes
+  if (AUTH_CHANGE_EVENTS.has(event.type)) {
+    window.dispatchEvent(new CustomEvent('auth-state-changed', { detail: event.type }))
+  }
 }
 
 interface PendingApprovalsContextValue {
@@ -96,6 +110,11 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<Error | null>(null)
 
+  // Track connection errors to avoid spamming toasts on repeated reconnect failures
+  const errorCountRef = useRef(0)
+  const isShutdownRef = useRef(false)
+  const eventSourceRef = useRef<EventSource | null>(null)
+
   // Update document title when pending count changes
   useEffect(() => {
     if (pending.length > 0) {
@@ -112,6 +131,8 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
         case 'snapshot':
           setPending(event.approvals || [])
           setConnected(true)
+          // Reset error count on successful reconnect
+          errorCountRef.current = 0
           break
         case 'pending_created':
           if (event.approval) {
@@ -131,6 +152,15 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
           }
           break
 
+        // Critical shutdown - show persistent toast and stop reconnecting
+        case 'critical_shutdown':
+          isShutdownRef.current = true
+          toast.error(event.message || 'Proxy shut down', { duration: Infinity })
+          playErrorSound()
+          // Close EventSource to stop reconnection attempts
+          eventSourceRef.current?.close()
+          break
+
         // System events with severity - show toast
         default:
           if (event.severity) {
@@ -141,13 +171,22 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
     }
 
     const handleError = () => {
+      // Don't spam toasts if proxy shut down or after first error
+      if (isShutdownRef.current) return
+
       setConnected(false)
       setError(new Error('SSE connection lost'))
-      toast.error('Connection lost')
-      playErrorSound()
+
+      // Only show toast and play sound on first error
+      if (errorCountRef.current === 0) {
+        toast.error('Connection lost')
+        playErrorSound()
+      }
+      errorCountRef.current++
     }
 
     const es = subscribeToPendingApprovals(handleEvent, handleError)
+    eventSourceRef.current = es
 
     return () => {
       es.close()

@@ -639,6 +639,14 @@ def create_proxy(
     # This allows HITL to check is_ui_connected and use web approvals
     enforcement_middleware.set_proxy_state(proxy_state)
 
+    # Wire proxy state to shutdown coordinator for critical_shutdown SSE event
+    shutdown_coordinator.set_proxy_state(proxy_state)
+
+    # Wire proxy state to identity provider for auth SSE events
+    # OIDCIdentityProvider emits token_refresh_failed, auth_login, auth_logout
+    if hasattr(identity_provider, "set_proxy_state"):
+        identity_provider.set_proxy_state(proxy_state)
+
     # DoS protection: FastMCP's rate limiter as outermost layer
     # Token bucket: 10 req/s sustained, 50 burst capacity
     # This catches request flooding before any processing

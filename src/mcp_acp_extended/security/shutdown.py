@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     import logging
 
+    from mcp_acp_extended.manager.state import ProxyState
     from mcp_acp_extended.telemetry.audit.auth_logger import AuthLogger
 
 
@@ -144,8 +145,17 @@ class ShutdownCoordinator:
         self._shutdown_reason: str | None = None
         self._shutdown_exit_code: int = 1
         self._auth_logger: "AuthLogger | None" = None
+        self._proxy_state: "ProxyState | None" = None
         self._bound_session_id: str | None = None
         self._session_identity: Any = None  # SubjectIdentity
+
+    def set_proxy_state(self, proxy_state: "ProxyState") -> None:
+        """Set the proxy state for SSE event emission on shutdown.
+
+        Args:
+            proxy_state: The ProxyState instance for broadcasting events.
+        """
+        self._proxy_state = proxy_state
 
     def set_auth_logger(self, auth_logger: "AuthLogger") -> None:
         """Set the auth logger for session_ended logging on shutdown.
@@ -277,7 +287,23 @@ class ShutdownCoordinator:
         except Exception:
             pass  # Best effort
 
-        # 6. Schedule delayed exit (allows MCP error response to flush)
+        # 6. Emit SSE event to UI (best effort - may not arrive before exit)
+        if self._proxy_state is not None:
+            try:
+                from mcp_acp_extended.manager.state import SSEEventType
+
+                self._proxy_state.emit_system_event(
+                    SSEEventType.CRITICAL_SHUTDOWN,
+                    severity="critical",
+                    message=f"Proxy shutting down: {failure_type}",
+                    details=reason,
+                    failure_type=failure_type,
+                    exit_code=exit_code,
+                )
+            except Exception:
+                pass  # Best effort
+
+        # 7. Schedule delayed exit (allows MCP error response to flush)
         asyncio.create_task(self._delayed_exit())
 
     async def _delayed_exit(self) -> None:
