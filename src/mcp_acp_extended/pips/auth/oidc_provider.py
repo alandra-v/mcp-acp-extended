@@ -41,6 +41,7 @@ from mcp_acp_extended.utils.logging.logging_context import get_request_id, get_s
 
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
+    from mcp_acp_extended.manager.state import ProxyState
     from mcp_acp_extended.telemetry.audit.auth_logger import AuthLogger
 
 
@@ -99,6 +100,19 @@ class OIDCIdentityProvider:
         self._auth_logger = auth_logger
         # Lock protects cache read-modify-write operations
         self._lock = asyncio.Lock()
+        # ProxyState for SSE event emission (set via set_proxy_state after creation)
+        self._proxy_state: "ProxyState | None" = None
+
+    def set_proxy_state(self, proxy_state: "ProxyState") -> None:
+        """Set ProxyState for SSE event emission.
+
+        Called after ProxyState is created to enable auth event notifications
+        to the web UI via SSE.
+
+        Args:
+            proxy_state: ProxyState instance for SSE emission.
+        """
+        self._proxy_state = proxy_state
 
     async def get_identity(self) -> SubjectIdentity:
         """Get the current user's identity.
@@ -243,6 +257,16 @@ class OIDCIdentityProvider:
                     "error": str(e),
                 }
             )
+            # Emit SSE event for UI notification
+            if self._proxy_state is not None:
+                from mcp_acp_extended.manager.state import SSEEventType
+
+                self._proxy_state.emit_system_event(
+                    SSEEventType.TOKEN_VALIDATION_FAILED,
+                    severity="error",
+                    message="Token validation failed",
+                    error_type=type(e).__name__,
+                )
 
             # Re-raise
             raise
@@ -280,6 +304,16 @@ class OIDCIdentityProvider:
                     "reason": "no_refresh_token",
                 }
             )
+            # Emit SSE event for UI notification
+            if self._proxy_state is not None:
+                from mcp_acp_extended.manager.state import SSEEventType
+
+                self._proxy_state.emit_system_event(
+                    SSEEventType.TOKEN_REFRESH_FAILED,
+                    severity="error",
+                    message="Session expired - please log in again",
+                    error_type="NoRefreshToken",
+                )
             raise AuthenticationError(error_msg)
 
         try:
@@ -321,6 +355,16 @@ class OIDCIdentityProvider:
                     "reason": "refresh_token_expired",
                 }
             )
+            # Emit SSE event for UI notification
+            if self._proxy_state is not None:
+                from mcp_acp_extended.manager.state import SSEEventType
+
+                self._proxy_state.emit_system_event(
+                    SSEEventType.TOKEN_REFRESH_FAILED,
+                    severity="error",
+                    message="Session expired - please log in again",
+                    error_type="TokenRefreshExpiredError",
+                )
             raise AuthenticationError(error_msg) from e
 
     def _build_identity(self, validated: ValidatedToken) -> SubjectIdentity:
@@ -368,15 +412,29 @@ class OIDCIdentityProvider:
         """
         self._cache = None
 
-    def logout(self) -> None:
+    def logout(self, emit_event: bool = True) -> None:
         """Clear stored tokens and cache.
 
         Call this to log out the user. They will need to run
         'mcp-acp-extended auth login' to re-authenticate.
+
+        Args:
+            emit_event: Whether to emit SSE event (default True).
+                Set to False if caller will handle notification.
         """
         self._storage.delete()
         self._cache = None
         self._current_token = None
+
+        # Emit SSE event for UI notification
+        if emit_event and self._proxy_state is not None:
+            from mcp_acp_extended.manager.state import SSEEventType
+
+            self._proxy_state.emit_system_event(
+                SSEEventType.AUTH_LOGOUT,
+                severity="info",
+                message="Logged out",
+            )
 
     @property
     def is_authenticated(self) -> bool:
@@ -389,3 +447,35 @@ class OIDCIdentityProvider:
             True if token exists in storage.
         """
         return self._storage.exists()
+
+    def reload_token_from_storage(self, emit_event: bool = True) -> bool:
+        """Reload token from storage (after CLI login).
+
+        Called by notify-login API endpoint when CLI stores new tokens.
+        Clears cache to force re-validation on next get_identity().
+
+        Args:
+            emit_event: Whether to emit SSE event (default True).
+
+        Returns:
+            True if token was loaded, False if no token in storage.
+        """
+        self._cache = None
+        token = self._storage.load()
+
+        if token is None:
+            return False
+
+        self._current_token = token
+
+        # Emit SSE event for UI notification
+        if emit_event and self._proxy_state is not None:
+            from mcp_acp_extended.manager.state import SSEEventType
+
+            self._proxy_state.emit_system_event(
+                SSEEventType.AUTH_LOGIN,
+                severity="success",
+                message="Logged in",
+            )
+
+        return True

@@ -52,6 +52,17 @@ export function useAuth(): UseAuthReturn {
     fetchStatus()
   }, [fetchStatus])
 
+  // Listen for SSE auth state changes (auth_login, auth_logout, token_refresh_failed)
+  useEffect(() => {
+    const handleAuthChange = () => {
+      fetchStatus()
+    }
+    window.addEventListener('auth-state-changed', handleAuthChange)
+    return () => {
+      window.removeEventListener('auth-state-changed', handleAuthChange)
+    }
+  }, [fetchStatus])
+
   const logout = useCallback(async () => {
     try {
       setLoggingOut(true)

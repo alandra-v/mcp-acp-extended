@@ -14,11 +14,13 @@ import webbrowser
 from typing import TYPE_CHECKING
 
 import click
+import httpx
 
 from mcp_acp_extended.config import AppConfig
 
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
+from mcp_acp_extended.api.security import read_manager_file
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth.device_flow import (
     DeviceFlowDeniedError,
@@ -31,6 +33,36 @@ from mcp_acp_extended.security.auth.token_storage import (
     get_token_storage_info,
 )
 from mcp_acp_extended.utils.config import get_config_path
+
+
+def _notify_proxy(endpoint: str) -> bool:
+    """Notify running proxy of auth change.
+
+    Args:
+        endpoint: API endpoint path (e.g., "/api/auth/notify-login")
+
+    Returns:
+        True if notification succeeded, False otherwise.
+    """
+    manager_info = read_manager_file()
+    if manager_info is None:
+        return False  # No proxy running
+
+    port = manager_info.get("port")
+    token = manager_info.get("token")
+    if not port or not token:
+        return False
+
+    try:
+        url = f"http://127.0.0.1:{port}{endpoint}"
+        response = httpx.post(
+            url,
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5.0,
+        )
+        return response.status_code == 200
+    except httpx.HTTPError:
+        return False
 
 
 def _load_config() -> AppConfig:
@@ -151,6 +183,9 @@ def login(no_browser: bool) -> None:
         storage = create_token_storage(oidc_config)
         storage.save(token)
 
+        # Notify running proxy (if any) to reload tokens
+        proxy_notified = _notify_proxy("/api/auth/notify-login")
+
         # Show success
         click.echo(click.style("Authentication successful!", fg="green", bold=True))
         click.echo()
@@ -163,8 +198,12 @@ def login(no_browser: bool) -> None:
         hours_until_expiry = token.seconds_until_expiry / 3600
         click.echo(f"  Token expires in: {hours_until_expiry:.1f} hours")
 
-        click.echo()
-        click.echo("You can now start the proxy with 'mcp-acp-extended start'")
+        # Show proxy sync status
+        if proxy_notified:
+            click.echo("  Running proxy updated with new credentials.")
+        else:
+            click.echo()
+            click.echo("You can now start the proxy with 'mcp-acp-extended start'")
 
     except DeviceFlowExpiredError:
         click.echo()
@@ -213,17 +252,22 @@ def logout(federated: bool) -> None:
         return
 
     try:
+        # Notify running proxy BEFORE clearing tokens
+        proxy_notified = _notify_proxy("/api/auth/notify-logout")
+
         storage.delete()
         click.echo(click.style("Local credentials cleared.", fg="green"))
+
+        # Show proxy sync status
+        if proxy_notified:
+            click.echo("  Running proxy logged out.")
 
         # Federated logout if requested
         if federated and oidc_config:
             _do_federated_logout(oidc_config)
-        else:
+        elif oidc_config:
             click.echo()
-            click.echo("Note: Any running proxy will need to be restarted.")
-            if oidc_config:
-                click.echo("Tip: Use --federated to also log out of Auth0 in your browser.")
+            click.echo("Tip: Use --federated to also log out of Auth0 in your browser.")
 
         click.echo()
         click.echo("Run 'mcp-acp-extended auth login' to authenticate again.")

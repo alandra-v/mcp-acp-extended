@@ -82,6 +82,8 @@ export type SSEEventType =
   | 'mtls_failed'
   | 'cert_validation_failed'
   // Authentication
+  | 'auth_login'
+  | 'auth_logout'
   | 'auth_session_expiring'
   | 'token_refresh_failed'
   | 'token_validation_failed'

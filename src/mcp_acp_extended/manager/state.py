@@ -66,6 +66,8 @@ class SSEEventType(str, Enum):
     CERT_VALIDATION_FAILED = "cert_validation_failed"
 
     # Authentication
+    AUTH_LOGIN = "auth_login"
+    AUTH_LOGOUT = "auth_logout"
     AUTH_SESSION_EXPIRING = "auth_session_expiring"
     TOKEN_REFRESH_FAILED = "token_refresh_failed"
     TOKEN_VALIDATION_FAILED = "token_validation_failed"

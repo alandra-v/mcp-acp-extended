@@ -335,6 +335,7 @@ def _request_device_code(oidc_config: "OIDCConfig") -> DeviceCodeResponse:
 
 @router.get("/login/poll")
 async def poll_login(
+    request: Request,
     code: str = Query(..., description="The user_code from /login"),
 ) -> DeviceFlowPollResponse:
     """Poll for device flow completion.
@@ -342,7 +343,8 @@ async def poll_login(
     Call repeatedly (respecting interval from /login response) until
     status is 'complete', 'expired', 'denied', or 'error'.
 
-    On 'complete', tokens are automatically stored in keychain.
+    On 'complete', tokens are automatically stored in keychain and
+    the running proxy is notified to reload tokens.
     """
     # Cleanup expired flows
     _cleanup_expired_flows()
@@ -380,6 +382,11 @@ async def poll_login(
         # Success - token was stored
         state.completed = True
         del _device_flows[code]  # Cleanup
+
+        # Notify proxy to reload tokens (emits SSE event to UI)
+        provider = _get_identity_provider_optional(request)
+        if provider is not None and hasattr(provider, "reload_token_from_storage"):
+            provider.reload_token_from_storage()
 
         return DeviceFlowPollResponse(
             status="complete",
@@ -479,29 +486,112 @@ def _poll_token_once(state: _DeviceFlowState) -> str:
         raise DeviceFlowError(f"Token request failed: {error_desc}")
 
 
+class NotifyResponse(BaseModel):
+    """Response for notify endpoints."""
+
+    status: str
+    message: str
+
+
+@router.post("/notify-login")
+async def notify_login(request: Request) -> NotifyResponse:
+    """Notify running proxy that CLI completed login.
+
+    Called by CLI after storing tokens in keychain.
+    Triggers proxy to reload tokens and emit SSE event to UI.
+    """
+    provider = _get_identity_provider_optional(request)
+    if provider is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Identity provider not available",
+        )
+
+    if not hasattr(provider, "reload_token_from_storage"):
+        raise HTTPException(
+            status_code=501,
+            detail="Identity provider does not support token reload",
+        )
+
+    success = provider.reload_token_from_storage()
+    if success:
+        return NotifyResponse(
+            status="ok",
+            message="Proxy notified of login",
+        )
+    else:
+        return NotifyResponse(
+            status="no_token",
+            message="No token found in storage",
+        )
+
+
+@router.post("/notify-logout")
+async def notify_logout(request: Request) -> NotifyResponse:
+    """Notify running proxy of logout.
+
+    Called by CLI before clearing tokens from keychain.
+    Triggers proxy to clear in-memory token and emit SSE event to UI.
+    """
+    provider = _get_identity_provider_optional(request)
+    if provider is None:
+        raise HTTPException(
+            status_code=503,
+            detail="Identity provider not available",
+        )
+
+    if not hasattr(provider, "logout"):
+        raise HTTPException(
+            status_code=501,
+            detail="Identity provider does not support logout",
+        )
+
+    # Clear proxy's in-memory token (emits SSE event)
+    provider.logout()
+
+    return NotifyResponse(
+        status="ok",
+        message="Proxy notified of logout",
+    )
+
+
 @router.post("/logout")
-async def logout(oidc_config: OIDCConfigDep) -> LogoutResponse:
+async def logout(request: Request, oidc_config: OIDCConfigDep) -> LogoutResponse:
     """Clear local authentication tokens from keychain.
 
-    Removes tokens from OS keychain. You will need to run
-    login again to use authenticated features.
-
-    Note: Any running proxy will continue using cached tokens
-    until restarted.
+    Removes tokens from OS keychain and notifies running proxy.
+    You will need to run login again to use authenticated features.
     """
+    # Check if credentials exist first
     storage = create_token_storage(oidc_config)
-
     if not storage.exists():
         return LogoutResponse(
             status="not_authenticated",
             message="No stored credentials found.",
         )
 
+    # Notify proxy (clears in-memory token and emits SSE event)
+    # provider.logout() also deletes from storage, so we don't need to call storage.delete()
+    provider = _get_identity_provider_optional(request)
+    if provider is not None and hasattr(provider, "logout"):
+        try:
+            provider.logout()
+            return LogoutResponse(
+                status="logged_out",
+                message="Logged out successfully.",
+            )
+        except Exception as e:
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to clear credentials: {e}",
+            )
+
+    # No provider available - delete directly from storage
     try:
         storage.delete()
         return LogoutResponse(
             status="logged_out",
-            message="Local credentials cleared. Restart proxy to apply.",
+            message="Logged out successfully.",
         )
     except Exception as e:
         raise HTTPException(
@@ -511,23 +601,31 @@ async def logout(oidc_config: OIDCConfigDep) -> LogoutResponse:
 
 
 @router.post("/logout-federated")
-async def logout_federated(oidc_config: OIDCConfigDep) -> FederatedLogoutResponse:
+async def logout_federated(request: Request, oidc_config: OIDCConfigDep) -> FederatedLogoutResponse:
     """Get federated logout URL (Auth0) and clear local credentials.
 
     Returns URL for browser to complete federated logout.
-    Also clears local credentials from keychain.
+    Also clears local credentials from keychain and notifies proxy.
 
     Open the returned logout_url in a browser to complete
     the logout from the identity provider (Auth0).
     """
-    storage = create_token_storage(oidc_config)
-
-    # Clear local credentials
-    if storage.exists():
+    # Clear local credentials via provider (also emits SSE event)
+    # provider.logout() deletes from storage, so we don't need separate storage.delete()
+    provider = _get_identity_provider_optional(request)
+    if provider is not None and hasattr(provider, "logout"):
         try:
-            storage.delete()
+            provider.logout()
         except Exception:
-            pass  # Best effort
+            pass  # Best effort - continue to return logout URL
+    else:
+        # No provider - delete directly from storage
+        storage = create_token_storage(oidc_config)
+        if storage.exists():
+            try:
+                storage.delete()
+            except Exception:
+                pass  # Best effort
 
     # Build Auth0 logout URL
     issuer = oidc_config.issuer.rstrip("/")
