@@ -1,5 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ErrorBoundary } from '@/components/ErrorBoundary'
+import { Toaster } from '@/components/ui/sonner'
 import { PendingApprovalsProvider } from '@/context/PendingApprovalsContext'
 import { ProxiesPage } from '@/pages/ProxiesPage'
 import { ProxyDetailPage } from '@/pages/ProxyDetailPage'
@@ -19,6 +20,7 @@ export function App() {
             <Route path="/auth" element={<AuthPage />} />
           </Routes>
         </BrowserRouter>
+        <Toaster position="bottom-right" />
       </PendingApprovalsProvider>
     </ErrorBoundary>
   )

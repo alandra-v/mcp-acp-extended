@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { toast } from 'sonner'
 import { getCachedApprovals, clearCachedApprovals } from '@/api/approvals'
+import { playErrorSound } from '@/hooks/useErrorSound'
 import type { CachedApproval } from '@/types/api'
 
 interface UseCachedApprovalsReturn {
@@ -45,10 +47,13 @@ export function useCachedApprovals(): UseCachedApprovalsReturn {
       if (mountedRef.current) {
         setCached([])
       }
+      toast.success('Cache cleared')
     } catch (e) {
       if (mountedRef.current) {
         setError(e instanceof Error ? e : new Error('Failed to clear cache'))
       }
+      toast.error('Failed to clear cache')
+      playErrorSound()
     }
   }, [])
 

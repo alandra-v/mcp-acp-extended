@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { toast } from 'sonner'
 import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest } from '@/api/approvals'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
+import { playErrorSound } from '@/hooks/useErrorSound'
 import type { PendingApproval, SSEEvent } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
@@ -57,6 +59,8 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
     const handleError = () => {
       setConnected(false)
       setError(new Error('SSE connection lost'))
+      toast.error('Connection lost')
+      playErrorSound()
     }
 
     const es = subscribeToPendingApprovals(handleEvent, handleError)
@@ -69,24 +73,33 @@ export function PendingApprovalsProvider({ children }: { children: ReactNode }) 
   const approve = useCallback(async (id: string) => {
     try {
       await approveRequest(id)
+      toast.success('Request approved')
     } catch (e) {
       setError(e instanceof Error ? e : new Error('Failed to approve'))
+      toast.error('Failed to approve request')
+      playErrorSound()
     }
   }, [])
 
   const approveOnce = useCallback(async (id: string) => {
     try {
       await approveOnceRequest(id)
+      toast.success('Request approved (once)')
     } catch (e) {
       setError(e instanceof Error ? e : new Error('Failed to approve once'))
+      toast.error('Failed to approve request')
+      playErrorSound()
     }
   }, [])
 
   const deny = useCallback(async (id: string) => {
     try {
       await denyRequest(id)
+      toast.success('Request denied')
     } catch (e) {
       setError(e instanceof Error ? e : new Error('Failed to deny'))
+      toast.error('Failed to deny request')
+      playErrorSound()
     }
   }, [])
 

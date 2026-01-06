@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback } from 'react'
+import { toast } from 'sonner'
 import {
   getAuthStatus,
   logout as apiLogout,
   logoutFederated as apiLogoutFederated,
   type AuthStatus,
 } from '@/api/auth'
+import { playErrorSound } from '@/hooks/useErrorSound'
 
 interface UseAuthReturn {
   status: AuthStatus | null
@@ -56,8 +58,11 @@ export function useAuth(): UseAuthReturn {
       setError(null)
       await apiLogout()
       await fetchStatus()
+      toast.success('Logged out')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Logout failed')
+      toast.error('Logout failed')
+      playErrorSound()
     } finally {
       setLoggingOut(false)
     }
@@ -71,8 +76,11 @@ export function useAuth(): UseAuthReturn {
       // Open logout URL in new window/tab
       window.open(response.logout_url, '_blank')
       await fetchStatus()
+      toast.success('Logged out')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Federated logout failed')
+      toast.error('Logout failed')
+      playErrorSound()
     } finally {
       setLoggingOut(false)
     }

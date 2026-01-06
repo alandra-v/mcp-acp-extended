@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { toast } from 'sonner'
 import { startLogin, pollLogin } from '@/api/auth'
+import { playErrorSound } from '@/hooks/useErrorSound'
 
 interface DeviceFlowState {
   userCode?: string
@@ -59,26 +61,47 @@ export function useDeviceFlow(onSuccess: () => void): UseDeviceFlowReturn {
           if (pollResponse.status === 'complete') {
             clearPolling()
             setState({ polling: false })
+            toast.success('Logged in')
             onSuccess()
-          } else if (
-            pollResponse.status === 'expired' ||
-            pollResponse.status === 'denied' ||
-            pollResponse.status === 'error'
-          ) {
+          } else if (pollResponse.status === 'expired') {
+            clearPolling()
+            setState((prev) => ({
+              ...prev,
+              polling: false,
+              error: pollResponse.message || 'Code expired',
+            }))
+            toast.error('Code expired, please try again')
+            playErrorSound()
+          } else if (pollResponse.status === 'denied') {
+            clearPolling()
+            setState((prev) => ({
+              ...prev,
+              polling: false,
+              error: pollResponse.message || 'Authorization denied',
+            }))
+            toast.error('Authorization denied')
+            playErrorSound()
+          } else if (pollResponse.status === 'error') {
             clearPolling()
             setState((prev) => ({
               ...prev,
               polling: false,
               error: pollResponse.message || 'Login failed',
             }))
+            toast.error('Login failed')
+            playErrorSound()
           }
         } catch {
           clearPolling()
           setState((prev) => ({ ...prev, polling: false, error: 'Polling failed' }))
+          toast.error('Login failed')
+          playErrorSound()
         }
       }, response.interval * 1000)
     } catch (err) {
       setState({ polling: false, error: err instanceof Error ? err.message : 'Failed to start login' })
+      toast.error('Failed to start login')
+      playErrorSound()
     }
   }, [clearPolling, onSuccess])
 
