@@ -69,7 +69,7 @@ export function useAuth(): UseAuthReturn {
       setError(null)
       await apiLogout()
       await fetchStatus()
-      toast.success('Logged out')
+      // Success toast handled by SSE auth_logout event
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Logout failed')
       toast.error('Logout failed')
@@ -87,7 +87,7 @@ export function useAuth(): UseAuthReturn {
       // Open logout URL in new window/tab
       window.open(response.logout_url, '_blank')
       await fetchStatus()
-      toast.success('Logged out')
+      // Success toast handled by SSE auth_logout event
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Federated logout failed')
       toast.error('Logout failed')

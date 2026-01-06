@@ -61,7 +61,7 @@ export function useDeviceFlow(onSuccess: () => void): UseDeviceFlowReturn {
           if (pollResponse.status === 'complete') {
             clearPolling()
             setState({ polling: false })
-            toast.success('Logged in')
+            // Success toast handled by SSE auth_login event
             onSuccess()
           } else if (pollResponse.status === 'expired') {
             clearPolling()

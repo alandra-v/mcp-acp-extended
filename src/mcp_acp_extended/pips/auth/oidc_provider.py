@@ -25,6 +25,9 @@ import time
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+# Warn user when token expires within this many seconds (15 minutes)
+SESSION_EXPIRY_WARNING_SECONDS = 900
+
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth import (
     JWTValidator,
@@ -102,6 +105,8 @@ class OIDCIdentityProvider:
         self._lock = asyncio.Lock()
         # ProxyState for SSE event emission (set via set_proxy_state after creation)
         self._proxy_state: "ProxyState | None" = None
+        # Track if we've warned about session expiring (reset on new token)
+        self._expiry_warned: bool = False
 
     def set_proxy_state(self, proxy_state: "ProxyState") -> None:
         """Set ProxyState for SSE event emission.
@@ -232,6 +237,10 @@ class OIDCIdentityProvider:
         # Validate JWT (signature, issuer, audience, exp)
         try:
             validated = self._validator.validate(token.access_token)
+
+            # Check if token is expiring soon (warn once per token)
+            self._check_session_expiring(token)
+
             return validated
 
         except AuthenticationError as e:
@@ -270,6 +279,40 @@ class OIDCIdentityProvider:
 
             # Re-raise
             raise
+
+    def _check_session_expiring(self, token: StoredToken) -> None:
+        """Check if token is expiring soon and emit warning (once per token).
+
+        Args:
+            token: Current stored token to check.
+        """
+        if self._expiry_warned:
+            return  # Already warned for this token
+
+        if self._proxy_state is None:
+            return  # No UI to notify
+
+        seconds_until_expiry = token.seconds_until_expiry
+        if seconds_until_expiry <= SESSION_EXPIRY_WARNING_SECONDS:
+            self._expiry_warned = True
+            minutes_left = int(seconds_until_expiry / 60)
+
+            from mcp_acp_extended.manager.state import SSEEventType
+
+            self._proxy_state.emit_system_event(
+                SSEEventType.AUTH_SESSION_EXPIRING,
+                severity="warning",
+                message=f"Session expires in {minutes_left} minutes",
+                minutes_remaining=minutes_left,
+            )
+
+            self._system_logger.warning(
+                {
+                    "event": "auth_session_expiring",
+                    "minutes_remaining": minutes_left,
+                    "seconds_remaining": int(seconds_until_expiry),
+                }
+            )
 
     async def _refresh_and_validate(self, token: StoredToken) -> ValidatedToken:
         """Refresh token and validate the new one.
@@ -324,6 +367,7 @@ class OIDCIdentityProvider:
             # Save refreshed tokens to storage
             self._storage.save(refreshed)
             self._current_token = refreshed
+            self._expiry_warned = False  # Reset warning for new token
 
             # Validate the new token
             validated = self._validator.validate(refreshed.access_token)
@@ -425,6 +469,7 @@ class OIDCIdentityProvider:
         self._storage.delete()
         self._cache = None
         self._current_token = None
+        self._expiry_warned = False  # Reset for next login
 
         # Emit SSE event for UI notification
         if emit_event and self._proxy_state is not None:
@@ -461,6 +506,7 @@ class OIDCIdentityProvider:
             True if token was loaded, False if no token in storage.
         """
         self._cache = None
+        self._expiry_warned = False  # Reset warning for new token
         token = self._storage.load()
 
         if token is None:
