@@ -41,6 +41,11 @@ export async function closeAudioContext(): Promise<void> {
   }
 }
 
-export function useNotificationSound() {
+export interface UseNotificationSoundResult {
+  playApprovalChime: () => Promise<void>
+  closeAudioContext: () => Promise<void>
+}
+
+export function useNotificationSound(): UseNotificationSoundResult {
   return { playApprovalChime, closeAudioContext }
 }

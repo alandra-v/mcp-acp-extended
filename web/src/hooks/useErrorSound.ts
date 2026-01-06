@@ -33,6 +33,10 @@ export async function playErrorSound(): Promise<void> {
   })
 }
 
-export function useErrorSound() {
+export interface UseErrorSoundResult {
+  playErrorSound: () => Promise<void>
+}
+
+export function useErrorSound(): UseErrorSoundResult {
   return { playErrorSound }
 }

@@ -1,5 +1,12 @@
 // TypeScript types matching backend Pydantic models
 
+export interface ProxyStats {
+  requests_total: number
+  requests_allowed: number
+  requests_denied: number
+  requests_hitl: number
+}
+
 export interface Proxy {
   id: string
   backend_id: string
@@ -11,6 +18,7 @@ export interface Proxy {
   command: string | null
   args: string[] | null
   url: string | null
+  stats: ProxyStats
 }
 
 export interface PendingApproval {
@@ -63,83 +71,136 @@ export interface LogsResponse {
   has_more: boolean
 }
 
-// SSE Event types
-export type SSEEventType =
-  // Existing HITL events
-  | 'snapshot'
-  | 'pending_created'
-  | 'pending_resolved'
-  | 'pending_timeout'
-  | 'pending_not_found'
-  // Backend connection
-  | 'backend_connected'
-  | 'backend_reconnected'
-  | 'backend_disconnected'
-  | 'backend_timeout'
-  | 'backend_refused'
-  // TLS/mTLS
-  | 'tls_error'
-  | 'mtls_failed'
-  | 'cert_validation_failed'
-  // Authentication
-  | 'auth_login'
-  | 'auth_logout'
-  | 'auth_session_expiring'
-  | 'token_refresh_failed'
-  | 'token_validation_failed'
-  | 'auth_failure'
-  // Policy
-  | 'policy_reloaded'
-  | 'policy_reload_failed'
-  | 'policy_file_not_found'
-  | 'policy_rollback'
-  | 'config_change_detected'
-  // Rate limiting
-  | 'rate_limit_triggered'
-  | 'rate_limit_approved'
-  | 'rate_limit_denied'
-  // Cache
-  | 'cache_cleared'
-  | 'cache_entry_deleted'
-  // Request processing
-  | 'request_error'
-  | 'hitl_parse_failed'
-  | 'tool_sanitization_failed'
-  // Critical events (proxy shutdown)
-  | 'critical_shutdown'
-  | 'audit_init_failed'
-  | 'device_health_failed'
-  | 'session_hijacking'
-  | 'audit_tampering'
-  | 'audit_missing'
-  | 'audit_permission_denied'
-  | 'health_degraded'
-  | 'health_monitor_failed'
-
 // Severity levels for toast styling
 export type EventSeverity = 'success' | 'warning' | 'error' | 'critical' | 'info'
 
-export interface SSEEvent {
-  type: SSEEventType
-  // HITL-specific fields
-  approvals?: PendingApproval[]
-  approval?: PendingApproval
-  approval_id?: string
-  decision?: 'allow' | 'deny'
-  // System event fields
+// Base fields for system events
+interface SSESystemEventBase {
   severity?: EventSeverity
   message?: string
   details?: string
   proxy_id?: string
   timestamp?: string
-  // Policy events
+  error_type?: string
+}
+
+// HITL Approval Events (discriminated union)
+export interface SSESnapshotEvent {
+  type: 'snapshot'
+  approvals: PendingApproval[]
+}
+
+export interface SSEPendingCreatedEvent {
+  type: 'pending_created'
+  approval: PendingApproval
+}
+
+export interface SSEPendingResolvedEvent {
+  type: 'pending_resolved'
+  approval_id: string
+  decision: 'allow' | 'deny'
+}
+
+export interface SSEPendingTimeoutEvent {
+  type: 'pending_timeout'
+  approval_id: string
+}
+
+export interface SSEPendingNotFoundEvent extends SSESystemEventBase {
+  type: 'pending_not_found'
+  approval_id?: string
+}
+
+// Policy Events
+export interface SSEPolicyReloadedEvent extends SSESystemEventBase {
+  type: 'policy_reloaded'
   old_rules_count?: number
   new_rules_count?: number
   approvals_cleared?: number
   policy_version?: string
-  error_type?: string
+}
+
+export interface SSEPolicyRollbackEvent extends SSESystemEventBase {
+  type: 'policy_rollback'
+}
+
+export interface SSEPolicyErrorEvent extends SSESystemEventBase {
+  type: 'policy_reload_failed' | 'policy_file_not_found' | 'config_change_detected'
+}
+
+// Rate Limiting Events
+export interface SSERateLimitEvent extends SSESystemEventBase {
+  type: 'rate_limit_triggered' | 'rate_limit_approved' | 'rate_limit_denied'
+  tool_name?: string
+  count?: number
+  threshold?: number
+}
+
+// Cache Events
+export interface SSECacheEvent extends SSESystemEventBase {
+  type: 'cache_cleared' | 'cache_entry_deleted'
   count?: number
 }
+
+// Backend Connection Events
+export interface SSEBackendEvent extends SSESystemEventBase {
+  type: 'backend_connected' | 'backend_reconnected' | 'backend_disconnected' | 'backend_timeout' | 'backend_refused'
+  method?: string
+}
+
+// TLS Events
+export interface SSETLSEvent extends SSESystemEventBase {
+  type: 'tls_error' | 'mtls_failed' | 'cert_validation_failed'
+}
+
+// Auth Events
+export interface SSEAuthEvent extends SSESystemEventBase {
+  type: 'auth_login' | 'auth_logout' | 'auth_session_expiring' | 'token_refresh_failed' | 'token_validation_failed' | 'auth_failure'
+}
+
+// Request Processing Events
+export interface SSERequestEvent extends SSESystemEventBase {
+  type: 'request_error' | 'hitl_parse_failed' | 'tool_sanitization_failed'
+}
+
+// Critical Events
+export interface SSECriticalEvent extends SSESystemEventBase {
+  type: 'critical_shutdown' | 'audit_init_failed' | 'device_health_failed' | 'session_hijacking' | 'audit_tampering' | 'audit_missing' | 'audit_permission_denied' | 'health_degraded' | 'health_monitor_failed'
+}
+
+// Live Update Events
+export interface SSEStatsUpdatedEvent extends SSESystemEventBase {
+  type: 'stats_updated'
+  stats: ProxyStats
+}
+
+export interface SSENewLogEntriesEvent extends SSESystemEventBase {
+  type: 'new_log_entries'
+  count?: number
+}
+
+// Discriminated union of all SSE event types
+export type SSEEvent =
+  | SSESnapshotEvent
+  | SSEPendingCreatedEvent
+  | SSEPendingResolvedEvent
+  | SSEPendingTimeoutEvent
+  | SSEPendingNotFoundEvent
+  | SSEPolicyReloadedEvent
+  | SSEPolicyRollbackEvent
+  | SSEPolicyErrorEvent
+  | SSERateLimitEvent
+  | SSECacheEvent
+  | SSEBackendEvent
+  | SSETLSEvent
+  | SSEAuthEvent
+  | SSERequestEvent
+  | SSECriticalEvent
+  | SSEStatsUpdatedEvent
+  | SSENewLogEntriesEvent
+
+// Type helper to extract event type strings
+export type SSEEventType = SSEEvent['type']
 
 // API Error
 export class ApiError extends Error {

@@ -2,7 +2,16 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLogs, type LogType } from '@/api/logs'
 import type { LogEntry } from '@/types/api'
 
-export function useLogs(type: LogType, initialLimit = 50) {
+export interface UseLogsResult {
+  logs: LogEntry[]
+  loading: boolean
+  error: Error | null
+  hasMore: boolean
+  loadMore: () => void
+  refresh: () => void
+}
+
+export function useLogs(type: LogType, initialLimit = 50): UseLogsResult {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
@@ -38,6 +47,17 @@ export function useLogs(type: LogType, initialLimit = 50) {
     offsetRef.current = 0
     fetchLogs(true)
   }, [type, fetchLogs])
+
+  // Listen for SSE new-log-entries event to auto-refresh
+  useEffect(() => {
+    const handleNewLogEntries = () => {
+      fetchLogs(true)
+    }
+    window.addEventListener('new-log-entries', handleNewLogEntries)
+    return () => {
+      window.removeEventListener('new-log-entries', handleNewLogEntries)
+    }
+  }, [fetchLogs])
 
   const loadMore = useCallback(() => {
     if (!loading && hasMore) {

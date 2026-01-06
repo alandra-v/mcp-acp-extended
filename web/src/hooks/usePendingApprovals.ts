@@ -5,7 +5,16 @@ import type { PendingApproval, SSEEvent } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
 
-export function usePendingApprovals() {
+export interface UsePendingApprovalsResult {
+  pending: PendingApproval[]
+  connected: boolean
+  error: Error | null
+  approve: (id: string) => Promise<void>
+  approveOnce: (id: string) => Promise<void>
+  deny: (id: string) => Promise<void>
+}
+
+export function usePendingApprovals(): UsePendingApprovalsResult {
   const [pending, setPending] = useState<PendingApproval[]>([])
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<Error | null>(null)

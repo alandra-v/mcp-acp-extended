@@ -2,7 +2,14 @@ import { useState, useEffect, useCallback } from 'react'
 import { getProxies, getProxyStatus } from '@/api/proxies'
 import type { Proxy, ProxyStatus } from '@/types/api'
 
-export function useProxies() {
+export interface UseProxiesResult {
+  proxies: Proxy[]
+  loading: boolean
+  error: Error | null
+  refetch: () => Promise<void>
+}
+
+export function useProxies(): UseProxiesResult {
   const [proxies, setProxies] = useState<Proxy[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
@@ -27,7 +34,14 @@ export function useProxies() {
   return { proxies, loading, error, refetch: fetchProxies }
 }
 
-export function useProxyStatus() {
+export interface UseProxyStatusResult {
+  status: ProxyStatus | null
+  loading: boolean
+  error: Error | null
+  refetch: () => Promise<void>
+}
+
+export function useProxyStatus(): UseProxyStatusResult {
   const [status, setStatus] = useState<ProxyStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
