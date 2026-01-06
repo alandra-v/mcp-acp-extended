@@ -16,12 +16,16 @@ __all__ = [
     "create_enforcement_middleware",
 ]
 
+import asyncio
 import logging
+import ssl
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable, NoReturn, assert_never
 
 from fastmcp.server.middleware import Middleware
+
+from mcp_acp_extended.constants import TRANSPORT_ERRORS
 from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
 
 from mcp.types import ListToolsResult
@@ -45,7 +49,7 @@ from mcp_acp_extended.telemetry.audit.decision_logger import create_decision_log
 from mcp_acp_extended.utils.logging.logging_context import get_request_id, get_session_id
 
 if TYPE_CHECKING:
-    from mcp_acp_extended.manager.state import ProxyState
+    from mcp_acp_extended.manager.state import ProxyState, SSEEventType
     from mcp_acp_extended.pdp.policy import PolicyConfig
 
 _system_logger = get_system_logger()
@@ -397,7 +401,25 @@ class PolicyEnforcementMiddleware(Middleware):
             final_rule=final_rule,
             policy_eval_ms=eval_duration_ms,
         )
-        result = await call_next(context)
+
+        # Execute backend call with error detection for SSE events
+        from mcp_acp_extended.manager.state import SSEEventType
+
+        try:
+            result = await call_next(context)
+        except (asyncio.TimeoutError, TimeoutError) as e:
+            self._emit_backend_error(SSEEventType.BACKEND_TIMEOUT, "Backend request timed out", e, method)
+            raise
+        except ConnectionRefusedError as e:
+            self._emit_backend_error(SSEEventType.BACKEND_REFUSED, "Backend connection refused", e, method)
+            raise
+        except ssl.SSLError as e:
+            self._emit_backend_error(SSEEventType.TLS_ERROR, "Backend TLS/SSL error", e, method)
+            raise
+        except TRANSPORT_ERRORS as e:
+            # Other transport errors (connection reset, broken pipe, httpx errors)
+            self._emit_backend_error(SSEEventType.BACKEND_DISCONNECTED, "Backend connection lost", e, method)
+            raise
 
         # Sanitize tools/list responses to protect against prompt injection
         if method == "tools/list":
@@ -438,6 +460,40 @@ class PolicyEnforcementMiddleware(Middleware):
                 )
 
         return result
+
+    def _emit_backend_error(
+        self,
+        event_type: "SSEEventType",
+        message: str,
+        error: Exception,
+        method: str,
+    ) -> None:
+        """Emit SSE event for backend connection errors.
+
+        Args:
+            event_type: SSE event type (backend_timeout, backend_refused, etc.)
+            message: User-friendly error message.
+            error: The exception that occurred.
+            method: MCP method that was being called.
+        """
+        _system_logger.error(
+            {
+                "event": event_type.value,
+                "message": message,
+                "error_type": type(error).__name__,
+                "method": method,
+            }
+        )
+        if self._hitl_handler._proxy_state is not None:
+            from mcp_acp_extended.manager.state import SSEEventType as SSEType
+
+            self._hitl_handler._proxy_state.emit_system_event(
+                event_type,
+                severity="error",
+                message=message,
+                error_type=type(error).__name__,
+                method=method,
+            )
 
     def _handle_deny_decision(
         self,
