@@ -18,13 +18,13 @@ __all__ = [
     "refresh_tokens",
 ]
 
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
 import httpx
 
 from mcp_acp_extended.constants import OAUTH_CLIENT_TIMEOUT_SECONDS
 from mcp_acp_extended.exceptions import AuthenticationError
+from mcp_acp_extended.security.auth.token_parser import parse_token_response
 from mcp_acp_extended.security.auth.token_storage import StoredToken
 
 if TYPE_CHECKING:
@@ -116,13 +116,4 @@ def _parse_token_response(data: dict) -> StoredToken:
     Returns:
         StoredToken ready for storage.
     """
-    now = datetime.now(timezone.utc)
-    expires_in = data.get("expires_in", 86400)  # Default 24h
-
-    return StoredToken(
-        access_token=data["access_token"],
-        refresh_token=data.get("refresh_token"),
-        id_token=data.get("id_token"),
-        expires_at=datetime.fromtimestamp(now.timestamp() + expires_in, tz=timezone.utc),
-        issued_at=now,
-    )
+    return parse_token_response(data)
