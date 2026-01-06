@@ -129,6 +129,37 @@ def _read_jsonl_tail(
 # Endpoints
 # =============================================================================
 
+# Log file paths relative to log base directory
+_LOG_PATHS = {
+    "decisions": "audit/decisions.jsonl",
+    "operations": "audit/operations.jsonl",
+    "auth": "audit/auth.jsonl",
+    "system": "system/system.jsonl",
+}
+
+
+def _get_logs(config: "AppConfig", log_type: str, limit: int, offset: int) -> LogsResponse:
+    """Get log entries from the specified log file.
+
+    Args:
+        config: App configuration.
+        log_type: Log type key (decisions, operations, auth, system).
+        limit: Maximum entries to return.
+        offset: Entries to skip for pagination.
+
+    Returns:
+        LogsResponse with entries and pagination info.
+    """
+    log_path = _get_log_base_path(config) / _LOG_PATHS[log_type]
+    entries, has_more = _read_jsonl_tail(log_path, limit, offset)
+
+    return LogsResponse(
+        entries=entries,
+        total_returned=len(entries),
+        log_file=str(log_path),
+        has_more=has_more,
+    )
+
 
 @router.get("/decisions")
 async def get_decision_logs(
@@ -139,21 +170,9 @@ async def get_decision_logs(
     """Get policy decision logs (newest first).
 
     Returns entries from audit/decisions.jsonl including:
-    - Timestamp
-    - Request details (tool, resource)
-    - Policy decision (allow/deny/hitl)
-    - Matched rule info
+    - Timestamp, request details, policy decision, matched rule info
     """
-    log_path = _get_log_base_path(config) / "audit" / "decisions.jsonl"
-
-    entries, has_more = _read_jsonl_tail(log_path, limit, offset)
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        log_file=str(log_path),
-        has_more=has_more,
-    )
+    return _get_logs(config, "decisions", limit, offset)
 
 
 @router.get("/operations")
@@ -165,22 +184,9 @@ async def get_operation_logs(
     """Get operation audit logs (newest first).
 
     Returns entries from audit/operations.jsonl including:
-    - Timestamp
-    - Operation type
-    - Subject (user) info
-    - Resource accessed
-    - Outcome
+    - Timestamp, operation type, subject info, resource accessed, outcome
     """
-    log_path = _get_log_base_path(config) / "audit" / "operations.jsonl"
-
-    entries, has_more = _read_jsonl_tail(log_path, limit, offset)
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        log_file=str(log_path),
-        has_more=has_more,
-    )
+    return _get_logs(config, "operations", limit, offset)
 
 
 @router.get("/auth")
@@ -192,21 +198,9 @@ async def get_auth_logs(
     """Get authentication event logs (newest first).
 
     Returns entries from audit/auth.jsonl including:
-    - Timestamp
-    - Event type (login, logout, token refresh, validation failure)
-    - Subject info
-    - Outcome
+    - Timestamp, event type (login, logout, refresh, validation failure), subject info
     """
-    log_path = _get_log_base_path(config) / "audit" / "auth.jsonl"
-
-    entries, has_more = _read_jsonl_tail(log_path, limit, offset)
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        log_file=str(log_path),
-        has_more=has_more,
-    )
+    return _get_logs(config, "auth", limit, offset)
 
 
 @router.get("/system")
@@ -218,19 +212,6 @@ async def get_system_logs(
     """Get system logs (newest first).
 
     Returns entries from system/system.jsonl including:
-    - Timestamp
-    - Log level
-    - Event type
-    - Component
-    - Message/details
+    - Timestamp, log level, event type, component, message/details
     """
-    log_path = _get_log_base_path(config) / "system" / "system.jsonl"
-
-    entries, has_more = _read_jsonl_tail(log_path, limit, offset)
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        log_file=str(log_path),
-        has_more=has_more,
-    )
+    return _get_logs(config, "system", limit, offset)
