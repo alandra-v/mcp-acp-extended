@@ -51,21 +51,27 @@ export function AuthDropdown() {
           <ChevronDown className="w-3 h-3 text-base-500" />
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end" className="w-56">
-          {!isAuthenticated && (
-            <DropdownMenuItem onClick={() => setLoginDialogOpen(true)}>
-              Login
-            </DropdownMenuItem>
-          )}
-          {isAuthenticated && (
-            <DropdownMenuItem onClick={handleLogout}>
-              Logout
-            </DropdownMenuItem>
-          )}
-          {hasProvider && (
-            <DropdownMenuItem onClick={handleLogoutFederated}>
-              Logout (federated)
-            </DropdownMenuItem>
-          )}
+          <DropdownMenuItem
+            onClick={() => !isAuthenticated && setLoginDialogOpen(true)}
+            disabled={isAuthenticated}
+            className={cn(isAuthenticated && 'opacity-40 cursor-not-allowed')}
+          >
+            Login
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => isAuthenticated && handleLogout()}
+            disabled={!isAuthenticated}
+            className={cn(!isAuthenticated && 'opacity-40 cursor-not-allowed')}
+          >
+            Logout
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            onClick={() => hasProvider && handleLogoutFederated()}
+            disabled={!hasProvider}
+            className={cn(!hasProvider && 'opacity-40 cursor-not-allowed')}
+          >
+            Logout (federated)
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={handleSettings}>
             Auth details
