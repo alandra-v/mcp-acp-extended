@@ -3,43 +3,19 @@
  * Plays a two-tone chime on pending approval.
  */
 
-let audioContext: AudioContext | null = null
-
-async function getContext(): Promise<AudioContext> {
-  if (!audioContext) audioContext = new AudioContext()
-  if (audioContext.state === 'suspended') {
-    await audioContext.resume()
-  }
-  return audioContext
-}
-
-export async function playApprovalChime(): Promise<void> {
-  const ctx = await getContext()
-  const now = ctx.currentTime
-  ;[523, 659].forEach((freq, i) => {
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.type = 'sine'
-    osc.frequency.value = freq
-    gain.gain.setValueAtTime(0.3, now + i * 0.12)
-    gain.gain.exponentialRampToValueAtTime(0.001, now + i * 0.12 + 0.2)
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.start(now + i * 0.12)
-    osc.stop(now + i * 0.12 + 0.2)
-  })
-}
+import { playToneSequence, closeAudioContext } from '@/utils/audioUtils'
 
 /**
- * Close the audio context to release system resources.
- * Call this when the app is unmounting or audio is no longer needed.
+ * Play a two-tone approval chime (C5 -> E5).
  */
-export async function closeAudioContext(): Promise<void> {
-  if (audioContext) {
-    await audioContext.close()
-    audioContext = null
-  }
+export async function playApprovalChime(): Promise<void> {
+  await playToneSequence([
+    { frequency: 523, duration: 0.2, delay: 0, volume: 0.3 },      // C5
+    { frequency: 659, duration: 0.2, delay: 0.12, volume: 0.3 },   // E5
+  ])
 }
+
+export { closeAudioContext }
 
 export interface UseNotificationSoundResult {
   playApprovalChime: () => Promise<void>

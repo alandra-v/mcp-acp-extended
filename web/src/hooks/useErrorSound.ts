@@ -1,36 +1,19 @@
 /**
  * Error notification sound using Web Audio API.
- * Plays E8 Triple Emergency - 880Hz sine × 3, clinical hospital monitor style.
+ * Plays E8 Triple Emergency - 880Hz sine x 3, clinical hospital monitor style.
  */
 
-let audioContext: AudioContext | null = null
+import { playToneSequence } from '@/utils/audioUtils'
 
-async function getContext(): Promise<AudioContext> {
-  if (!audioContext) audioContext = new AudioContext()
-  if (audioContext.state === 'suspended') {
-    await audioContext.resume()
-  }
-  return audioContext
-}
-
+/**
+ * Play a triple-beep error sound (A5 x 3).
+ */
 export async function playErrorSound(): Promise<void> {
-  const ctx = await getContext()
-  const now = ctx.currentTime
-
-  // Triple Emergency: 880Hz sine × 3
-  ;[0, 1, 2].forEach((i) => {
-    const osc = ctx.createOscillator()
-    const gain = ctx.createGain()
-    osc.type = 'sine'
-    osc.frequency.value = 880
-    const start = now + i * 0.2
-    gain.gain.setValueAtTime(0.28, start)
-    gain.gain.exponentialRampToValueAtTime(0.001, start + 0.15)
-    osc.connect(gain)
-    gain.connect(ctx.destination)
-    osc.start(start)
-    osc.stop(start + 0.15)
-  })
+  await playToneSequence([
+    { frequency: 880, duration: 0.15, delay: 0, volume: 0.28 },
+    { frequency: 880, duration: 0.15, delay: 0.2, volume: 0.28 },
+    { frequency: 880, duration: 0.15, delay: 0.4, volume: 0.28 },
+  ])
 }
 
 export interface UseErrorSoundResult {
