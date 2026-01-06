@@ -116,35 +116,32 @@ async function fetchWithRetry(
   throw lastError
 }
 
-export async function apiGet<T>(path: string, options?: RequestOptions): Promise<T> {
-  const res = await fetchWithRetry(`${API_BASE}${path}`, {
-    headers: getAuthHeaders(),
-    signal: options?.signal,
-  })
-  if (!res.ok) {
-    throw new ApiError(res.status, res.statusText, await res.text())
-  }
-  try {
-    return await res.json()
-  } catch {
-    throw new ApiError(res.status, 'Invalid JSON', 'Server returned invalid JSON response')
-  }
-}
-
-export async function apiPost<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+/**
+ * Generic API request handler that eliminates duplication across HTTP methods.
+ * Handles authentication, error handling, and JSON parsing.
+ */
+async function apiRequest<T>(
+  path: string,
+  method: string,
+  body?: unknown,
+  options?: RequestOptions
+): Promise<T> {
   const headers: HeadersInit = {
     ...getAuthHeaders(),
     ...(body ? { 'Content-Type': 'application/json' } : {}),
   }
+
   const res = await fetchWithRetry(`${API_BASE}${path}`, {
-    method: 'POST',
+    method,
     headers,
     body: body ? JSON.stringify(body) : undefined,
     signal: options?.signal,
   })
+
   if (!res.ok) {
     throw new ApiError(res.status, res.statusText, await res.text())
   }
+
   try {
     return await res.json()
   } catch {
@@ -152,41 +149,20 @@ export async function apiPost<T>(path: string, body?: unknown, options?: Request
   }
 }
 
-export async function apiPut<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
-  const headers: HeadersInit = {
-    ...getAuthHeaders(),
-    ...(body ? { 'Content-Type': 'application/json' } : {}),
-  }
-  const res = await fetchWithRetry(`${API_BASE}${path}`, {
-    method: 'PUT',
-    headers,
-    body: body ? JSON.stringify(body) : undefined,
-    signal: options?.signal,
-  })
-  if (!res.ok) {
-    throw new ApiError(res.status, res.statusText, await res.text())
-  }
-  try {
-    return await res.json()
-  } catch {
-    throw new ApiError(res.status, 'Invalid JSON', 'Server returned invalid JSON response')
-  }
+export function apiGet<T>(path: string, options?: RequestOptions): Promise<T> {
+  return apiRequest<T>(path, 'GET', undefined, options)
 }
 
-export async function apiDelete<T>(path: string, options?: RequestOptions): Promise<T> {
-  const res = await fetchWithRetry(`${API_BASE}${path}`, {
-    method: 'DELETE',
-    headers: getAuthHeaders(),
-    signal: options?.signal,
-  })
-  if (!res.ok) {
-    throw new ApiError(res.status, res.statusText, await res.text())
-  }
-  try {
-    return await res.json()
-  } catch {
-    throw new ApiError(res.status, 'Invalid JSON', 'Server returned invalid JSON response')
-  }
+export function apiPost<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+  return apiRequest<T>(path, 'POST', body, options)
+}
+
+export function apiPut<T>(path: string, body?: unknown, options?: RequestOptions): Promise<T> {
+  return apiRequest<T>(path, 'PUT', body, options)
+}
+
+export function apiDelete<T>(path: string, options?: RequestOptions): Promise<T> {
+  return apiRequest<T>(path, 'DELETE', undefined, options)
 }
 
 // SSE connection for pending approvals
