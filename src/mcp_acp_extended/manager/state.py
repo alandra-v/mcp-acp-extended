@@ -16,6 +16,7 @@ __all__ = [
     "PendingApprovalRequest",
     "ProxyInfo",
     "ProxyState",
+    "ProxyStats",
     "SSEEventType",
 ]
 
@@ -94,6 +95,10 @@ class SSEEventType(str, Enum):
     HITL_PARSE_FAILED = "hitl_parse_failed"
     TOOL_SANITIZATION_FAILED = "tool_sanitization_failed"
 
+    # Live updates
+    STATS_UPDATED = "stats_updated"
+    NEW_LOG_ENTRIES = "new_log_entries"
+
     # Critical events (proxy shutdown)
     CRITICAL_SHUTDOWN = "critical_shutdown"
     AUDIT_INIT_FAILED = "audit_init_failed"
@@ -127,6 +132,7 @@ class CachedApprovalSummary(NamedTuple):
 
 
 if TYPE_CHECKING:
+    from mcp_acp_extended.pdp import Decision
     from mcp_acp_extended.pep.approval_store import ApprovalStore, CachedApproval
     from mcp_acp_extended.pips.auth.session import BoundSession, SessionManager
 
@@ -158,6 +164,32 @@ class ProxyInfo:
     command: str | None = None
     args: list[str] | None = None
     url: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class ProxyStats:
+    """Request statistics for a proxy.
+
+    Attributes:
+        requests_total: Total number of requests processed.
+        requests_allowed: Number of requests allowed by policy.
+        requests_denied: Number of requests denied by policy.
+        requests_hitl: Number of requests requiring HITL approval.
+    """
+
+    requests_total: int
+    requests_allowed: int
+    requests_denied: int
+    requests_hitl: int
+
+    def to_dict(self) -> dict[str, Any]:
+        """Convert to JSON-serializable dict for SSE/API."""
+        return {
+            "requests_total": self.requests_total,
+            "requests_allowed": self.requests_allowed,
+            "requests_denied": self.requests_denied,
+            "requests_hitl": self.requests_hitl,
+        }
 
 
 @dataclass(frozen=True)
@@ -309,6 +341,12 @@ class ProxyState:
         # SSE subscribers - each gets its own queue for events
         self._sse_subscribers: set[asyncio.Queue[dict[str, Any]]] = set()
 
+        # Request counters (for live stats)
+        self._requests_total = 0
+        self._requests_allowed = 0
+        self._requests_denied = 0
+        self._requests_hitl = 0
+
     @property
     def proxy_id(self) -> str:
         """Get the unique proxy ID."""
@@ -332,6 +370,52 @@ class ProxyState:
             command=self._command,
             args=self._args,
             url=self._url,
+        )
+
+    # =========================================================================
+    # Request Statistics
+    # =========================================================================
+
+    def record_decision(self, decision: "Decision") -> None:
+        """Record a policy decision for stats tracking.
+
+        Called by middleware after each request is processed.
+        Emits stats_updated SSE event if UI is connected.
+
+        Args:
+            decision: The policy decision (ALLOW, DENY, or HITL).
+        """
+        from mcp_acp_extended.pdp import Decision
+
+        self._requests_total += 1
+
+        if decision == Decision.ALLOW:
+            self._requests_allowed += 1
+        elif decision == Decision.DENY:
+            self._requests_denied += 1
+        elif decision == Decision.HITL:
+            self._requests_hitl += 1
+
+        # Emit live updates to connected UI clients
+        if self.is_ui_connected:
+            self.emit_system_event(
+                SSEEventType.STATS_UPDATED,
+                stats=self.get_stats().to_dict(),
+            )
+            # Notify about new log entries (for ActivitySection live updates)
+            self.emit_system_event(SSEEventType.NEW_LOG_ENTRIES, count=1)
+
+    def get_stats(self) -> ProxyStats:
+        """Get current request statistics.
+
+        Returns:
+            ProxyStats with current counters.
+        """
+        return ProxyStats(
+            requests_total=self._requests_total,
+            requests_allowed=self._requests_allowed,
+            requests_denied=self._requests_denied,
+            requests_hitl=self._requests_hitl,
         )
 
     # =========================================================================

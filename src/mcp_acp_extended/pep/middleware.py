@@ -169,7 +169,7 @@ class PolicyEnforcementMiddleware(Middleware):
         old_hitl_handler = self._hitl_handler
         old_hitl_config = self._hitl_config
         old_approval_store = self._approval_store
-        old_policy_version = self._decision_logger._policy_version
+        old_policy_version = self._decision_logger.policy_version
         old_count = len(old_policy.rules)
 
         try:
@@ -178,7 +178,7 @@ class PolicyEnforcementMiddleware(Middleware):
 
             # Update HITL handler and config (in case TTL or settings changed)
             # Preserve proxy_state reference for web UI integration
-            old_proxy_state = self._hitl_handler._proxy_state
+            old_proxy_state = self._hitl_handler.proxy_state
             self._hitl_handler = HITLHandler(new_policy.hitl)
             if old_proxy_state is not None:
                 self._hitl_handler.set_proxy_state(old_proxy_state)
@@ -189,7 +189,7 @@ class PolicyEnforcementMiddleware(Middleware):
                 self._rate_breach_handler._hitl_handler = self._hitl_handler
 
             # Update DecisionEventLogger's policy version for audit trail
-            self._decision_logger._policy_version = policy_version
+            self._decision_logger.policy_version = policy_version
 
             # Update approval store TTL if it changed
             if self._approval_store.ttl_seconds != new_policy.hitl.approval_ttl_seconds:
@@ -226,15 +226,15 @@ class PolicyEnforcementMiddleware(Middleware):
             if self._rate_breach_handler is not None:
                 self._rate_breach_handler._hitl_handler = old_hitl_handler
             # Rollback DecisionEventLogger's policy version
-            self._decision_logger._policy_version = old_policy_version
+            self._decision_logger.policy_version = old_policy_version
             if self._approval_store is not old_approval_store:
                 self._approval_store = old_approval_store
 
             # Emit SSE event for UI notification
-            if self._hitl_handler._proxy_state is not None:
+            if self._hitl_handler.proxy_state is not None:
                 from mcp_acp_extended.manager.state import SSEEventType
 
-                self._hitl_handler._proxy_state.emit_system_event(
+                self._hitl_handler.proxy_state.emit_system_event(
                     SSEEventType.POLICY_ROLLBACK,
                     severity="warning",
                     message="Policy rolled back due to error",
@@ -402,6 +402,10 @@ class PolicyEnforcementMiddleware(Middleware):
             policy_eval_ms=eval_duration_ms,
         )
 
+        # Record stats for live UI updates
+        if self._hitl_handler.proxy_state is not None:
+            self._hitl_handler.proxy_state.record_decision(Decision.ALLOW)
+
         # Execute backend call with error detection for SSE events
         from mcp_acp_extended.manager.state import SSEEventType
 
@@ -438,10 +442,10 @@ class PolicyEnforcementMiddleware(Middleware):
                         }
                     )
                     # Emit SSE event for UI notification
-                    if self._hitl_handler._proxy_state is not None:
+                    if self._hitl_handler.proxy_state is not None:
                         from mcp_acp_extended.manager.state import SSEEventType
 
-                        self._hitl_handler._proxy_state.emit_system_event(
+                        self._hitl_handler.proxy_state.emit_system_event(
                             SSEEventType.TOOL_SANITIZATION_FAILED,
                             severity="warning",
                             message="Tool sanitization failed (continuing unsanitized)",
@@ -484,8 +488,8 @@ class PolicyEnforcementMiddleware(Middleware):
                 "method": method,
             }
         )
-        if self._hitl_handler._proxy_state is not None:
-            self._hitl_handler._proxy_state.emit_system_event(
+        if self._hitl_handler.proxy_state is not None:
+            self._hitl_handler.proxy_state.emit_system_event(
                 event_type,
                 severity="error",
                 message=message,
@@ -521,6 +525,10 @@ class PolicyEnforcementMiddleware(Middleware):
             final_rule=final_rule,
             policy_eval_ms=eval_duration_ms,
         )
+
+        # Record stats for live UI updates
+        if self._hitl_handler.proxy_state is not None:
+            self._hitl_handler.proxy_state.record_decision(Decision.DENY)
 
         tool_name = decision_context.resource.tool.name if decision_context.resource.tool else None
         path = decision_context.resource.resource.path if decision_context.resource.resource else None
@@ -564,6 +572,10 @@ class PolicyEnforcementMiddleware(Middleware):
         Raises:
             PermissionDeniedError: If user denies or times out.
         """
+        # Record stats for live UI updates (count HITL when triggered, regardless of outcome)
+        if self._hitl_handler.proxy_state is not None:
+            self._hitl_handler.proxy_state.record_decision(Decision.HITL)
+
         # Extract context for caching
         tool = decision_context.resource.tool
         tool_name = tool.name if tool else None
@@ -747,10 +759,10 @@ class PolicyEnforcementMiddleware(Middleware):
                 }
             )
             # Emit SSE event for UI notification
-            if self._hitl_handler._proxy_state is not None:
+            if self._hitl_handler.proxy_state is not None:
                 from mcp_acp_extended.manager.state import SSEEventType
 
-                self._hitl_handler._proxy_state.emit_system_event(
+                self._hitl_handler.proxy_state.emit_system_event(
                     SSEEventType.REQUEST_ERROR,
                     severity="error",
                     message=f"Request processing error: {method}",

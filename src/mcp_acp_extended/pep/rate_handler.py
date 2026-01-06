@@ -107,10 +107,10 @@ class RateBreachHandler:
         )
 
         # Emit SSE event for UI notification
-        if self._hitl_handler._proxy_state is not None:
+        if self._hitl_handler.proxy_state is not None:
             from mcp_acp_extended.manager.state import SSEEventType
 
-            self._hitl_handler._proxy_state.emit_system_event(
+            self._hitl_handler.proxy_state.emit_system_event(
                 SSEEventType.RATE_LIMIT_TRIGGERED,
                 severity="warning",
                 message=f"Rate limit exceeded: {tool_name} ({rate_count}/{threshold})",
@@ -174,10 +174,10 @@ class RateBreachHandler:
             )
 
             # Emit SSE event for UI notification
-            if self._hitl_handler._proxy_state is not None:
+            if self._hitl_handler.proxy_state is not None:
                 from mcp_acp_extended.manager.state import SSEEventType
 
-                self._hitl_handler._proxy_state.emit_system_event(
+                self._hitl_handler.proxy_state.emit_system_event(
                     SSEEventType.RATE_LIMIT_APPROVED,
                     severity="success",
                     message=f"Rate limit breach approved: {tool_name}",
@@ -214,10 +214,10 @@ class RateBreachHandler:
             )
 
             # Emit SSE event for UI notification
-            if self._hitl_handler._proxy_state is not None:
+            if self._hitl_handler.proxy_state is not None:
                 from mcp_acp_extended.manager.state import SSEEventType
 
-                self._hitl_handler._proxy_state.emit_system_event(
+                self._hitl_handler.proxy_state.emit_system_event(
                     SSEEventType.RATE_LIMIT_DENIED,
                     severity="warning",
                     message=f"Rate limit breach denied: {tool_name}",

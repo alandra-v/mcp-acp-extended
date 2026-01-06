@@ -19,6 +19,15 @@ from mcp_acp_extended.api.deps import ProxyStateDep
 router = APIRouter()
 
 
+class StatsResponse(BaseModel):
+    """Response model for proxy request statistics."""
+
+    requests_total: int
+    requests_allowed: int
+    requests_denied: int
+    requests_hitl: int
+
+
 class ProxyResponse(BaseModel):
     """Response model for proxy information."""
 
@@ -32,6 +41,7 @@ class ProxyResponse(BaseModel):
     command: str | None = None
     args: list[str] | None = None
     url: str | None = None
+    stats: StatsResponse
 
 
 @router.get("")
@@ -42,6 +52,7 @@ async def list_proxies(state: ProxyStateDep) -> list[ProxyResponse]:
     In multi-proxy Phase 2, Manager will aggregate from multiple proxies.
     """
     info = state.get_proxy_info()
+    stats = state.get_stats()
 
     return [
         ProxyResponse(
@@ -55,6 +66,12 @@ async def list_proxies(state: ProxyStateDep) -> list[ProxyResponse]:
             command=info.command,
             args=info.args,
             url=info.url,
+            stats=StatsResponse(
+                requests_total=stats.requests_total,
+                requests_allowed=stats.requests_allowed,
+                requests_denied=stats.requests_denied,
+                requests_hitl=stats.requests_hitl,
+            ),
         )
     ]
 
@@ -78,6 +95,8 @@ async def get_proxy(proxy_id: str, state: ProxyStateDep) -> ProxyResponse:
     if info.id != proxy_id:
         raise HTTPException(status_code=404, detail=f"Proxy '{proxy_id}' not found")
 
+    stats = state.get_stats()
+
     return ProxyResponse(
         id=info.id,
         backend_id=info.backend_id,
@@ -89,4 +108,10 @@ async def get_proxy(proxy_id: str, state: ProxyStateDep) -> ProxyResponse:
         command=info.command,
         args=info.args,
         url=info.url,
+        stats=StatsResponse(
+            requests_total=stats.requests_total,
+            requests_allowed=stats.requests_allowed,
+            requests_denied=stats.requests_denied,
+            requests_hitl=stats.requests_hitl,
+        ),
     )

@@ -78,6 +78,16 @@ class DecisionEventLogger:
         self._backend_id = backend_id
         self._policy_version = policy_version
 
+    @property
+    def policy_version(self) -> str | None:
+        """Get current policy version for audit trail."""
+        return self._policy_version
+
+    @policy_version.setter
+    def policy_version(self, value: str | None) -> None:
+        """Set policy version for audit trail (used during hot reload)."""
+        self._policy_version = value
+
     def log(
         self,
         decision: Decision,

@@ -117,6 +117,15 @@ class HITLHandler:
                 }
             )
 
+    @property
+    def proxy_state(self) -> "ProxyState | None":
+        """Get ProxyState for web UI integration.
+
+        Returns:
+            ProxyState instance if set, None otherwise.
+        """
+        return self._proxy_state
+
     def set_proxy_state(self, proxy_state: "ProxyState") -> None:
         """Set ProxyState for web UI integration.
 

@@ -3,7 +3,7 @@ import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRe
 import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
 import { playErrorSound } from '@/hooks/useErrorSound'
-import type { PendingApproval, SSEEvent, SSEEventType } from '@/types/api'
+import type { PendingApproval, ProxyStats, SSEEvent, SSEEventType } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
 
@@ -98,6 +98,7 @@ export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected'
 
 interface AppStateContextValue {
   pending: PendingApproval[]
+  stats: ProxyStats | null
   connected: boolean
   connectionStatus: ConnectionStatus
   error: Error | null
@@ -113,6 +114,7 @@ const MAX_RECONNECT_ERRORS = 5
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<PendingApproval[]>([])
+  const [stats, setStats] = useState<ProxyStats | null>(null)
   const [connected, setConnected] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('reconnecting')
   const [error, setError] = useState<Error | null>(null)
@@ -158,6 +160,18 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
             setPending((prev) => prev.filter((p) => p.id !== event.approval_id))
             toast.warning('Approval request timed out')
           }
+          break
+
+        // Live stats update
+        case 'stats_updated':
+          if (event.stats) {
+            setStats(event.stats)
+          }
+          break
+
+        // New log entries available - dispatch event for log viewers
+        case 'new_log_entries':
+          window.dispatchEvent(new CustomEvent('new-log-entries', { detail: event.count }))
           break
 
         // Critical shutdown - show persistent toast and stop reconnecting
@@ -237,7 +251,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   }, [])
 
   return (
-    <AppStateContext.Provider value={{ pending, connected, connectionStatus, error, approve, approveOnce, deny }}>
+    <AppStateContext.Provider value={{ pending, stats, connected, connectionStatus, error, approve, approveOnce, deny }}>
       {children}
     </AppStateContext.Provider>
   )

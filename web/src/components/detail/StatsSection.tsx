@@ -1,24 +1,20 @@
+import { useAppState } from '@/context/AppStateContext'
 import { Section } from './Section'
 
 interface StatsSectionProps {
-  requests?: number
-  avgLatency?: string
-  denied?: number
   loaded?: boolean
 }
 
-export function StatsSection({
-  requests = 0,
-  avgLatency = '--',
-  denied = 0,
-  loaded = true,
-}: StatsSectionProps) {
+export function StatsSection({ loaded = true }: StatsSectionProps) {
+  const { stats } = useAppState()
+
   return (
     <Section number="001" title="Statistics" loaded={loaded}>
-      <div className="grid grid-cols-3 gap-4">
-        <StatBox label="Requests Today" value={requests.toString()} />
-        <StatBox label="Avg Latency" value={avgLatency} />
-        <StatBox label="Denied" value={denied.toString()} />
+      <div className="grid grid-cols-4 gap-4">
+        <StatBox label="Total Requests" value={stats?.requests_total.toString() ?? '0'} />
+        <StatBox label="Allowed" value={stats?.requests_allowed.toString() ?? '0'} />
+        <StatBox label="Denied" value={stats?.requests_denied.toString() ?? '0'} />
+        <StatBox label="HITL" value={stats?.requests_hitl.toString() ?? '0'} />
       </div>
     </Section>
   )
