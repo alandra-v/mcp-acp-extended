@@ -405,6 +405,16 @@ class HITLHandler:
                         "request_id": request_id,
                     }
                 )
+                # Emit SSE event for UI notification
+                if self._proxy_state is not None:
+                    from mcp_acp_extended.manager.state import SSEEventType
+
+                    self._proxy_state.emit_system_event(
+                        SSEEventType.HITL_PARSE_FAILED,
+                        severity="error",
+                        message="HITL dialog response parse failed",
+                        error_type=type(e).__name__,
+                    )
                 return HITLOutcome.USER_DENIED
 
             # Check for timeout (dialog gave up)

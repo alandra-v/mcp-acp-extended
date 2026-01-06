@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { toast } from 'sonner'
+import { toast } from '@/components/ui/sonner'
 import { startLogin, pollLogin } from '@/api/auth'
 import { playErrorSound } from '@/hooks/useErrorSound'
 

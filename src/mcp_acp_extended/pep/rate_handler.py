@@ -106,6 +106,19 @@ class RateBreachHandler:
             }
         )
 
+        # Emit SSE event for UI notification
+        if self._hitl_handler._proxy_state is not None:
+            from mcp_acp_extended.manager.state import SSEEventType
+
+            self._hitl_handler._proxy_state.emit_system_event(
+                SSEEventType.RATE_LIMIT_TRIGGERED,
+                severity="warning",
+                message=f"Rate limit exceeded: {tool_name} ({rate_count}/{threshold})",
+                tool_name=tool_name,
+                count=rate_count,
+                threshold=threshold,
+            )
+
         # Show HITL dialog for rate breach
         # Build a minimal decision context for the dialog
         try:
@@ -159,6 +172,17 @@ class RateBreachHandler:
                     "request_id": request_id,
                 }
             )
+
+            # Emit SSE event for UI notification
+            if self._hitl_handler._proxy_state is not None:
+                from mcp_acp_extended.manager.state import SSEEventType
+
+                self._hitl_handler._proxy_state.emit_system_event(
+                    SSEEventType.RATE_LIMIT_APPROVED,
+                    severity="success",
+                    message=f"Rate limit breach approved: {tool_name}",
+                    tool_name=tool_name,
+                )
             # Return normally - caller will continue with policy evaluation
             return
         else:
@@ -188,6 +212,17 @@ class RateBreachHandler:
                     "request_id": request_id,
                 }
             )
+
+            # Emit SSE event for UI notification
+            if self._hitl_handler._proxy_state is not None:
+                from mcp_acp_extended.manager.state import SSEEventType
+
+                self._hitl_handler._proxy_state.emit_system_event(
+                    SSEEventType.RATE_LIMIT_DENIED,
+                    severity="warning",
+                    message=f"Rate limit breach denied: {tool_name}",
+                    tool_name=tool_name,
+                )
             raise PermissionDeniedError(
                 f"{reason}: Rate limit exceeded ({rate_count} calls to {tool_name})",
                 decision=Decision.DENY,

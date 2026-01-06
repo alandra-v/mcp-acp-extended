@@ -225,6 +225,18 @@ class PolicyEnforcementMiddleware(Middleware):
             self._decision_logger._policy_version = old_policy_version
             if self._approval_store is not old_approval_store:
                 self._approval_store = old_approval_store
+
+            # Emit SSE event for UI notification
+            if self._hitl_handler._proxy_state is not None:
+                from mcp_acp_extended.manager.state import SSEEventType
+
+                self._hitl_handler._proxy_state.emit_system_event(
+                    SSEEventType.POLICY_ROLLBACK,
+                    severity="warning",
+                    message="Policy rolled back due to error",
+                    details=str(e),
+                    error_type=type(e).__name__,
+                )
             raise
 
     def _extract_client_name(self, context: MiddlewareContext[Any]) -> None:
@@ -403,6 +415,16 @@ class PolicyEnforcementMiddleware(Middleware):
                             "session_id": session_id,
                         }
                     )
+                    # Emit SSE event for UI notification
+                    if self._hitl_handler._proxy_state is not None:
+                        from mcp_acp_extended.manager.state import SSEEventType
+
+                        self._hitl_handler._proxy_state.emit_system_event(
+                            SSEEventType.TOOL_SANITIZATION_FAILED,
+                            severity="warning",
+                            message="Tool sanitization failed (continuing unsanitized)",
+                            error_type=type(e).__name__,
+                        )
             else:
                 # Unexpected result type - log warning
                 _system_logger.warning(
@@ -670,6 +692,16 @@ class PolicyEnforcementMiddleware(Middleware):
                     "session_id": session_id,
                 }
             )
+            # Emit SSE event for UI notification
+            if self._hitl_handler._proxy_state is not None:
+                from mcp_acp_extended.manager.state import SSEEventType
+
+                self._hitl_handler._proxy_state.emit_system_event(
+                    SSEEventType.REQUEST_ERROR,
+                    severity="error",
+                    message=f"Request processing error: {method}",
+                    error_type=type(e).__name__,
+                )
             raise PermissionDeniedError(
                 f"Internal error evaluating policy for {method}",
                 decision=Decision.DENY,

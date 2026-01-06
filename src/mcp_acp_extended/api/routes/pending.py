@@ -21,6 +21,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import ProxyStateDep
+from mcp_acp_extended.manager.state import SSEEventType
 
 logger = logging.getLogger(__name__)
 
@@ -83,7 +84,13 @@ async def pending_approvals_stream(state: ProxyStateDep) -> StreamingResponse:
             while True:
                 try:
                     event = await asyncio.wait_for(queue.get(), timeout=30)
-                    yield f"data: {json.dumps(event)}\n\n"
+                    try:
+                        yield f"data: {json.dumps(event)}\n\n"
+                    except (TypeError, ValueError) as e:
+                        # Skip non-serializable events rather than crash stream
+                        logger.error(
+                            "Failed to serialize SSE event: %s (event type: %s)", e, event.get("type")
+                        )
                 except asyncio.TimeoutError:
                     # Send keepalive comment to prevent connection timeout
                     yield ": keepalive\n\n"
@@ -141,6 +148,13 @@ async def approve_pending(approval_id: str, state: ProxyStateDep) -> ApprovalAct
         HTTPException: 404 if approval not found.
     """
     if not state.resolve_pending(approval_id, "allow"):
+        # Emit SSE event for UI notification
+        state.emit_system_event(
+            SSEEventType.PENDING_NOT_FOUND,
+            severity="error",
+            message="Approval not found (may have timed out)",
+            approval_id=approval_id,
+        )
         raise HTTPException(
             status_code=404,
             detail=f"Pending approval '{approval_id}' not found or already resolved",
@@ -164,6 +178,13 @@ async def allow_once_pending(approval_id: str, state: ProxyStateDep) -> Approval
         HTTPException: 404 if approval not found.
     """
     if not state.resolve_pending(approval_id, "allow_once"):
+        # Emit SSE event for UI notification
+        state.emit_system_event(
+            SSEEventType.PENDING_NOT_FOUND,
+            severity="error",
+            message="Approval not found (may have timed out)",
+            approval_id=approval_id,
+        )
         raise HTTPException(
             status_code=404,
             detail=f"Pending approval '{approval_id}' not found or already resolved",
@@ -187,6 +208,13 @@ async def deny_pending(approval_id: str, state: ProxyStateDep) -> ApprovalAction
         HTTPException: 404 if approval not found.
     """
     if not state.resolve_pending(approval_id, "deny"):
+        # Emit SSE event for UI notification
+        state.emit_system_event(
+            SSEEventType.PENDING_NOT_FOUND,
+            severity="error",
+            message="Approval not found (may have timed out)",
+            approval_id=approval_id,
+        )
         raise HTTPException(
             status_code=404,
             detail=f"Pending approval '{approval_id}' not found or already resolved",

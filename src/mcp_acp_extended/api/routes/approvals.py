@@ -16,7 +16,8 @@ import time
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from mcp_acp_extended.api.deps import ApprovalStoreDep
+from mcp_acp_extended.api.deps import ApprovalStoreDep, ProxyStateDep
+from mcp_acp_extended.manager.state import SSEEventType
 
 router = APIRouter()
 
@@ -81,9 +82,9 @@ class ClearApprovalsResponse(BaseModel):
 
 
 @router.delete("")
-async def clear_approvals(store: ApprovalStoreDep) -> ClearApprovalsResponse:
+async def clear_approvals(state: ProxyStateDep) -> ClearApprovalsResponse:
     """Clear all cached approvals."""
-    count = store.clear()
+    count = state.clear_all_cached_approvals()  # Emits cache_cleared SSE event
     return ClearApprovalsResponse(cleared=count, status="ok")
 
 
@@ -97,6 +98,7 @@ class DeleteApprovalResponse(BaseModel):
 @router.delete("/entry")
 async def delete_approval(
     store: ApprovalStoreDep,
+    state: ProxyStateDep,
     subject_id: str,
     tool_name: str,
     path: str | None = None,
@@ -105,6 +107,7 @@ async def delete_approval(
 
     Args:
         store: Approval store (injected).
+        state: Proxy state for SSE events (injected).
         subject_id: The user who approved.
         tool_name: The tool that was approved.
         path: The path that was approved (optional).
@@ -118,5 +121,15 @@ async def delete_approval(
             status_code=404,
             detail=f"Cached approval not found for {subject_id}/{tool_name}/{path}",
         )
+
+    # Emit SSE event for UI notification
+    state.emit_system_event(
+        SSEEventType.CACHE_ENTRY_DELETED,
+        severity="success",
+        message=f"Cached approval deleted: {tool_name}",
+        tool_name=tool_name,
+        subject_id=subject_id,
+        path=path,
+    )
 
     return DeleteApprovalResponse(deleted=True, status="ok")

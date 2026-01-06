@@ -65,17 +65,78 @@ export interface LogsResponse {
 
 // SSE Event types
 export type SSEEventType =
+  // Existing HITL events
   | 'snapshot'
   | 'pending_created'
   | 'pending_resolved'
   | 'pending_timeout'
+  | 'pending_not_found'
+  // Backend connection
+  | 'backend_connected'
+  | 'backend_reconnected'
+  | 'backend_disconnected'
+  | 'backend_timeout'
+  | 'backend_refused'
+  // TLS/mTLS
+  | 'tls_error'
+  | 'mtls_failed'
+  | 'cert_validation_failed'
+  // Authentication
+  | 'auth_session_expiring'
+  | 'token_refresh_failed'
+  | 'token_validation_failed'
+  | 'auth_failure'
+  // Policy
+  | 'policy_reloaded'
+  | 'policy_reload_failed'
+  | 'policy_file_not_found'
+  | 'policy_rollback'
+  | 'config_change_detected'
+  // Rate limiting
+  | 'rate_limit_triggered'
+  | 'rate_limit_approved'
+  | 'rate_limit_denied'
+  // Cache
+  | 'cache_cleared'
+  | 'cache_entry_deleted'
+  // Request processing
+  | 'request_error'
+  | 'hitl_parse_failed'
+  | 'tool_sanitization_failed'
+  // Critical events (proxy shutdown)
+  | 'critical_shutdown'
+  | 'audit_init_failed'
+  | 'device_health_failed'
+  | 'session_hijacking'
+  | 'audit_tampering'
+  | 'audit_missing'
+  | 'audit_permission_denied'
+  | 'health_degraded'
+  | 'health_monitor_failed'
+
+// Severity levels for toast styling
+export type EventSeverity = 'success' | 'warning' | 'error' | 'critical' | 'info'
 
 export interface SSEEvent {
   type: SSEEventType
+  // HITL-specific fields
   approvals?: PendingApproval[]
   approval?: PendingApproval
   approval_id?: string
   decision?: 'allow' | 'deny'
+  // System event fields
+  severity?: EventSeverity
+  message?: string
+  details?: string
+  proxy_id?: string
+  timestamp?: string
+  // Policy events
+  old_rules_count?: number
+  new_rules_count?: number
+  approvals_cleared?: number
+  policy_version?: string
+  error_type?: string
+  count?: number
 }
 
 // API Error

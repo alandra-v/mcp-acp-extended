@@ -27,6 +27,7 @@ from mcp_acp_extended.utils.policy import load_policy, get_policy_path
 if TYPE_CHECKING:
     import logging
 
+    from mcp_acp_extended.manager.state import ProxyState
     from mcp_acp_extended.pdp.policy import PolicyConfig
     from mcp_acp_extended.pep.middleware import PolicyEnforcementMiddleware
 
@@ -95,6 +96,17 @@ class PolicyReloader:
         # Mutex to prevent concurrent reloads from racing
         self._reload_lock = asyncio.Lock()
 
+        # ProxyState for SSE event emission (set via set_proxy_state)
+        self._proxy_state: "ProxyState | None" = None
+
+    def set_proxy_state(self, proxy_state: "ProxyState") -> None:
+        """Set ProxyState for SSE event emission.
+
+        Args:
+            proxy_state: ProxyState instance for broadcasting UI events.
+        """
+        self._proxy_state = proxy_state
+
     @property
     def current_version(self) -> str | None:
         """Get current policy version."""
@@ -144,6 +156,7 @@ class PolicyReloader:
             except FileNotFoundError as e:
                 error_msg = f"Policy file not found: {self._policy_path}"
                 self._log_reload_failed("file_not_found", error_msg)
+                self._emit_reload_failed("file_not_found", error_msg)
                 return ReloadResult(
                     status="file_error",
                     old_rules_count=old_count,
@@ -152,6 +165,7 @@ class PolicyReloader:
             except ValueError as e:
                 error_msg = str(e)
                 self._log_reload_failed("validation_error", error_msg)
+                self._emit_reload_failed("validation_error", error_msg)
                 return ReloadResult(
                     status="validation_error",
                     old_rules_count=old_count,
@@ -160,6 +174,7 @@ class PolicyReloader:
             except Exception as e:
                 error_msg = f"{type(e).__name__}: {e}"
                 self._log_reload_failed("unexpected_error", error_msg)
+                self._emit_reload_failed("unexpected_error", error_msg)
                 return ReloadResult(
                     status="file_error",
                     old_rules_count=old_count,
@@ -188,6 +203,9 @@ class PolicyReloader:
 
             # Log success
             self._log_reload_success(result)
+
+            # Emit SSE event for UI notification
+            self._emit_reload_success(result)
 
             return result
 
@@ -251,4 +269,43 @@ class PolicyReloader:
                 "error": error,
                 "policy_path": str(self._policy_path),
             }
+        )
+
+    def _emit_reload_success(self, result: ReloadResult) -> None:
+        """Emit SSE event for successful reload."""
+        if self._proxy_state is None:
+            return
+
+        from mcp_acp_extended.manager.state import SSEEventType
+
+        self._proxy_state.emit_system_event(
+            SSEEventType.POLICY_RELOADED,
+            severity="success",
+            message=f"Policy reloaded ({result.new_rules_count} rules)",
+            old_rules_count=result.old_rules_count,
+            new_rules_count=result.new_rules_count,
+            approvals_cleared=result.approvals_cleared,
+            policy_version=result.policy_version,
+        )
+
+    def _emit_reload_failed(self, error_type: str, error: str) -> None:
+        """Emit SSE event for failed reload."""
+        if self._proxy_state is None:
+            return
+
+        from mcp_acp_extended.manager.state import SSEEventType
+
+        if error_type == "file_not_found":
+            event_type = SSEEventType.POLICY_FILE_NOT_FOUND
+            message = "Policy file not found"
+        else:
+            event_type = SSEEventType.POLICY_RELOAD_FAILED
+            message = "Policy reload failed"
+
+        self._proxy_state.emit_system_event(
+            event_type,
+            severity="error",
+            message=message,
+            details=error,
+            error_type=error_type,
         )

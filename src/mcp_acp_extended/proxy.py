@@ -335,6 +335,8 @@ def create_proxy(
                 policy_history_path=get_policy_history_path(config),
                 initial_version=policy_version,
             )
+            # Wire proxy_state for SSE event emission
+            policy_reloader.set_proxy_state(proxy_state)
 
             # Start management API server only if UI is enabled
             # When disabled (--no-ui), no HTTP server runs - reduces attack surface

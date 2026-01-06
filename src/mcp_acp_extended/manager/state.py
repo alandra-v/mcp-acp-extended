@@ -16,6 +16,7 @@ __all__ = [
     "PendingApprovalRequest",
     "ProxyInfo",
     "ProxyState",
+    "SSEEventType",
 ]
 
 import asyncio
@@ -25,7 +26,85 @@ import time
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any, NamedTuple
+from enum import Enum
+from typing import TYPE_CHECKING, Any, Literal, NamedTuple
+
+
+class SSEEventType(str, Enum):
+    """SSE event types for UI notifications.
+
+    Events are grouped by domain:
+    - pending_*: HITL approval lifecycle
+    - backend_*: Backend connection status
+    - tls_*: TLS/mTLS errors
+    - auth_*: Authentication events
+    - policy_*: Policy reload events
+    - rate_limit_*: Rate limiting events
+    - cache_*: Approval cache events
+    - request_*: Request processing events
+    - critical_*: Security-critical events (proxy shutdown)
+    """
+
+    # Existing HITL events
+    SNAPSHOT = "snapshot"
+    PENDING_CREATED = "pending_created"
+    PENDING_RESOLVED = "pending_resolved"
+    PENDING_TIMEOUT = "pending_timeout"
+    PENDING_NOT_FOUND = "pending_not_found"
+
+    # Backend connection
+    BACKEND_CONNECTED = "backend_connected"
+    BACKEND_RECONNECTED = "backend_reconnected"
+    BACKEND_DISCONNECTED = "backend_disconnected"
+    BACKEND_TIMEOUT = "backend_timeout"
+    BACKEND_REFUSED = "backend_refused"
+
+    # TLS/mTLS
+    TLS_ERROR = "tls_error"
+    MTLS_FAILED = "mtls_failed"
+    CERT_VALIDATION_FAILED = "cert_validation_failed"
+
+    # Authentication
+    AUTH_SESSION_EXPIRING = "auth_session_expiring"
+    TOKEN_REFRESH_FAILED = "token_refresh_failed"
+    TOKEN_VALIDATION_FAILED = "token_validation_failed"
+    AUTH_FAILURE = "auth_failure"
+
+    # Policy
+    POLICY_RELOADED = "policy_reloaded"
+    POLICY_RELOAD_FAILED = "policy_reload_failed"
+    POLICY_FILE_NOT_FOUND = "policy_file_not_found"
+    POLICY_ROLLBACK = "policy_rollback"
+    CONFIG_CHANGE_DETECTED = "config_change_detected"
+
+    # Rate limiting
+    RATE_LIMIT_TRIGGERED = "rate_limit_triggered"
+    RATE_LIMIT_APPROVED = "rate_limit_approved"
+    RATE_LIMIT_DENIED = "rate_limit_denied"
+
+    # Cache
+    CACHE_CLEARED = "cache_cleared"
+    CACHE_ENTRY_DELETED = "cache_entry_deleted"
+
+    # Request processing
+    REQUEST_ERROR = "request_error"
+    HITL_PARSE_FAILED = "hitl_parse_failed"
+    TOOL_SANITIZATION_FAILED = "tool_sanitization_failed"
+
+    # Critical events (proxy shutdown)
+    CRITICAL_SHUTDOWN = "critical_shutdown"
+    AUDIT_INIT_FAILED = "audit_init_failed"
+    DEVICE_HEALTH_FAILED = "device_health_failed"
+    SESSION_HIJACKING = "session_hijacking"
+    AUDIT_TAMPERING = "audit_tampering"
+    AUDIT_MISSING = "audit_missing"
+    AUDIT_PERMISSION_DENIED = "audit_permission_denied"
+    HEALTH_DEGRADED = "health_degraded"
+    HEALTH_MONITOR_FAILED = "health_monitor_failed"
+
+
+# Severity type for toast styling
+EventSeverity = Literal["success", "warning", "error", "critical", "info"]
 
 logger = logging.getLogger(__name__)
 
@@ -287,7 +366,14 @@ class ProxyState:
         Returns:
             Number of approvals cleared.
         """
-        return self._approval_store.clear()
+        count = self._approval_store.clear()
+        self.emit_system_event(
+            SSEEventType.CACHE_CLEARED,
+            severity="success",
+            message="Approval cache cleared",
+            count=count,
+        )
+        return count
 
     # =========================================================================
     # Sessions (delegates to SessionManager)
@@ -405,16 +491,17 @@ class ProxyState:
 
         decision = await request.wait(timeout)
         if decision is None:
-            # Remove timed-out pending approval
-            self._pending.pop(approval_id, None)
-
-            # Broadcast timeout to SSE subscribers
-            self._broadcast_event(
-                {
-                    "type": "pending_timeout",
-                    "approval_id": approval_id,
-                }
-            )
+            # Atomic check-and-remove: only broadcast timeout if WE removed it
+            # This prevents race where resolve_pending() removes + broadcasts
+            # pending_resolved, then we also broadcast pending_timeout
+            removed = self._pending.pop(approval_id, None)
+            if removed is not None:
+                self._broadcast_event(
+                    {
+                        "type": "pending_timeout",
+                        "approval_id": approval_id,
+                    }
+                )
 
         return decision
 
@@ -471,3 +558,45 @@ class ProxyState:
                     "SSE queue full, dropping event: type=%s",
                     event.get("type", "unknown"),
                 )
+
+    def emit_system_event(
+        self,
+        event_type: SSEEventType,
+        severity: EventSeverity = "info",
+        message: str | None = None,
+        details: str | None = None,
+        **extra: Any,
+    ) -> None:
+        """Emit a system event to all connected SSE clients.
+
+        This is the main method for emitting UI notifications from
+        anywhere in the proxy. Events are broadcast to all connected
+        web UI clients for toast display.
+
+        Args:
+            event_type: The type of event (from SSEEventType enum).
+            severity: Toast severity level for styling.
+            message: Custom message override (optional).
+            details: Additional details for expandable toast (optional).
+            **extra: Additional event-specific fields.
+
+        Example:
+            state.emit_system_event(
+                SSEEventType.POLICY_RELOADED,
+                severity="success",
+                message="Policy reloaded successfully",
+            )
+        """
+        event: dict[str, Any] = {
+            "type": event_type.value,
+            "severity": severity,
+            "timestamp": datetime.now(UTC).isoformat(),
+            "proxy_id": self._id,
+        }
+        if message is not None:
+            event["message"] = message
+        if details is not None:
+            event["details"] = details
+        event.update(extra)
+
+        self._broadcast_event(event)
