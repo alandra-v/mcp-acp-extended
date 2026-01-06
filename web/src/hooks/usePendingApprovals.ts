@@ -1,11 +1,24 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { subscribeToPendingApprovals, approveRequest, denyRequest } from '@/api/approvals'
+import { playApprovalChime } from './useNotificationSound'
 import type { PendingApproval, SSEEvent } from '@/types/api'
+
+const ORIGINAL_TITLE = 'MCP ACP'
 
 export function usePendingApprovals() {
   const [pending, setPending] = useState<PendingApproval[]>([])
   const [connected, setConnected] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const isFirstSnapshot = useRef(true)
+
+  // Update document title when pending count changes
+  useEffect(() => {
+    if (pending.length > 0) {
+      document.title = `🔴 (${pending.length}) ${ORIGINAL_TITLE}`
+    } else {
+      document.title = ORIGINAL_TITLE
+    }
+  }, [pending.length])
 
   useEffect(() => {
     const handleEvent = (event: SSEEvent) => {
@@ -13,10 +26,12 @@ export function usePendingApprovals() {
         case 'snapshot':
           setPending(event.approvals || [])
           setConnected(true)
+          isFirstSnapshot.current = false
           break
         case 'pending_created':
           if (event.approval) {
             setPending((prev) => [...prev, event.approval!])
+            playApprovalChime()
           }
           break
         case 'pending_resolved':
