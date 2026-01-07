@@ -101,7 +101,6 @@ interface AppStateContextValue {
   stats: ProxyStats | null
   connected: boolean
   connectionStatus: ConnectionStatus
-  error: Error | null
   approve: (id: string) => Promise<void>
   approveOnce: (id: string) => Promise<void>
   deny: (id: string) => Promise<void>
@@ -117,7 +116,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
   const [stats, setStats] = useState<ProxyStats | null>(null)
   const [connected, setConnected] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('reconnecting')
-  const [error, setError] = useState<Error | null>(null)
 
   // Track connection errors to avoid spamming toasts on repeated reconnect failures
   const errorCountRef = useRef(0)
@@ -199,7 +197,6 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       if (isShutdownRef.current) return
 
       setConnected(false)
-      setError(new Error('SSE connection lost'))
       errorCountRef.current++
 
       // Update connection status based on error count
@@ -226,8 +223,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     try {
       await approveRequest(id)
       toast.success('Request approved')
-    } catch (e) {
-      setError(e instanceof Error ? e : new Error('Failed to approve'))
+    } catch {
       // Error toast handled via SSE pending_not_found event
     }
   }, [])
@@ -236,8 +232,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     try {
       await approveOnceRequest(id)
       toast.success('Request approved (once)')
-    } catch (e) {
-      setError(e instanceof Error ? e : new Error('Failed to approve once'))
+    } catch {
       // Error toast handled via SSE pending_not_found event
     }
   }, [])
@@ -246,14 +241,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     try {
       await denyRequest(id)
       toast.success('Request denied')
-    } catch (e) {
-      setError(e instanceof Error ? e : new Error('Failed to deny'))
+    } catch {
       // Error toast handled via SSE pending_not_found event
     }
   }, [])
 
   return (
-    <AppStateContext.Provider value={{ pending, stats, connected, connectionStatus, error, approve, approveOnce, deny }}>
+    <AppStateContext.Provider value={{ pending, stats, connected, connectionStatus, approve, approveOnce, deny }}>
       {children}
     </AppStateContext.Provider>
   )
