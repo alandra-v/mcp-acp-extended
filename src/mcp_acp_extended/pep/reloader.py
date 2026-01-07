@@ -201,9 +201,6 @@ class PolicyReloader:
                 policy_version=policy_version,
             )
 
-            # Log success
-            self._log_reload_success(result)
-
             # Emit SSE event for UI notification
             self._emit_reload_success(result)
 
@@ -246,19 +243,6 @@ class PolicyReloader:
                 }
             )
             return None
-
-    def _log_reload_success(self, result: ReloadResult) -> None:
-        """Log successful reload to system.jsonl."""
-        self._logger.info(
-            {
-                "event": "policy_reloaded",
-                "old_rules_count": result.old_rules_count,
-                "new_rules_count": result.new_rules_count,
-                "approvals_cleared": result.approvals_cleared,
-                "policy_version": result.policy_version,
-                "reload_count": self._reload_count,
-            }
-        )
 
     def _log_reload_failed(self, error_type: str, error: str) -> None:
         """Log failed reload to system.jsonl."""

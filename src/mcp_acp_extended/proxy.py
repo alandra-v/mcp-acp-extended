@@ -428,7 +428,6 @@ def create_proxy(
             # Setup SIGHUP handler for policy hot reload (Unix only)
             def handle_sighup() -> None:
                 """Handle SIGHUP signal by scheduling policy reload."""
-                system_logger.info({"event": "sighup_received", "action": "scheduling_policy_reload"})
                 asyncio.create_task(policy_reloader.reload())
 
             loop = asyncio.get_event_loop()
@@ -514,7 +513,13 @@ def create_proxy(
                         api_task.cancel()
                     except asyncio.CancelledError:
                         pass
-                system_logger.info({"event": "api_server_stopped"})
+                system_logger.warning(
+                    {
+                        "event": "api_server_stopped",
+                        "message": "API server stopped",
+                        "component": "proxy",
+                    }
+                )
 
                 # Delete manager.json on shutdown (cleanup token file)
                 # Import here in case we never reached the startup import

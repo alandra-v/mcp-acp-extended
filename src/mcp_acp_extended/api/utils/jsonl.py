@@ -78,7 +78,7 @@ def get_log_base_path(config: "AppConfig") -> Path:
     Returns:
         Path to the log directory (e.g., ~/.mcp-acp-extended/mcp_acp_extended_logs).
     """
-    return Path(config.logging.log_dir) / "mcp_acp_extended_logs"
+    return Path(config.logging.log_dir).expanduser() / "mcp_acp_extended_logs"
 
 
 # =============================================================================
@@ -285,7 +285,16 @@ def read_jsonl_filtered(
             content = f.read().decode("utf-8", errors="replace")
 
     except OSError as e:
-        logger.warning("Failed to read log file %s: %s", path, e)
+        logger.warning(
+            {
+                "event": "log_file_read_failed",
+                "message": f"Failed to read log file {path}: {e}",
+                "component": "api_logs",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "details": {"path": str(path)},
+            }
+        )
         return [], False, 0
 
     lines = content.strip().split("\n")
@@ -372,7 +381,16 @@ def extract_versions(path: Path, version_field: str) -> list[str]:
                 except json.JSONDecodeError:
                     continue
     except OSError as e:
-        logger.warning("Failed to read log file for versions %s: %s", path, e)
+        logger.warning(
+            {
+                "event": "log_file_read_failed",
+                "message": f"Failed to read log file for versions {path}: {e}",
+                "component": "api_logs",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "details": {"path": str(path), "version_field": version_field},
+            }
+        )
 
     return sorted(versions, reverse=True)
 

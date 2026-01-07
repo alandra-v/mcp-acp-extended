@@ -210,7 +210,16 @@ def _check_certificate_expiry(cert_path: Path) -> int | None:
         raise
     except Exception as e:
         # Log but don't fail for other parsing errors - SSL validation already passed
-        logger.warning("Could not check certificate expiry for %s: %s", cert_path, e)
+        logger.warning(
+            {
+                "event": "certificate_expiry_check_failed",
+                "message": f"Could not check certificate expiry for {cert_path}: {e}",
+                "component": "mtls",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+                "details": {"cert_path": str(cert_path)},
+            }
+        )
         return None
 
 

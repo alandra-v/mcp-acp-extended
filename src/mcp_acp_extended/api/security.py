@@ -137,10 +137,16 @@ def write_manager_file(port: int, token: str) -> None:
         temp_file.write_text(json.dumps(data, indent=2))
         temp_file.chmod(0o600)  # Owner read/write only
         temp_file.rename(MANAGER_FILE)
-
-        logger.info("Manager file written: %s", MANAGER_FILE)
     except Exception as e:
-        logger.warning("Failed to write manager file: %s", e)
+        logger.warning(
+            {
+                "event": "manager_file_write_failed",
+                "message": f"Failed to write manager file: {e}",
+                "component": "api_security",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
 
 
 def delete_manager_file() -> None:
@@ -150,9 +156,16 @@ def delete_manager_file() -> None:
     """
     try:
         MANAGER_FILE.unlink(missing_ok=True)
-        logger.info("Manager file deleted")
     except Exception as e:
-        logger.warning("Failed to delete manager file: %s", e)
+        logger.warning(
+            {
+                "event": "manager_file_delete_failed",
+                "message": f"Failed to delete manager file: {e}",
+                "component": "api_security",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
 
 
 def read_manager_file() -> dict[str, str | int] | None:
@@ -166,7 +179,15 @@ def read_manager_file() -> dict[str, str | int] | None:
             data: dict[str, str | int] = json.loads(MANAGER_FILE.read_text())
             return data
     except Exception as e:
-        logger.warning("Failed to read manager file: %s", e)
+        logger.warning(
+            {
+                "event": "manager_file_read_failed",
+                "message": f"Failed to read manager file: {e}",
+                "component": "api_security",
+                "error_type": type(e).__name__,
+                "error_message": str(e),
+            }
+        )
     return None
 
 
@@ -225,7 +246,14 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         # 2. Host header validation (DNS rebinding protection)
         host = request.headers.get("host", "").split(":")[0]
         if host not in ALLOWED_HOSTS:
-            logger.warning("Rejected request with invalid host: %s", host)
+            logger.warning(
+                {
+                    "event": "invalid_host_rejected",
+                    "message": f"Rejected request with invalid host: {host}",
+                    "component": "api_security",
+                    "details": {"host": host, "path": str(request.url.path)},
+                }
+            )
             return JSONResponse(
                 status_code=403,
                 content={"error": "Invalid host header"},
@@ -234,7 +262,14 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         # 3. Origin header validation
         origin = request.headers.get("origin")
         if origin and origin not in ALLOWED_ORIGINS:
-            logger.warning("Rejected request with invalid origin: %s", origin)
+            logger.warning(
+                {
+                    "event": "invalid_origin_rejected",
+                    "message": f"Rejected request with invalid origin: {origin}",
+                    "component": "api_security",
+                    "details": {"origin": origin, "path": str(request.url.path)},
+                }
+            )
             return JSONResponse(
                 status_code=403,
                 content={"error": "Invalid origin"},
@@ -258,9 +293,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                         )
                 else:
                     logger.warning(
-                        "Rejected mutation without origin: %s %s",
-                        request.method,
-                        request.url.path,
+                        {
+                            "event": "mutation_without_origin_rejected",
+                            "message": f"Rejected mutation without origin: {request.method} {request.url.path}",
+                            "component": "api_security",
+                            "details": {"method": request.method, "path": str(request.url.path)},
+                        }
                     )
                     return JSONResponse(
                         status_code=403,
@@ -271,9 +309,12 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         if request.url.path.startswith("/api/"):
             if not self._check_auth(request):
                 logger.warning(
-                    "Rejected unauthorized request: %s %s",
-                    request.method,
-                    request.url.path,
+                    {
+                        "event": "unauthorized_request_rejected",
+                        "message": f"Rejected unauthorized request: {request.method} {request.url.path}",
+                        "component": "api_security",
+                        "details": {"method": request.method, "path": str(request.url.path)},
+                    }
                 )
                 return JSONResponse(
                     status_code=401,
@@ -338,7 +379,14 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                 # Additional check: if Referer present, validate it
                 referer = request.headers.get("referer", "")
                 if referer and not self._is_valid_referer(referer):
-                    logger.warning("Rejected SSE with invalid referer: %s", referer)
+                    logger.warning(
+                        {
+                            "event": "invalid_referer_rejected",
+                            "message": f"Rejected SSE with invalid referer: {referer}",
+                            "component": "api_security",
+                            "details": {"referer": referer, "path": str(request.url.path)},
+                        }
+                    )
                     return False
                 return True
 

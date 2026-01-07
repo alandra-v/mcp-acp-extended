@@ -49,7 +49,6 @@ async def pending_approvals_stream(state: ProxyStateDep) -> StreamingResponse:
 
     async def event_generator() -> AsyncIterator[str]:
         queue = state.subscribe()
-        logger.info("SSE client connected for pending approvals")
         try:
             # Send current pending approvals first (snapshot)
             pending = state.get_pending_approvals()
@@ -68,14 +67,22 @@ async def pending_approvals_stream(state: ProxyStateDep) -> StreamingResponse:
                     except (TypeError, ValueError) as e:
                         # Skip non-serializable events rather than crash stream
                         logger.error(
-                            "Failed to serialize SSE event: %s (event type: %s)", e, event.get("type")
+                            {
+                                "event": "sse_event_serialization_failed",
+                                "message": f"Failed to serialize SSE event: {e}",
+                                "component": "api_pending",
+                                "error_type": type(e).__name__,
+                                "error_message": str(e),
+                                "details": {
+                                    "event_type": event.get("type") if isinstance(event, dict) else None
+                                },
+                            }
                         )
                 except asyncio.TimeoutError:
                     # Send keepalive comment to prevent connection timeout
                     yield ": keepalive\n\n"
         finally:
             state.unsubscribe(queue)
-            logger.info("SSE client disconnected from pending approvals")
 
     return StreamingResponse(
         event_generator(),
