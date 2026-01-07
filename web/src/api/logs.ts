@@ -1,24 +1,80 @@
 import { apiGet } from './client'
-import type { LogsResponse } from '@/types/api'
+import type { LogsResponse, LogsMetadataResponse } from '@/types/api'
 
-export type LogType = 'decisions' | 'operations' | 'auth' | 'system'
+/** All available log types */
+export type LogType =
+  | 'decisions'
+  | 'operations'
+  | 'auth'
+  | 'system'
+  | 'config_history'
+  | 'policy_history'
+  | 'client_wire'
+  | 'backend_wire'
 
+/** Time range filter options */
+export type TimeRange = '5m' | '1h' | '24h' | 'all'
+
+/** Filter parameters for log queries */
+export interface LogFilters {
+  time_range?: TimeRange
+  limit?: number
+  before?: string // ISO timestamp for cursor pagination
+  session_id?: string
+  bound_session_id?: string
+  request_id?: string
+  decision?: string // comma-separated: allow,deny,hitl
+  hitl_outcome?: string // comma-separated: allowed,denied,timeout
+  policy_version?: string
+  config_version?: string
+  level?: string // comma-separated: INFO,WARNING,ERROR
+  event_type?: string // comma-separated event types
+}
+
+/**
+ * Build URL search params from filters, excluding undefined/empty values.
+ */
+function buildParams(filters: LogFilters): URLSearchParams {
+  const params = new URLSearchParams()
+
+  if (filters.time_range) params.set('time_range', filters.time_range)
+  if (filters.limit) params.set('limit', filters.limit.toString())
+  if (filters.before) params.set('before', filters.before)
+  if (filters.session_id) params.set('session_id', filters.session_id)
+  if (filters.bound_session_id) params.set('bound_session_id', filters.bound_session_id)
+  if (filters.request_id) params.set('request_id', filters.request_id)
+  if (filters.decision) params.set('decision', filters.decision)
+  if (filters.hitl_outcome) params.set('hitl_outcome', filters.hitl_outcome)
+  if (filters.policy_version) params.set('policy_version', filters.policy_version)
+  if (filters.config_version) params.set('config_version', filters.config_version)
+  if (filters.level) params.set('level', filters.level)
+  if (filters.event_type) params.set('event_type', filters.event_type)
+
+  return params
+}
+
+/**
+ * Fetch logs of a specific type with optional filters.
+ */
 export async function getLogs(
   type: LogType,
-  limit = 100,
-  offset = 0
+  filters: LogFilters = {}
 ): Promise<LogsResponse> {
-  const params = new URLSearchParams({
-    limit: limit.toString(),
-    offset: offset.toString(),
-  })
-  return apiGet<LogsResponse>(`/logs/${type}?${params}`)
+  const params = buildParams(filters)
+  const query = params.toString()
+  const path = query ? `/logs/${type}?${query}` : `/logs/${type}`
+  return apiGet<LogsResponse>(path)
 }
 
-export async function getDecisionLogs(limit = 100, offset = 0): Promise<LogsResponse> {
-  return getLogs('decisions', limit, offset)
+/**
+ * Fetch logs metadata (available files, versions, etc.)
+ */
+export async function getLogsMetadata(): Promise<LogsMetadataResponse> {
+  return apiGet<LogsMetadataResponse>('/logs/metadata')
 }
 
-export async function getOperationLogs(limit = 100, offset = 0): Promise<LogsResponse> {
-  return getLogs('operations', limit, offset)
-}
+// Convenience functions for specific log types
+export const getDecisionLogs = (filters?: LogFilters) => getLogs('decisions', filters)
+export const getOperationLogs = (filters?: LogFilters) => getLogs('operations', filters)
+export const getAuthLogs = (filters?: LogFilters) => getLogs('auth', filters)
+export const getSystemLogs = (filters?: LogFilters) => getLogs('system', filters)

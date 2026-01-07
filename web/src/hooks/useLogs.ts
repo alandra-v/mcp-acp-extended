@@ -1,56 +1,91 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getLogs, type LogType } from '@/api/logs'
+import { getLogs, type LogType, type LogFilters } from '@/api/logs'
+import { toast } from '@/components/ui/sonner'
 import type { LogEntry } from '@/types/api'
 
 export interface UseLogsResult {
   logs: LogEntry[]
   loading: boolean
-  error: Error | null
   hasMore: boolean
+  totalScanned: number
   loadMore: () => void
   refresh: () => void
 }
 
-export function useLogs(type: LogType, initialLimit = 50): UseLogsResult {
+/**
+ * Hook for fetching and paginating logs with filtering support.
+ * Uses cursor-based pagination with the `before` parameter.
+ */
+export function useLogs(
+  type: LogType,
+  filters: Omit<LogFilters, 'before' | 'limit'> = {},
+  pageSize = 50
+): UseLogsResult {
   const [logs, setLogs] = useState<LogEntry[]>([])
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
   const [hasMore, setHasMore] = useState(false)
+  const [totalScanned, setTotalScanned] = useState(0)
 
-  // Use ref for offset to avoid stale closure issues
-  const offsetRef = useRef(0)
+  // Track the oldest timestamp for cursor pagination
+  const cursorRef = useRef<string | undefined>(undefined)
+
+  // Serialize filters for dependency comparison
+  const filtersKey = JSON.stringify(filters)
 
   const fetchLogs = useCallback(async (reset = false) => {
     try {
       setLoading(true)
-      const currentOffset = reset ? 0 : offsetRef.current
-      const data = await getLogs(type, initialLimit, currentOffset)
+
+      const before = reset ? undefined : cursorRef.current
+      const data = await getLogs(type, {
+        ...filters,
+        limit: pageSize,
+        before,
+      })
 
       if (reset) {
         setLogs(data.entries)
-        offsetRef.current = initialLimit
       } else {
         setLogs((prev) => [...prev, ...data.entries])
-        offsetRef.current += initialLimit
+      }
+
+      // Update cursor to oldest entry's timestamp for next page
+      if (data.entries.length > 0) {
+        const oldestEntry = data.entries[data.entries.length - 1]
+        cursorRef.current = oldestEntry.time || oldestEntry.timestamp
       }
 
       setHasMore(data.has_more)
-      setError(null)
+      setTotalScanned((prev) => reset ? data.total_scanned : prev + data.total_scanned)
     } catch (e) {
-      setError(e instanceof Error ? e : new Error('Failed to fetch logs'))
+      const err = e instanceof Error ? e : new Error('Failed to fetch logs')
+
+      // Show toast for log loading failures
+      // Check for 404 on debug logs (not available unless DEBUG level)
+      const isDebugLog = type === 'client_wire' || type === 'backend_wire'
+      const is404 = err.message.includes('404') || err.message.includes('not found')
+
+      if (isDebugLog && is404) {
+        toast.warning('Debug logs not available. Set log_level to DEBUG in config.')
+      } else {
+        toast.error('Failed to load logs')
+      }
     } finally {
       setLoading(false)
     }
-  }, [type, initialLimit])
+  }, [type, filtersKey, pageSize]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Reset and fetch when type or filters change
   useEffect(() => {
-    offsetRef.current = 0
+    cursorRef.current = undefined
+    setTotalScanned(0)
     fetchLogs(true)
-  }, [type, fetchLogs])
+  }, [type, filtersKey, fetchLogs]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Listen for SSE new-log-entries event to auto-refresh
   useEffect(() => {
     const handleNewLogEntries = () => {
+      cursorRef.current = undefined
       fetchLogs(true)
     }
     window.addEventListener('new-log-entries', handleNewLogEntries)
@@ -66,8 +101,10 @@ export function useLogs(type: LogType, initialLimit = 50): UseLogsResult {
   }, [loading, hasMore, fetchLogs])
 
   const refresh = useCallback(() => {
+    cursorRef.current = undefined
+    setTotalScanned(0)
     fetchLogs(true)
   }, [fetchLogs])
 
-  return { logs, loading, error, hasMore, loadMore, refresh }
+  return { logs, loading, hasMore, totalScanned, loadMore, refresh }
 }

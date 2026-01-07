@@ -1,4 +1,5 @@
 import { Layout } from '@/components/layout/Layout'
+import { LogViewer } from '@/components/logs'
 
 export function GlobalLogsPage() {
   return (
@@ -13,9 +14,11 @@ export function GlobalLogsPage() {
           </p>
         </div>
 
-        <div className="text-center py-16 text-muted-foreground">
-          Global Logs page coming soon
-        </div>
+        <LogViewer
+          initialFolder="audit"
+          initialLogType="_all"
+          initialTimeRange="5m"
+        />
       </div>
     </Layout>
   )
