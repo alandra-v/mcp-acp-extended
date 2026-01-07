@@ -17,12 +17,17 @@ from __future__ import annotations
 __all__ = ["router"]
 
 import json
-from typing import Any, Literal
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, ValidationError
+from pydantic import ValidationError
 
 from mcp_acp_extended.api.deps import PolicyReloaderDep
+from mcp_acp_extended.api.schemas import (
+    PolicyResponse,
+    PolicyRuleCreate,
+    PolicyRuleMutationResponse,
+    PolicyRuleResponse,
+)
 from mcp_acp_extended.pdp.policy import PolicyConfig, PolicyRule, RuleConditions
 from mcp_acp_extended.pep.reloader import PolicyReloader
 from mcp_acp_extended.utils.policy import get_policy_path, load_policy
@@ -38,44 +43,6 @@ def _load_policy_or_raise() -> PolicyConfig:
         raise HTTPException(status_code=404, detail="Policy file not found")
     except ValueError as e:
         raise HTTPException(status_code=500, detail=f"Invalid policy: {e}")
-
-
-class PolicyResponse(BaseModel):
-    """Policy response with metadata."""
-
-    version: str
-    default_action: str
-    rules_count: int
-    rules: list[dict[str, Any]]
-    hitl: dict[str, Any]
-    policy_version: str | None
-    policy_path: str
-
-
-class PolicyRuleResponse(BaseModel):
-    """Single policy rule for API response."""
-
-    id: str | None
-    effect: str
-    conditions: dict[str, Any]
-    description: str | None
-
-
-class PolicyRuleCreate(BaseModel):
-    """Request body for creating/updating a rule."""
-
-    id: str | None = None
-    description: str | None = None
-    effect: Literal["allow", "deny", "hitl"]
-    conditions: dict[str, Any]
-
-
-class PolicyRuleMutationResponse(BaseModel):
-    """Response after creating/updating a rule."""
-
-    rule: PolicyRuleResponse
-    policy_version: str | None
-    rules_count: int
 
 
 @router.get("")

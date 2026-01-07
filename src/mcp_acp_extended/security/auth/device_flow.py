@@ -22,6 +22,7 @@ __all__ = [
     "DeviceFlowError",
     "DeviceFlowExpiredError",
     "DeviceFlowResult",
+    "PollOnceResult",
     "run_device_flow",
 ]
 
@@ -88,6 +89,21 @@ class DeviceFlowResult:
 
     token: StoredToken
     user_code: str
+
+
+@dataclass
+class PollOnceResult:
+    """Result of a single poll attempt.
+
+    Attributes:
+        status: "pending", "complete", "expired", "denied", or "error".
+        token: Token if status is "complete", None otherwise.
+        error_message: Error message if status is "expired", "denied", or "error".
+    """
+
+    status: str
+    token: StoredToken | None = None
+    error_message: str | None = None
 
 
 class DeviceFlowError(AuthenticationError):
@@ -277,6 +293,84 @@ class DeviceFlow:
             StoredToken ready for storage.
         """
         return parse_token_response(data)
+
+    def poll_once(self, device_code: DeviceCodeResponse) -> PollOnceResult:
+        """Poll token endpoint once (non-blocking).
+
+        Use this for async/API scenarios where you can't block.
+        Returns immediately with the current status.
+
+        Args:
+            device_code: Response from request_device_code().
+
+        Returns:
+            PollOnceResult with status and token (if complete).
+
+        Example:
+            result = flow.poll_once(device_code)
+            if result.status == "pending":
+                # User hasn't completed auth yet
+            elif result.status == "complete":
+                # result.token contains the tokens
+            else:
+                # result.error_message has details
+        """
+        try:
+            response = self._client.post(
+                self._token_url,
+                data={
+                    "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
+                    "device_code": device_code.device_code,
+                    "client_id": self._config.client_id,
+                },
+            )
+
+            if response.status_code == 200:
+                token_data = response.json()
+                token = self._parse_token_response(token_data)
+                return PollOnceResult(status="complete", token=token)
+
+            # Handle error responses
+            try:
+                error_data = response.json()
+            except Exception:
+                return PollOnceResult(
+                    status="error",
+                    error_message=f"Token request failed with status {response.status_code}",
+                )
+
+            error = error_data.get("error", "")
+
+            if error == "authorization_pending":
+                return PollOnceResult(status="pending")
+
+            if error == "slow_down":
+                return PollOnceResult(status="pending")
+
+            if error == "expired_token":
+                return PollOnceResult(
+                    status="expired",
+                    error_message="Device code expired. Please start a new login.",
+                )
+
+            if error == "access_denied":
+                return PollOnceResult(
+                    status="denied",
+                    error_message="Authorization was denied.",
+                )
+
+            # Unknown error
+            error_desc = error_data.get("error_description", error)
+            return PollOnceResult(
+                status="error",
+                error_message=f"Token request failed: {error_desc}",
+            )
+
+        except httpx.HTTPError as e:
+            return PollOnceResult(
+                status="error",
+                error_message=f"HTTP error polling for token: {e}",
+            )
 
 
 def run_device_flow(

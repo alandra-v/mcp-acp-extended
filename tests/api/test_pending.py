@@ -11,12 +11,8 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from mcp_acp_extended.api.routes.pending import (
-    ApprovalActionResponse,
-    PendingApprovalResponse,
-    _resolve_approval,
-    router,
-)
+from mcp_acp_extended.api.routes.pending import _resolve_approval, router
+from mcp_acp_extended.api.schemas import ApprovalActionResponse, PendingApprovalResponse
 
 
 # =============================================================================

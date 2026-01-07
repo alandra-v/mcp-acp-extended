@@ -11,7 +11,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mcp_acp_extended.api.routes.config import (
+from mcp_acp_extended.api.routes.config import _build_config_response, router
+from mcp_acp_extended.api.schemas import (
     AuthConfigResponse,
     BackendConfigResponse,
     ConfigResponse,
@@ -19,8 +20,6 @@ from mcp_acp_extended.api.routes.config import (
     LoggingConfigResponse,
     LoggingConfigUpdate,
     ProxyConfigResponse,
-    _build_config_response,
-    router,
 )
 
 

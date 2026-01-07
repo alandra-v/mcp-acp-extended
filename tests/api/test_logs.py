@@ -12,11 +12,8 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mcp_acp_extended.api.routes.logs import (
-    LogsResponse,
-    _read_jsonl_tail,
-    router,
-)
+from mcp_acp_extended.api.routes.logs import _read_jsonl_tail, router
+from mcp_acp_extended.api.schemas import LogsResponse
 
 
 # =============================================================================

@@ -11,14 +11,12 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from mcp_acp_extended.api.routes.policy import (
+from mcp_acp_extended.api.routes.policy import _load_policy_or_raise, _rule_to_response, router
+from mcp_acp_extended.api.schemas import (
     PolicyResponse,
     PolicyRuleCreate,
     PolicyRuleMutationResponse,
     PolicyRuleResponse,
-    _load_policy_or_raise,
-    _rule_to_response,
-    router,
 )
 from mcp_acp_extended.pdp.policy import HITLConfig, PolicyConfig, PolicyRule, RuleConditions
 

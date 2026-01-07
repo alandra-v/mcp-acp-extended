@@ -15,33 +15,11 @@ __all__ = [
 ]
 
 from fastapi import APIRouter
-from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import PolicyReloaderDep
+from mcp_acp_extended.api.schemas import ProxyStatus, ReloadResponse
 
 router = APIRouter()
-
-
-class ProxyStatus(BaseModel):
-    """Proxy and policy status."""
-
-    running: bool
-    uptime_seconds: float
-    policy_version: str | None
-    policy_rules_count: int
-    last_reload_at: str | None
-    reload_count: int
-
-
-class ReloadResponse(BaseModel):
-    """Policy reload response."""
-
-    status: str  # "success", "validation_error", "file_error"
-    old_rules_count: int
-    new_rules_count: int
-    approvals_cleared: int
-    error: str | None = None
-    policy_version: str | None = None
 
 
 @router.get("/status")

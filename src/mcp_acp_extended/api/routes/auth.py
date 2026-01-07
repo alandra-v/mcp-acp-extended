@@ -16,25 +16,26 @@ __all__ = ["router"]
 
 import asyncio
 import time
-from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Literal, cast
 
-import httpx
 from fastapi import APIRouter, HTTPException, Query, Request
-from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import OIDCConfigDep
-from mcp_acp_extended.constants import OAUTH_CLIENT_TIMEOUT_SECONDS
+from mcp_acp_extended.api.schemas import (
+    AuthStatusResponse,
+    DeviceFlowPollResponse,
+    DeviceFlowStartResponse,
+    FederatedLogoutResponse,
+    LogoutResponse,
+    NotifyResponse,
+)
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth.device_flow import (
     DeviceCodeResponse,
     DeviceFlow,
-    DeviceFlowDeniedError,
     DeviceFlowError,
-    DeviceFlowExpiredError,
 )
 from mcp_acp_extended.security.auth.token_storage import (
-    StoredToken,
     create_token_storage,
     get_token_storage_info,
 )
@@ -42,59 +43,9 @@ from mcp_acp_extended.security.auth.token_storage import (
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
     from mcp_acp_extended.pips.auth.oidc_provider import OIDCIdentityProvider
+    from mcp_acp_extended.security.auth.device_flow import PollOnceResult
 
 router = APIRouter()
-
-
-# =============================================================================
-# Response Models
-# =============================================================================
-
-
-class AuthStatusResponse(BaseModel):
-    """Authentication status response."""
-
-    authenticated: bool
-    subject_id: str | None = None
-    email: str | None = None
-    name: str | None = None
-    token_expires_in_hours: float | None = None
-    has_refresh_token: bool | None = None
-    storage_backend: str | None = None
-    provider: str | None = None  # OIDC issuer domain (e.g., "Auth0")
-
-
-class DeviceFlowStartResponse(BaseModel):
-    """Response when starting device flow."""
-
-    user_code: str
-    verification_uri: str
-    verification_uri_complete: str | None = None
-    expires_in: int
-    interval: int
-    poll_endpoint: str
-
-
-class DeviceFlowPollResponse(BaseModel):
-    """Response when polling device flow."""
-
-    status: Literal["pending", "complete", "expired", "denied", "error"]
-    message: str | None = None
-
-
-class LogoutResponse(BaseModel):
-    """Logout response."""
-
-    status: str
-    message: str
-
-
-class FederatedLogoutResponse(BaseModel):
-    """Federated logout response."""
-
-    status: str
-    logout_url: str
-    message: str
 
 
 # =============================================================================
@@ -370,18 +321,21 @@ async def poll_login(
         )
 
     # Poll token endpoint (single poll, not blocking loop)
-    try:
-        result = await asyncio.to_thread(_poll_token_once, state)
+    result = await asyncio.to_thread(_poll_token_once, state)
 
-        if result == "pending":
-            return DeviceFlowPollResponse(
-                status="pending",
-                message="Waiting for user to complete authentication...",
-            )
+    if result.status == "pending":
+        return DeviceFlowPollResponse(
+            status="pending",
+            message="Waiting for user to complete authentication...",
+        )
 
-        # Success - token was stored
+    if result.status == "complete":
+        # Success - store token and cleanup
+        storage = create_token_storage(state.oidc_config)
+        storage.save(result.token)
+
         state.completed = True
-        del _device_flows[code]  # Cleanup
+        del _device_flows[code]
 
         # Notify proxy to reload tokens (emits SSE event to UI)
         provider = _get_identity_provider_optional(request)
@@ -393,104 +347,29 @@ async def poll_login(
             message="Authentication successful. Tokens stored in keychain.",
         )
 
-    except DeviceFlowExpiredError as e:
-        state.error = str(e)
-        state.error_type = "expired"
-        del _device_flows[code]
-        return DeviceFlowPollResponse(status="expired", message=str(e))
-
-    except DeviceFlowDeniedError as e:
-        state.error = str(e)
-        state.error_type = "denied"
-        del _device_flows[code]
-        return DeviceFlowPollResponse(status="denied", message=str(e))
-
-    except DeviceFlowError as e:
-        state.error = str(e)
-        state.error_type = "error"
-        del _device_flows[code]
-        return DeviceFlowPollResponse(status="error", message=str(e))
+    # Error states (expired, denied, error)
+    state.error = result.error_message
+    state.error_type = result.status
+    del _device_flows[code]
+    return DeviceFlowPollResponse(
+        status=cast(Literal["expired", "denied", "error"], result.status),
+        message=result.error_message,
+    )
 
 
-def _poll_token_once(state: _DeviceFlowState) -> str:
+def _poll_token_once(state: _DeviceFlowState) -> "PollOnceResult":
     """Poll token endpoint once (sync helper for thread pool).
 
+    Uses DeviceFlow.poll_once to avoid code duplication.
+
+    Args:
+        state: Device flow state with config and device code.
+
     Returns:
-        "pending" if still waiting, "complete" if tokens obtained.
-
-    Raises:
-        DeviceFlowError on error.
+        PollOnceResult with status and token (if complete).
     """
-    config = state.oidc_config
-    device_code = state.device_code
-
-    issuer = config.issuer.rstrip("/")
-    token_url = f"{issuer}/oauth/token"
-
-    with httpx.Client(timeout=OAUTH_CLIENT_TIMEOUT_SECONDS) as client:
-        response = client.post(
-            token_url,
-            data={
-                "grant_type": "urn:ietf:params:oauth:grant-type:device_code",
-                "device_code": device_code.device_code,
-                "client_id": config.client_id,
-            },
-        )
-
-        if response.status_code == 200:
-            # Success - store tokens
-            try:
-                token_data = response.json()
-            except Exception as e:
-                raise DeviceFlowError(f"Invalid token response: {e}")
-
-            now = datetime.now(timezone.utc)
-            expires_in = token_data.get("expires_in", 86400)
-
-            token = StoredToken(
-                access_token=token_data["access_token"],
-                refresh_token=token_data.get("refresh_token"),
-                id_token=token_data.get("id_token"),
-                expires_at=datetime.fromtimestamp(now.timestamp() + expires_in, tz=timezone.utc),
-                issued_at=now,
-            )
-
-            # Store in keychain
-            storage = create_token_storage(config)
-            storage.save(token)
-
-            return "complete"
-
-        # Handle error responses
-        try:
-            error_data = response.json()
-        except Exception:
-            raise DeviceFlowError(f"Token request failed with status {response.status_code}")
-
-        error = error_data.get("error", "")
-
-        if error == "authorization_pending":
-            return "pending"
-
-        if error == "slow_down":
-            return "pending"
-
-        if error == "expired_token":
-            raise DeviceFlowExpiredError("Device code expired. Please start a new login.")
-
-        if error == "access_denied":
-            raise DeviceFlowDeniedError("Authorization was denied.")
-
-        # Unknown error
-        error_desc = error_data.get("error_description", error)
-        raise DeviceFlowError(f"Token request failed: {error_desc}")
-
-
-class NotifyResponse(BaseModel):
-    """Response for notify endpoints."""
-
-    status: str
-    message: str
+    with DeviceFlow(state.oidc_config) as flow:
+        return flow.poll_once(state.device_code)
 
 
 @router.post("/notify-login")

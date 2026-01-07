@@ -11,27 +11,12 @@ from __future__ import annotations
 
 __all__ = ["router"]
 
-from datetime import datetime
-
 from fastapi import APIRouter
-from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import ProxyStateDep
+from mcp_acp_extended.api.schemas import AuthSessionResponse
 
 router = APIRouter()
-
-
-class AuthSessionResponse(BaseModel):
-    """Response model for authentication session information.
-
-    Auth sessions represent user authentication bindings (JWT token -> session).
-    These are NOT proxy lifecycle sessions.
-    """
-
-    session_id: str
-    user_id: str
-    started_at: datetime
-    expires_at: datetime
 
 
 @router.get("", response_model=list[AuthSessionResponse])

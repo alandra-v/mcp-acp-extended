@@ -18,28 +18,14 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from fastapi import APIRouter, Query
-from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import ConfigDep
+from mcp_acp_extended.api.schemas import LogsResponse
 
 if TYPE_CHECKING:
     from mcp_acp_extended.config import AppConfig
 
 router = APIRouter()
-
-
-# =============================================================================
-# Response Models
-# =============================================================================
-
-
-class LogsResponse(BaseModel):
-    """Response containing log entries."""
-
-    entries: list[dict[str, Any]]
-    total_returned: int
-    log_file: str
-    has_more: bool
 
 
 # =============================================================================

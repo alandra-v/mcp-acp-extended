@@ -14,32 +14,17 @@ __all__ = ["router"]
 import time
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import ApprovalStoreDep, ProxyStateDep
+from mcp_acp_extended.api.schemas import (
+    ApprovalCacheResponse,
+    CachedApprovalResponse,
+    ClearApprovalsResponse,
+    DeleteApprovalResponse,
+)
 from mcp_acp_extended.manager.state import SSEEventType
 
 router = APIRouter()
-
-
-class CachedApprovalResponse(BaseModel):
-    """Cached approval for API response."""
-
-    subject_id: str
-    tool_name: str
-    path: str | None
-    request_id: str
-    age_seconds: float
-    ttl_seconds: int
-    expires_in_seconds: float
-
-
-class ApprovalCacheResponse(BaseModel):
-    """Full cache state response."""
-
-    count: int
-    ttl_seconds: int
-    approvals: list[CachedApprovalResponse]
 
 
 @router.get("")
@@ -74,25 +59,11 @@ async def get_approvals(store: ApprovalStoreDep) -> ApprovalCacheResponse:
     )
 
 
-class ClearApprovalsResponse(BaseModel):
-    """Response for clear approvals endpoint."""
-
-    cleared: int
-    status: str
-
-
 @router.delete("")
 async def clear_approvals(state: ProxyStateDep) -> ClearApprovalsResponse:
     """Clear all cached approvals."""
     count = state.clear_all_cached_approvals()  # Emits cache_cleared SSE event
     return ClearApprovalsResponse(cleared=count, status="ok")
-
-
-class DeleteApprovalResponse(BaseModel):
-    """Response for single approval delete."""
-
-    deleted: bool
-    status: str
 
 
 @router.delete("/entry")

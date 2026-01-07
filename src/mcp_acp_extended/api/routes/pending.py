@@ -12,40 +12,19 @@ __all__ = ["router"]
 
 import asyncio
 import json
-from datetime import datetime
 from typing import AsyncIterator
 
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import ProxyStateDep
+from mcp_acp_extended.api.schemas import ApprovalActionResponse, PendingApprovalResponse
 from mcp_acp_extended.manager.state import SSEEventType
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 
 logger = get_system_logger()
 
 router = APIRouter()
-
-
-class PendingApprovalResponse(BaseModel):
-    """Response model for pending approval information."""
-
-    id: str
-    proxy_id: str
-    tool_name: str
-    path: str | None
-    subject_id: str
-    created_at: datetime
-    timeout_seconds: int
-    request_id: str
-
-
-class ApprovalActionResponse(BaseModel):
-    """Response model for approval actions (approve/deny)."""
-
-    status: str
-    approval_id: str
 
 
 @router.get("")

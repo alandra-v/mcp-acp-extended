@@ -9,39 +9,12 @@ from __future__ import annotations
 
 __all__ = ["router"]
 
-from datetime import datetime
-
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import ProxyStateDep
+from mcp_acp_extended.api.schemas import ProxyResponse, StatsResponse
 
 router = APIRouter()
-
-
-class StatsResponse(BaseModel):
-    """Response model for proxy request statistics."""
-
-    requests_total: int
-    requests_allowed: int
-    requests_denied: int
-    requests_hitl: int
-
-
-class ProxyResponse(BaseModel):
-    """Response model for proxy information."""
-
-    id: str
-    backend_id: str
-    status: str
-    started_at: datetime
-    pid: int
-    api_port: int
-    uptime_seconds: float
-    command: str | None = None
-    args: list[str] | None = None
-    url: str | None = None
-    stats: StatsResponse
 
 
 @router.get("")
