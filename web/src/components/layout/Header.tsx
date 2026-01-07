@@ -9,7 +9,6 @@ interface HeaderProps {
 export function Header({ proxyName }: HeaderProps) {
   const location = useLocation()
   const isProxiesPage = location.pathname === '/' || location.pathname === '/proxies'
-  const isGlobalLogsPage = location.pathname === '/logs'
 
   return (
     <header className="flex items-center justify-between px-8 py-4 border-b border-[var(--border-subtle)] bg-gradient-to-b from-base-950 to-background sticky top-0 z-50">
@@ -49,17 +48,12 @@ export function Header({ proxyName }: HeaderProps) {
         >
           Proxies
         </Link>
-        <Link
-          to="/logs"
-          className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-smooth',
-            isGlobalLogsPage
-              ? 'text-foreground bg-base-800'
-              : 'text-muted-foreground hover:text-foreground hover:bg-base-900'
-          )}
+        <span
+          className="px-4 py-2 rounded-lg text-sm font-medium text-base-600 cursor-not-allowed"
+          title="Coming soon - available in multi-proxy mode"
         >
           Global Logs
-        </Link>
+        </span>
 
         {/* Auth dropdown */}
         <AuthDropdown />
