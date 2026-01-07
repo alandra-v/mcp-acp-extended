@@ -12,8 +12,9 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from mcp_acp_extended.api.routes.logs import _read_jsonl_tail, router
+from mcp_acp_extended.api.routes.logs import router
 from mcp_acp_extended.api.schemas import LogsResponse
+from mcp_acp_extended.api.utils.jsonl import read_jsonl_filtered
 
 
 # =============================================================================
@@ -46,12 +47,12 @@ def client(app):
 
 
 # =============================================================================
-# Tests: _read_jsonl_tail Helper
+# Tests: read_jsonl_filtered Helper
 # =============================================================================
 
 
-class TestReadJsonlTail:
-    """Tests for _read_jsonl_tail helper function."""
+class TestReadJsonlFiltered:
+    """Tests for read_jsonl_filtered helper function."""
 
     def test_returns_empty_for_missing_file(self, tmp_path):
         """Given a non-existent file, returns empty list."""
@@ -59,11 +60,12 @@ class TestReadJsonlTail:
         path = tmp_path / "nonexistent.jsonl"
 
         # Act
-        entries, has_more = _read_jsonl_tail(path, limit=10, offset=0)
+        entries, has_more, scanned = read_jsonl_filtered(path, limit=10)
 
         # Assert
         assert entries == []
         assert has_more is False
+        assert scanned == 0
 
     def test_returns_empty_for_empty_file(self, tmp_path):
         """Given an empty file, returns empty list."""
@@ -72,11 +74,12 @@ class TestReadJsonlTail:
         path.write_text("")
 
         # Act
-        entries, has_more = _read_jsonl_tail(path, limit=10, offset=0)
+        entries, has_more, scanned = read_jsonl_filtered(path, limit=10)
 
         # Assert
         assert entries == []
         assert has_more is False
+        assert scanned == 0
 
     def test_reads_single_entry(self, tmp_path):
         """Given a file with one entry, returns that entry."""
@@ -86,7 +89,7 @@ class TestReadJsonlTail:
         path.write_text(json.dumps(entry) + "\n")
 
         # Act
-        entries, has_more = _read_jsonl_tail(path, limit=10, offset=0)
+        entries, has_more, scanned = read_jsonl_filtered(path, limit=10)
 
         # Assert
         assert len(entries) == 1
@@ -105,7 +108,7 @@ class TestReadJsonlTail:
         path.write_text("\n".join(json.dumps(e) for e in entries_data) + "\n")
 
         # Act
-        entries, has_more = _read_jsonl_tail(path, limit=10, offset=0)
+        entries, has_more, scanned = read_jsonl_filtered(path, limit=10)
 
         # Assert
         assert len(entries) == 3
@@ -122,28 +125,11 @@ class TestReadJsonlTail:
         path.write_text("\n".join(json.dumps(e) for e in entries_data) + "\n")
 
         # Act
-        entries, has_more = _read_jsonl_tail(path, limit=3, offset=0)
+        entries, has_more, scanned = read_jsonl_filtered(path, limit=3)
 
         # Assert
         assert len(entries) == 3
         assert has_more is True
-
-    def test_respects_offset(self, tmp_path):
-        """Given offset, skips that many newest entries."""
-        # Arrange
-        path = tmp_path / "offset.jsonl"
-        entries_data = [{"id": i} for i in range(5)]
-        path.write_text("\n".join(json.dumps(e) for e in entries_data) + "\n")
-
-        # Act
-        entries, has_more = _read_jsonl_tail(path, limit=2, offset=2)
-
-        # Assert
-        assert len(entries) == 2
-        # Newest is id=4, skip 2 (id=4, id=3), get id=2 and id=1
-        assert entries[0]["id"] == 2
-        assert entries[1]["id"] == 1
-        assert has_more is True  # id=0 still available
 
     def test_skips_malformed_lines(self, tmp_path):
         """Given malformed JSON lines, skips them without error."""
@@ -153,7 +139,7 @@ class TestReadJsonlTail:
         path.write_text(content)
 
         # Act
-        entries, has_more = _read_jsonl_tail(path, limit=10, offset=0)
+        entries, has_more, scanned = read_jsonl_filtered(path, limit=10)
 
         # Assert
         assert len(entries) == 2
@@ -168,7 +154,7 @@ class TestReadJsonlTail:
         path.write_text(content)
 
         # Act
-        entries, _ = _read_jsonl_tail(path, limit=10, offset=0)
+        entries, _, _ = read_jsonl_filtered(path, limit=10)
 
         # Assert
         assert len(entries) == 2
@@ -181,7 +167,7 @@ class TestReadJsonlTail:
         path.write_text(json.dumps(entry, ensure_ascii=False) + "\n")
 
         # Act
-        entries, _ = _read_jsonl_tail(path, limit=10, offset=0)
+        entries, _, _ = read_jsonl_filtered(path, limit=10)
 
         # Assert
         assert entries[0]["message"] == "Hello 世界 😀"
@@ -203,8 +189,8 @@ class TestLogEndpoints:
         log_file = log_dir / "decisions.jsonl"
         log_file.write_text('{"type": "decision", "action": "allow"}\n')
 
-        # Act
-        response = client.get("/api/logs/decisions")
+        # Act (time_range=all to skip time filtering since test data has no timestamp)
+        response = client.get("/api/logs/decisions?time_range=all")
 
         # Assert
         assert response.status_code == 200
@@ -220,8 +206,8 @@ class TestLogEndpoints:
         log_file = log_dir / "operations.jsonl"
         log_file.write_text('{"type": "operation"}\n{"type": "operation"}\n')
 
-        # Act
-        response = client.get("/api/logs/operations?limit=50")
+        # Act (time_range=all to skip time filtering)
+        response = client.get("/api/logs/operations?limit=50&time_range=all")
 
         # Assert
         assert response.status_code == 200
@@ -233,7 +219,7 @@ class TestLogEndpoints:
         # Arrange - no log file created
 
         # Act
-        response = client.get("/api/logs/auth")
+        response = client.get("/api/logs/auth?time_range=all")
 
         # Assert
         assert response.status_code == 200
@@ -249,8 +235,8 @@ class TestLogEndpoints:
         log_file = log_dir / "system.jsonl"
         log_file.write_text('{"level": "INFO", "message": "Started"}\n')
 
-        # Act
-        response = client.get("/api/logs/system")
+        # Act (time_range=all to skip time filtering)
+        response = client.get("/api/logs/system?time_range=all")
 
         # Assert
         assert response.status_code == 200
@@ -273,16 +259,8 @@ class TestLogEndpoints:
         # Assert
         assert response.status_code == 422
 
-    def test_offset_validation(self, client):
-        """Given negative offset, returns 422 validation error."""
-        # Act
-        response = client.get("/api/logs/decisions?offset=-1")
-
-        # Assert
-        assert response.status_code == 422
-
     def test_pagination_returns_correct_count(self, client, tmp_path):
-        """Given limit and offset, returns correct entries."""
+        """Given limit, returns correct entries."""
         # Arrange
         log_dir = tmp_path / "mcp_acp_extended_logs" / "audit"
         log_dir.mkdir(parents=True)
@@ -290,8 +268,8 @@ class TestLogEndpoints:
         entries = [json.dumps({"id": i}) for i in range(10)]
         log_file.write_text("\n".join(entries) + "\n")
 
-        # Act
-        response = client.get("/api/logs/decisions?limit=3&offset=2")
+        # Act (time_range=all to skip time filtering)
+        response = client.get("/api/logs/decisions?limit=3&time_range=all")
 
         # Assert
         assert response.status_code == 200
@@ -314,13 +292,17 @@ class TestLogsResponse:
         response = LogsResponse(
             entries=[{"test": "data"}],
             total_returned=1,
+            total_scanned=5,
             log_file="/path/to/logs.jsonl",
             has_more=True,
+            filters_applied={"time_range": "5m"},
         )
         data = response.model_dump()
 
         # Assert
         assert data["entries"] == [{"test": "data"}]
         assert data["total_returned"] == 1
+        assert data["total_scanned"] == 5
         assert data["log_file"] == "/path/to/logs.jsonl"
         assert data["has_more"] is True
+        assert data["filters_applied"] == {"time_range": "5m"}

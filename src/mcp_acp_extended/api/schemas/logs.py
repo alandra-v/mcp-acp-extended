@@ -22,10 +22,10 @@ class LogsResponse(BaseModel):
 
     entries: list[dict[str, Any]]
     total_returned: int
-    total_scanned: int | None = None  # Optional for backwards compatibility
+    total_scanned: int
     log_file: str
     has_more: bool
-    filters_applied: dict[str, Any] | None = None  # Optional for backwards compatibility
+    filters_applied: dict[str, Any]
 
 
 class LogFileInfo(BaseModel):
