@@ -91,7 +91,7 @@ class DeviceFlowResult:
     user_code: str
 
 
-@dataclass
+@dataclass(frozen=True)
 class PollOnceResult:
     """Result of a single poll attempt.
 

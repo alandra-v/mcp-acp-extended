@@ -71,6 +71,11 @@ export function ProxyCard({ proxy }: ProxyCardProps) {
   )
 }
 
+/**
+ * Format uptime seconds as human-readable string.
+ * @param seconds - Uptime in seconds
+ * @returns Formatted string like "45s", "12m", or "2h 15m"
+ */
 function formatUptime(seconds: number): string {
   if (seconds < 60) return `${Math.floor(seconds)}s`
   if (seconds < 3600) return `${Math.floor(seconds / 60)}m`
