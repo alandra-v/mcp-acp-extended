@@ -55,13 +55,15 @@ Details: {crash_file}" as critical buttons {{"OK"}} default button "OK"
     """
 
     try:
-        subprocess.run(
+        result = subprocess.run(
             ["osascript", "-e", script],
             capture_output=True,
             timeout=30,
         )
-    except (subprocess.SubprocessError, OSError):
-        pass  # Best effort
+        if result.returncode != 0:
+            print(f"[SHUTDOWN] osascript failed: {result.stderr.decode()}", file=sys.stderr, flush=True)
+    except (subprocess.SubprocessError, OSError) as e:
+        print(f"[SHUTDOWN] osascript exception: {e}", file=sys.stderr, flush=True)
 
 
 def _write_crash_breadcrumb(

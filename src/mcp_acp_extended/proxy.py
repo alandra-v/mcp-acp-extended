@@ -72,6 +72,7 @@ from mcp_acp_extended.utils.config import (
     get_auth_log_path,
     get_backend_log_path,
     get_client_log_path,
+    get_config_history_path,
     get_decisions_log_path,
     get_log_dir,
     get_policy_history_path,
@@ -157,11 +158,18 @@ def create_proxy(
     audit_path = get_audit_log_path(config)
     decisions_path = get_decisions_log_path(config)
     auth_log_path = get_auth_log_path(config)
-    # Verify audit logs are writable - raises AuditFailure if not
+    system_log_path = get_system_log_path(config)
+    config_history_path = get_config_history_path(config)
+    policy_history_path = get_policy_history_path(config)
+    # Verify all monitored logs are writable - raises AuditFailure if not
+    # This also creates the files if they don't exist (required for AuditHealthMonitor)
     # No popup here - start.py handles user-facing popups to avoid duplicates
     verify_audit_writable(audit_path)
     verify_audit_writable(decisions_path)
     verify_audit_writable(auth_log_path)
+    verify_audit_writable(system_log_path)
+    verify_audit_writable(config_history_path)
+    verify_audit_writable(policy_history_path)
 
     # Run device health check (hard gate - proxy won't start if unhealthy)
     # Zero Trust: device posture must be verified before accepting any requests
@@ -214,8 +222,16 @@ def create_proxy(
 
     # Create AuditHealthMonitor for background integrity checking
     # This runs periodic checks even during idle periods (defense in depth)
+    # Monitors all audit and system log files for tampering/deletion
     audit_monitor = AuditHealthMonitor(
-        audit_paths=[audit_path, decisions_path],
+        audit_paths=[
+            audit_path,  # audit/operations.jsonl
+            decisions_path,  # audit/decisions.jsonl
+            auth_log_path,  # audit/auth.jsonl
+            system_log_path,  # system/system.jsonl
+            config_history_path,  # system/config_history.jsonl
+            policy_history_path,  # system/policy_history.jsonl
+        ],
         shutdown_coordinator=shutdown_coordinator,
         check_interval_seconds=AUDIT_HEALTH_CHECK_INTERVAL_SECONDS,
     )
