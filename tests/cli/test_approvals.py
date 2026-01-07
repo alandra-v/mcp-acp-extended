@@ -239,8 +239,8 @@ class TestApprovalsClearCommand:
         assert result.exit_code == 0
         assert "Cancelled" in result.output
 
-    def test_clear_all_skip_confirmation(self, runner: CliRunner, mock_cache_response: dict):
-        """Given --all -y, skips confirmation."""
+    def test_clear_all_with_default_yes(self, runner: CliRunner, mock_cache_response: dict):
+        """Given --all and Enter (default yes), clears cache."""
         # Arrange
         with patch("mcp_acp_extended.cli.commands.approvals.api_request") as mock_api:
             mock_api.side_effect = [
@@ -248,15 +248,15 @@ class TestApprovalsClearCommand:
                 {"cleared": 2},
             ]
 
-            # Act
-            result = runner.invoke(cli, ["approvals", "clear", "--all", "-y"])
+            # Act - Enter accepts default (yes)
+            result = runner.invoke(cli, ["approvals", "clear", "--all"], input="\n")
 
         # Assert
         assert result.exit_code == 0
         assert "Cleared 2" in result.output
 
     def test_clear_entry_valid_number(self, runner: CliRunner, mock_cache_response: dict):
-        """Given valid --entry number, clears that entry."""
+        """Given valid --entry number and confirmation, clears that entry."""
         # Arrange
         with patch("mcp_acp_extended.cli.commands.approvals.api_request") as mock_api:
             mock_api.side_effect = [
@@ -264,8 +264,8 @@ class TestApprovalsClearCommand:
                 {},  # DELETE response
             ]
 
-            # Act
-            result = runner.invoke(cli, ["approvals", "clear", "--entry=1", "-y"])
+            # Act - Enter accepts default (yes)
+            result = runner.invoke(cli, ["approvals", "clear", "--entry=1"], input="\n")
 
         # Assert
         assert result.exit_code == 0
@@ -351,4 +351,3 @@ class TestApprovalsHelp:
         assert result.exit_code == 0
         assert "--all" in result.output
         assert "--entry" in result.output
-        assert "-y" in result.output or "--yes" in result.output

@@ -144,7 +144,7 @@ class TestStatusJsonOutput:
         assert "running" in data
         assert "uptime_seconds" in data
         assert "policy" in data
-        assert "sessions" in data
+        assert "auth_sessions" in data
 
     def test_status_json_includes_policy_details(
         self, runner: CliRunner, mock_status_response: dict, mock_sessions_response: list
@@ -165,7 +165,7 @@ class TestStatusJsonOutput:
     def test_status_json_includes_session_count(
         self, runner: CliRunner, mock_status_response: dict, mock_sessions_response: list
     ):
-        """Given --json flag, includes session count."""
+        """Given --json flag, includes auth session count."""
         # Arrange
         with patch("mcp_acp_extended.cli.commands.status.api_request") as mock_api:
             mock_api.side_effect = [mock_status_response, mock_sessions_response]
@@ -175,7 +175,7 @@ class TestStatusJsonOutput:
 
         # Assert
         data = json.loads(result.output)
-        assert data["sessions"]["active_count"] == 2
+        assert data["auth_sessions"]["active_count"] == 2
 
 
 class TestStatusUptimeFormatting:
