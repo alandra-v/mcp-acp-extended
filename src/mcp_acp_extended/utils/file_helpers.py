@@ -168,9 +168,27 @@ def load_validated_json(
     except ValidationError as e:
         errors = []
         for error in e.errors():
-            loc = ".".join(str(x) for x in error["loc"])
+            loc_parts = error["loc"]
+            loc = ".".join(str(x) for x in loc_parts)
             msg = error["msg"]
-            errors.append(f"  - {loc}: {msg}")
+
+            # For rules errors, add context (rule ID or tool_name) to help identify
+            context = ""
+            if len(loc_parts) >= 2 and loc_parts[0] == "rules" and isinstance(loc_parts[1], int):
+                rule_index = loc_parts[1]
+                rules = data.get("rules", [])
+                if 0 <= rule_index < len(rules):
+                    rule = rules[rule_index]
+                    rule_id = rule.get("id")
+                    tool = rule.get("conditions", {}).get("tool_name")
+                    if rule_id:
+                        context = f" (rule id: {rule_id})"
+                    elif tool:
+                        context = f" (rule for tool: {tool})"
+                    else:
+                        context = f" (rule #{rule_index + 1})"
+
+            errors.append(f"  - {loc}{context}: {msg}")
 
         hint = f"\n\n{recovery_hint}" if recovery_hint else ""
         raise ValueError(

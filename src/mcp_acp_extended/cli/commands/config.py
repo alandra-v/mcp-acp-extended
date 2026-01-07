@@ -47,7 +47,8 @@ def config() -> None:
 
 
 @config.command("show")
-def config_show() -> None:
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def config_show(as_json: bool) -> None:
     """Display current configuration.
 
     Loads configuration from the OS-appropriate location.
@@ -56,6 +57,23 @@ def config_show() -> None:
 
     try:
         loaded_config = AppConfig.load_from_files(config_file_path)
+
+        if as_json:
+            # Output as JSON (exclude sensitive auth fields)
+            config_dict = loaded_config.model_dump(mode="json")
+            # Add computed paths
+            config_dict["_computed"] = {
+                "config_file": str(config_file_path),
+                "log_files": {
+                    "audit": str(get_audit_log_path(loaded_config)),
+                    "client_wire": str(get_client_log_path(loaded_config)),
+                    "backend_wire": str(get_backend_log_path(loaded_config)),
+                    "system": str(get_system_log_path(loaded_config)),
+                    "config_history": str(get_config_history_path(loaded_config)),
+                },
+            }
+            click.echo(json.dumps(config_dict, indent=2))
+            return
 
         # Display formatted configuration
         click.echo("\nmcp-acp-extended configuration:\n")
@@ -97,6 +115,28 @@ def config_show() -> None:
 
         click.echo("Proxy:")
         click.echo(f"  name: {loaded_config.proxy.name}")
+        click.echo()
+
+        # Auth section
+        click.echo("Authentication:")
+        if loaded_config.auth is None:
+            click.echo("  (not configured)")
+        else:
+            if loaded_config.auth.oidc:
+                click.echo("  oidc:")
+                click.echo(f"    issuer: {loaded_config.auth.oidc.issuer}")
+                click.echo(f"    client_id: {loaded_config.auth.oidc.client_id}")
+                click.echo(f"    audience: {loaded_config.auth.oidc.audience}")
+            else:
+                click.echo("  oidc: (not configured)")
+
+            if loaded_config.auth.mtls:
+                click.echo("  mtls:")
+                click.echo(f"    client_cert: {loaded_config.auth.mtls.client_cert_path}")
+                click.echo(f"    client_key: {loaded_config.auth.mtls.client_key_path}")
+                click.echo(f"    ca_bundle: {loaded_config.auth.mtls.ca_bundle_path}")
+            else:
+                click.echo("  mtls: (not configured)")
         click.echo()
 
         click.echo(f"Config file: {config_file_path}")
@@ -253,7 +293,7 @@ def config_edit() -> None:
     "--path",
     "-p",
     type=click.Path(exists=True, dir_okay=False, path_type=Path),
-    help="Path to config file (default: OS config location)",
+    help="Validate file at this path (does not change config location)",
 )
 def config_validate(path: Path | None) -> None:
     """Validate configuration file.
@@ -262,6 +302,10 @@ def config_validate(path: Path | None) -> None:
     - Valid JSON syntax
     - Schema validation (required fields, types)
     - Pydantic model validation
+
+    Note: The --path flag validates a file at a different location (useful
+    for testing changes or CI/CD). It does NOT change where the proxy loads
+    config from - that is always the OS default location.
 
     Exit codes:
         0: Config is valid
