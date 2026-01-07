@@ -9,12 +9,12 @@ Audit logs:
 
 System logs:
 - GET /api/logs/system - System logs
-- GET /api/logs/config-history - Configuration change history
-- GET /api/logs/policy-history - Policy change history
+- GET /api/logs/config_history - Configuration change history
+- GET /api/logs/policy_history - Policy change history
 
 Debug logs (only available when log_level=DEBUG):
-- GET /api/logs/debug/client-wire - Client↔Proxy wire logs
-- GET /api/logs/debug/backend-wire - Proxy↔Backend wire logs
+- GET /api/logs/client_wire - Client↔Proxy wire logs
+- GET /api/logs/backend_wire - Proxy↔Backend wire logs
 
 Metadata:
 - GET /api/logs/metadata - Available log files and filter options
@@ -317,7 +317,7 @@ async def get_system_logs(
     )
 
 
-@router.get("/config-history")
+@router.get("/config_history")
 async def get_config_history_logs(
     config: ConfigDep,
     time_range: str = TimeRangeQuery,
@@ -363,7 +363,7 @@ async def get_config_history_logs(
     )
 
 
-@router.get("/policy-history")
+@router.get("/policy_history")
 async def get_policy_history_logs(
     config: ConfigDep,
     time_range: str = TimeRangeQuery,
@@ -414,7 +414,7 @@ async def get_policy_history_logs(
 # =============================================================================
 
 
-@router.get("/debug/client-wire")
+@router.get("/client_wire")
 async def get_client_wire_logs(
     config: ConfigDep,
     time_range: str = TimeRangeQuery,
@@ -471,7 +471,7 @@ async def get_client_wire_logs(
     )
 
 
-@router.get("/debug/backend-wire")
+@router.get("/backend_wire")
 async def get_backend_wire_logs(
     config: ConfigDep,
     time_range: str = TimeRangeQuery,
