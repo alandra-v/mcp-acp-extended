@@ -177,6 +177,8 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
         // Critical shutdown - show persistent toast and stop reconnecting
         case 'critical_shutdown':
           isShutdownRef.current = true
+          setConnected(false)
+          setConnectionStatus('disconnected')
           toast.error(event.message || 'Proxy shut down', { duration: Infinity })
           playErrorSound()
           // Close EventSource to stop reconnection attempts

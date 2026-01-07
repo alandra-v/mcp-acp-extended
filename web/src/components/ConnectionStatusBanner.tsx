@@ -18,16 +18,24 @@ export function ConnectionStatusBanner() {
   const [showSuccess, setShowSuccess] = useState(false)
   const [prevStatus, setPrevStatus] = useState<ConnectionStatus>(connectionStatus)
   const [dismissed, setDismissed] = useState(false)
+  const [hasConnectedOnce, setHasConnectedOnce] = useState(false)
 
   useEffect(() => {
-    // Show success banner briefly when transitioning to connected
+    // Show success banner briefly when REconnecting (not first connect)
     if (connectionStatus === 'connected' && prevStatus !== 'connected') {
-      setShowSuccess(true)
-      setDismissed(false)
-      const timer = setTimeout(() => {
-        setShowSuccess(false)
-      }, 3000)
-      return () => clearTimeout(timer)
+      if (hasConnectedOnce) {
+        // Only show "Connection restored" on reconnection, not first connect
+        setShowSuccess(true)
+        setDismissed(false)
+        const timer = setTimeout(() => {
+          setShowSuccess(false)
+        }, 3000)
+        setPrevStatus(connectionStatus)
+        return () => clearTimeout(timer)
+      } else {
+        // First connection - just mark as connected, no banner
+        setHasConnectedOnce(true)
+      }
     }
 
     // Reset dismissed state when connection status changes
@@ -36,10 +44,16 @@ export function ConnectionStatusBanner() {
     }
 
     setPrevStatus(connectionStatus)
-  }, [connectionStatus, prevStatus])
+  }, [connectionStatus, prevStatus, hasConnectedOnce])
 
   // Don't show banner if connected and not showing success message
   if (connectionStatus === 'connected' && !showSuccess) {
+    return null
+  }
+
+  // Don't show reconnecting/disconnected banner until we've connected at least once
+  // (initial connection attempt shouldn't show banner - that's expected on page load)
+  if (!hasConnectedOnce && connectionStatus !== 'connected') {
     return null
   }
 
@@ -60,7 +74,7 @@ export function ConnectionStatusBanner() {
   return (
     <div
       className={`
-        fixed top-0 left-0 right-0 z-50
+        fixed top-0 left-0 right-0 z-[100]
         px-4 py-2
         flex items-center justify-center gap-2
         text-sm font-medium
