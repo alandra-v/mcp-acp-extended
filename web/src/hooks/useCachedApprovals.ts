@@ -8,7 +8,6 @@ interface UseCachedApprovalsReturn {
   cached: CachedApproval[]
   ttlSeconds: number
   loading: boolean
-  error: Error | null
   clear: () => Promise<void>
   deleteEntry: (subjectId: string, toolName: string, path: string | null) => Promise<void>
   refresh: () => Promise<void>
@@ -18,23 +17,18 @@ export function useCachedApprovals(): UseCachedApprovalsReturn {
   const [cached, setCached] = useState<CachedApproval[]>([])
   const [ttlSeconds, setTtlSeconds] = useState(0)
   const [loading, setLoading] = useState(true)
-  const [error, setError] = useState<Error | null>(null)
   const mountedRef = useRef(true)
 
   const fetchCached = useCallback(async () => {
     try {
       setLoading(true)
       const data = await getCachedApprovals()
-      // Only update state if still mounted
       if (mountedRef.current) {
         setCached(data.approvals)
         setTtlSeconds(data.ttl_seconds)
-        setError(null)
       }
-    } catch (e) {
-      if (mountedRef.current) {
-        setError(e instanceof Error ? e : new Error('Failed to fetch cached approvals'))
-      }
+    } catch {
+      // Silent failure - cached approvals are non-critical
     } finally {
       if (mountedRef.current) {
         setLoading(false)
@@ -49,10 +43,7 @@ export function useCachedApprovals(): UseCachedApprovalsReturn {
         setCached([])
       }
       // Note: Success toast comes from SSE event (cache_cleared)
-    } catch (e) {
-      if (mountedRef.current) {
-        setError(e instanceof Error ? e : new Error('Failed to clear cache'))
-      }
+    } catch {
       toast.error('Failed to clear cache')
       playErrorSound()
     }
@@ -67,10 +58,7 @@ export function useCachedApprovals(): UseCachedApprovalsReturn {
         ))
       }
       // Note: Success toast comes from SSE event (cache_entry_deleted)
-    } catch (e) {
-      if (mountedRef.current) {
-        setError(e instanceof Error ? e : new Error('Failed to delete cached approval'))
-      }
+    } catch {
       toast.error('Failed to delete cached approval')
       playErrorSound()
     }
@@ -88,5 +76,5 @@ export function useCachedApprovals(): UseCachedApprovalsReturn {
     }
   }, [fetchCached])
 
-  return { cached, ttlSeconds, loading, error, clear, deleteEntry, refresh: fetchCached }
+  return { cached, ttlSeconds, loading, clear, deleteEntry, refresh: fetchCached }
 }
