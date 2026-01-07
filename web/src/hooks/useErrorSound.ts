@@ -15,11 +15,3 @@ export async function playErrorSound(): Promise<void> {
     { frequency: 880, duration: 0.15, delay: 0.4, volume: 0.28 },
   ])
 }
-
-export interface UseErrorSoundResult {
-  playErrorSound: () => Promise<void>
-}
-
-export function useErrorSound(): UseErrorSoundResult {
-  return { playErrorSound }
-}

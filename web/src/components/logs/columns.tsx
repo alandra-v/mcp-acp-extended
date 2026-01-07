@@ -1,45 +1,11 @@
 import type { ColumnDef, VisibilityState } from '@tanstack/react-table'
 import type { LogEntry } from '@/types/api'
 import type { LogType } from '@/api/logs'
-import { cn } from '@/lib/utils'
+import { cn, formatTime, formatDateTime } from '@/lib/utils'
 
 // =============================================================================
 // Helper Functions
 // =============================================================================
-
-/** Format ISO timestamp to readable time */
-function formatTime(ts: string | undefined): string {
-  if (!ts) return '--:--:--'
-  try {
-    const date = new Date(ts)
-    return date.toLocaleTimeString('en-US', {
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
-  } catch {
-    return '--:--:--'
-  }
-}
-
-/** Format ISO timestamp to readable date + time */
-function formatDateTime(ts: string | undefined): string {
-  if (!ts) return '--'
-  try {
-    const date = new Date(ts)
-    return date.toLocaleString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-      hour12: false,
-    })
-  } catch {
-    return '--'
-  }
-}
 
 /** Extract subject_id from nested subject object or return direct value */
 function extractSubjectId(subject: unknown): string | null {

@@ -1,5 +1,5 @@
 import { apiGet } from './client'
-import type { LogsResponse, LogsMetadataResponse } from '@/types/api'
+import type { LogsResponse } from '@/types/api'
 
 /** All available log types */
 export type LogType =
@@ -65,16 +65,3 @@ export async function getLogs(
   const path = query ? `/logs/${type}?${query}` : `/logs/${type}`
   return apiGet<LogsResponse>(path)
 }
-
-/**
- * Fetch logs metadata (available files, versions, etc.)
- */
-export async function getLogsMetadata(): Promise<LogsMetadataResponse> {
-  return apiGet<LogsMetadataResponse>('/logs/metadata')
-}
-
-// Convenience functions for specific log types
-export const getDecisionLogs = (filters?: LogFilters) => getLogs('decisions', filters)
-export const getOperationLogs = (filters?: LogFilters) => getLogs('operations', filters)
-export const getAuthLogs = (filters?: LogFilters) => getLogs('auth', filters)
-export const getSystemLogs = (filters?: LogFilters) => getLogs('system', filters)

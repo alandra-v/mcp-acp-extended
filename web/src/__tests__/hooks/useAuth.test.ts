@@ -75,10 +75,9 @@ describe('useAuth', () => {
       })
 
       expect(result.current.status?.authenticated).toBe(false)
-      expect(result.current.error).toBe('Network error')
     })
 
-    it('sets generic error message for non-Error objects', async () => {
+    it('sets unauthenticated status for non-Error objects', async () => {
       vi.mocked(authApi.getAuthStatus).mockRejectedValue('Unknown error')
 
       const { result } = renderHook(() => useAuth())
@@ -87,7 +86,7 @@ describe('useAuth', () => {
         expect(result.current.loading).toBe(false)
       })
 
-      expect(result.current.error).toBe('Failed to get auth status')
+      expect(result.current.status?.authenticated).toBe(false)
     })
   })
 
@@ -136,7 +135,7 @@ describe('useAuth', () => {
       expect(result.current.loggingOut).toBe(false)
     })
 
-    it('sets error on logout failure', async () => {
+    it('shows toast on logout failure', async () => {
       const { toast } = await import('@/components/ui/sonner')
       const { playErrorSound } = await import('@/hooks/useErrorSound')
 
@@ -153,7 +152,6 @@ describe('useAuth', () => {
         await result.current.logout()
       })
 
-      expect(result.current.error).toBe('Logout failed')
       expect(toast.error).toHaveBeenCalledWith('Logout failed')
       expect(playErrorSound).toHaveBeenCalled()
     })
@@ -182,7 +180,7 @@ describe('useAuth', () => {
       expect(window.open).toHaveBeenCalledWith('https://auth.example.com/logout', '_blank')
     })
 
-    it('sets error on federated logout failure', async () => {
+    it('shows toast on federated logout failure', async () => {
       const { toast } = await import('@/components/ui/sonner')
 
       vi.mocked(authApi.getAuthStatus).mockResolvedValue(mockAuthStatus)
@@ -198,7 +196,6 @@ describe('useAuth', () => {
         await result.current.logoutFederated()
       })
 
-      expect(result.current.error).toBe('Provider error')
       expect(toast.error).toHaveBeenCalledWith('Logout failed')
     })
   })
@@ -222,7 +219,7 @@ describe('useAuth', () => {
       expect(authApi.getAuthStatus).toHaveBeenCalledTimes(2)
     })
 
-    it('clears previous error on refresh', async () => {
+    it('recovers from unauthenticated state on successful refresh', async () => {
       vi.mocked(authApi.getAuthStatus)
         .mockRejectedValueOnce(new Error('First error'))
         .mockResolvedValueOnce(mockAuthStatus)
@@ -230,14 +227,13 @@ describe('useAuth', () => {
       const { result } = renderHook(() => useAuth())
 
       await waitFor(() => {
-        expect(result.current.error).toBe('First error')
+        expect(result.current.status?.authenticated).toBe(false)
       })
 
       await act(async () => {
         await result.current.refresh()
       })
 
-      expect(result.current.error).toBeNull()
       expect(result.current.status).toEqual(mockAuthStatus)
     })
   })
@@ -292,7 +288,6 @@ describe('useAuth', () => {
       expect(result.current).toHaveProperty('status')
       expect(result.current).toHaveProperty('loading')
       expect(result.current).toHaveProperty('loggingOut')
-      expect(result.current).toHaveProperty('error')
       expect(result.current).toHaveProperty('logout')
       expect(result.current).toHaveProperty('logoutFederated')
       expect(result.current).toHaveProperty('refresh')

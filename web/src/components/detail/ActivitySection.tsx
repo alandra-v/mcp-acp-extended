@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Section } from './Section'
-import { cn } from '@/lib/utils'
+import { cn, formatTime } from '@/lib/utils'
 import { useLogs } from '@/hooks/useLogs'
 import { ChevronDown, ChevronRight } from 'lucide-react'
 
@@ -66,7 +66,7 @@ interface LogEntryRowProps {
 
 function LogEntryRow({ log }: LogEntryRowProps) {
   const [expanded, setExpanded] = useState(false)
-  const timestamp = formatTimestamp(log.time)
+  const timestamp = formatTime(log.time)
   const method = String(log.method || '--')
   const toolName = log.tool_name ? String(log.tool_name) : null
   const status = String(log.status || '--')
@@ -148,19 +148,4 @@ function LogEntryRow({ log }: LogEntryRowProps) {
 function truncatePath(path: string, maxLength: number): string {
   if (path.length <= maxLength) return path
   return '...' + path.slice(-(maxLength - 3))
-}
-
-function formatTimestamp(ts: string | undefined): string {
-  if (!ts) return '--:--:--'
-  try {
-    const date = new Date(ts)
-    return date.toLocaleTimeString('en-US', {
-      hour12: false,
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    })
-  } catch {
-    return '--:--:--'
-  }
 }

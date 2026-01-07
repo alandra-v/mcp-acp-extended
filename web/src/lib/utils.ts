@@ -6,11 +6,39 @@ export function cn(...inputs: ClassValue[]) {
 }
 
 /**
- * Format a date as a relative time string (e.g., "5s ago", "3m ago", "2h ago").
+ * Format ISO timestamp to readable time (HH:MM:SS).
  */
-export function formatTimeAgo(date: Date): string {
-  const seconds = Math.floor((Date.now() - date.getTime()) / 1000)
-  if (seconds < 60) return `${seconds}s ago`
-  if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`
-  return `${Math.floor(seconds / 3600)}h ago`
+export function formatTime(ts: string | undefined): string {
+  if (!ts) return '--:--:--'
+  try {
+    const date = new Date(ts)
+    return date.toLocaleTimeString('en-US', {
+      hour12: false,
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    })
+  } catch {
+    return '--:--:--'
+  }
+}
+
+/**
+ * Format ISO timestamp to readable date + time.
+ */
+export function formatDateTime(ts: string | undefined): string {
+  if (!ts) return '--'
+  try {
+    const date = new Date(ts)
+    return date.toLocaleString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+      hour12: false,
+    })
+  } catch {
+    return '--'
+  }
 }

@@ -8,11 +8,7 @@ Note: Proxy lifecycle management (start/stop/restart) will be added
 in the multi-proxy Manager phase. See ui-progress.md.
 """
 
-__all__ = [
-    "router",
-    "ProxyStatus",
-    "ReloadResponse",
-]
+__all__ = ["router"]
 
 from fastapi import APIRouter
 

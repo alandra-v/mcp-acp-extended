@@ -138,11 +138,12 @@ export function LogViewer({
 
   const isMultiType = logType === '_all'
 
-  // Fetch logs using appropriate hook
+  // Fetch logs using appropriate hook (only one is active at a time)
   const singleResult = useLogs(
-    isMultiType ? 'decisions' : logType as LogType,
+    logType as LogType,
     filters,
-    50
+    50,
+    !isMultiType // Disable when viewing "All Files"
   )
   const multiResult = useMultiLogs(
     isMultiType ? logTypesToFetch : [],

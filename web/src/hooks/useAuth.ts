@@ -12,7 +12,6 @@ interface UseAuthReturn {
   status: AuthStatus | null
   loading: boolean
   loggingOut: boolean
-  error: string | null
   logout: () => Promise<void>
   logoutFederated: () => Promise<void>
   refresh: () => Promise<void>
@@ -22,16 +21,13 @@ export function useAuth(): UseAuthReturn {
   const [status, setStatus] = useState<AuthStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [loggingOut, setLoggingOut] = useState(false)
-  const [error, setError] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
       setLoading(true)
-      setError(null)
       const data = await getAuthStatus()
       setStatus(data)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to get auth status')
+    } catch {
       // Set unauthenticated on error
       setStatus({
         authenticated: false,
@@ -66,12 +62,10 @@ export function useAuth(): UseAuthReturn {
   const logout = useCallback(async () => {
     try {
       setLoggingOut(true)
-      setError(null)
       await apiLogout()
       await fetchStatus()
       // Success toast handled by SSE auth_logout event
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Logout failed')
+    } catch {
       toast.error('Logout failed')
       playErrorSound()
     } finally {
@@ -82,14 +76,12 @@ export function useAuth(): UseAuthReturn {
   const logoutFederated = useCallback(async () => {
     try {
       setLoggingOut(true)
-      setError(null)
       const response = await apiLogoutFederated()
       // Open logout URL in new window/tab
       window.open(response.logout_url, '_blank')
       await fetchStatus()
       // Success toast handled by SSE auth_logout event
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Federated logout failed')
+    } catch {
       toast.error('Logout failed')
       playErrorSound()
     } finally {
@@ -101,7 +93,6 @@ export function useAuth(): UseAuthReturn {
     status,
     loading,
     loggingOut,
-    error,
     logout,
     logoutFederated,
     refresh: fetchStatus,
