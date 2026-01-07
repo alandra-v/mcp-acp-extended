@@ -1,4 +1,5 @@
 import { Button } from '@/components/ui/button'
+import { useCountdown, formatCountdown } from '@/hooks/useCountdown'
 import type { PendingApproval } from '@/types/api'
 
 interface ApprovalItemProps {
@@ -89,6 +90,10 @@ export function ApprovalItem({
   // Calculate TTL in minutes for button label
   const ttlMinutes = approval.cache_ttl_seconds ? Math.floor(approval.cache_ttl_seconds / 60) : null
 
+  // Live countdown until timeout
+  const remaining = useCountdown(undefined, approval.timeout_seconds, approval.created_at)
+  const isUrgent = remaining < 10
+
   if (compact) {
     return (
       <div className="flex items-center gap-4 p-4 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
@@ -97,6 +102,9 @@ export function ApprovalItem({
         </span>
         <span className="flex-1 font-mono text-sm text-base-400 truncate">
           {approval.path || '--'}
+        </span>
+        <span className={`text-xs tabular-nums ${isUrgent ? 'text-error' : 'text-base-500'}`}>
+          {formatCountdown(remaining)}
         </span>
         <ApprovalActions
           canCache={approval.can_cache}
@@ -112,14 +120,19 @@ export function ApprovalItem({
 
   return (
     <div className="p-4 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
-      <div className="flex items-center gap-3 mb-3">
-        {showProxyId && (
-          <span className="text-xs text-base-500 bg-base-800 px-2 py-1 rounded">
-            {approval.proxy_id}
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-3">
+          {showProxyId && (
+            <span className="text-xs text-base-500 bg-base-800 px-2 py-1 rounded">
+              {approval.proxy_id}
+            </span>
+          )}
+          <span className="font-mono text-sm text-base-300">
+            {approval.tool_name}
           </span>
-        )}
-        <span className="font-mono text-sm text-base-300">
-          {approval.tool_name}
+        </div>
+        <span className={`text-xs tabular-nums ${isUrgent ? 'text-error' : 'text-base-500'}`}>
+          {formatCountdown(remaining)}
         </span>
       </div>
 

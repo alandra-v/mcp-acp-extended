@@ -1,6 +1,7 @@
 import { Trash2 } from 'lucide-react'
 import { Section } from './Section'
 import { Button } from '@/components/ui/button'
+import { useCountdown, formatCountdown } from '@/hooks/useCountdown'
 import type { CachedApproval } from '@/types/api'
 
 interface CachedSectionProps {
@@ -61,8 +62,9 @@ interface CachedItemProps {
 }
 
 function CachedItem({ item, onDelete }: CachedItemProps) {
-  const expiresMin = Math.floor(item.expires_in_seconds / 60)
-  const expiresSec = Math.round(item.expires_in_seconds % 60)
+  // Live countdown - expires_in_seconds is relative to when data was fetched
+  const remaining = useCountdown(undefined, item.expires_in_seconds)
+  const isExpiring = remaining < 30
 
   return (
     <div className="flex items-center gap-4 p-3 bg-gradient-to-br from-[oklch(0.16_0.012_228)] to-[oklch(0.13_0.01_228)] border border-[var(--border-subtle)] rounded-lg group">
@@ -72,8 +74,8 @@ function CachedItem({ item, onDelete }: CachedItemProps) {
       <span className="flex-1 font-mono text-xs text-base-500 truncate">
         {item.path || '--'}
       </span>
-      <span className="text-xs text-base-600">
-        expires in {expiresMin}m {expiresSec}s
+      <span className={`text-xs tabular-nums ${isExpiring ? 'text-warning' : 'text-base-600'}`}>
+        {remaining > 0 ? `expires in ${formatCountdown(remaining)}` : 'expired'}
       </span>
       <button
         onClick={() => onDelete(item.subject_id, item.tool_name, item.path)}
