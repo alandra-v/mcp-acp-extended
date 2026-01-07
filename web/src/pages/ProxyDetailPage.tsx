@@ -8,10 +8,11 @@ import { StatsSection } from '@/components/detail/StatsSection'
 import { ApprovalsSection } from '@/components/detail/ApprovalsSection'
 import { CachedSection } from '@/components/detail/CachedSection'
 import { ActivitySection } from '@/components/detail/ActivitySection'
+import { LogViewer } from '@/components/logs'
+import { Section } from '@/components/detail/Section'
 import { useProxies } from '@/hooks/useProxies'
 import { useAppState } from '@/context/AppStateContext'
 import { useCachedApprovals } from '@/hooks/useCachedApprovals'
-import { useLogs } from '@/hooks/useLogs'
 import { cn } from '@/lib/utils'
 
 export function ProxyDetailPage() {
@@ -20,7 +21,6 @@ export function ProxyDetailPage() {
   const { proxies, loading: proxiesLoading } = useProxies()
   const { pending, approve, approveOnce, deny } = useAppState()
   const { cached, loading: cachedLoading, clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
-  const { logs, loading: logsLoading } = useLogs('decisions')
   const [activeSection, setActiveSection] = useState<DetailSection>('overview')
   const [loaded, setLoaded] = useState(false)
 
@@ -125,18 +125,18 @@ export function ProxyDetailPage() {
                 onDelete={deleteCached}
                 loaded={loaded}
               />
-              <ActivitySection
-                logs={logs}
-                loading={logsLoading}
-                loaded={loaded}
-              />
+              <ActivitySection loaded={loaded} />
             </>
           )}
 
           {activeSection === 'logs' && (
-            <div className="text-center py-16 text-muted-foreground">
-              Logs section coming soon
-            </div>
+            <Section number="001" title="Logs" loaded={loaded}>
+              <LogViewer
+                initialFolder="audit"
+                initialLogType="_all"
+                initialTimeRange="5m"
+              />
+            </Section>
           )}
 
           {activeSection === 'policy' && (

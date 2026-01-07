@@ -60,15 +60,37 @@ export interface ProxyStatus {
 }
 
 export interface LogEntry {
-  timestamp: string
+  time?: string
+  timestamp?: string
   [key: string]: unknown
 }
 
 export interface LogsResponse {
   entries: LogEntry[]
   total_returned: number
+  total_scanned: number
   log_file: string
   has_more: boolean
+  filters_applied: Record<string, unknown>
+}
+
+export interface LogFileInfo {
+  name: string
+  path: string
+  exists: boolean
+  size_bytes: number | null
+}
+
+export interface LogFolderInfo {
+  name: string
+  files: LogFileInfo[]
+}
+
+export interface LogsMetadataResponse {
+  folders: LogFolderInfo[]
+  debug_enabled: boolean
+  available_policy_versions: string[]
+  available_config_versions: string[]
 }
 
 // Severity levels for toast styling
