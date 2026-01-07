@@ -25,6 +25,8 @@ transport – "stdio" or "streamablehttp" (optional)
 tool_name – optional, only set if method == "tools/call" (e.g. "read_file")
 file_path – optional, file path from request arguments
 file_extension – optional, file extension (e.g. ".py", ".txt")
+source_path – optional, source path for copy/move operations
+dest_path – optional, destination path for copy/move operations
 arguments_summary – optional object:
   redacted – bool (true, full args not logged)
   body_hash – SHA256 hex hash of the args (optional)

@@ -69,6 +69,7 @@ Each log entry follows the **Kipling method (5W1H)**: Who (subject), What (metho
 | `transport` | Backend transport (`stdio` or `streamablehttp`) |
 | `tool_name` | Tool name (for `tools/call`) |
 | `file_path`, `file_extension` | File info (for file operations) |
+| `source_path`, `dest_path` | Source/destination paths for copy/move operations |
 | `arguments_summary` | Redacted args: `body_hash`, `payload_length` |
 | `config_version` | Active configuration version |
 | `duration.duration_ms` | Operation duration in milliseconds |

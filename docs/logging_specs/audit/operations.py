@@ -74,6 +74,8 @@ class OperationEvent(BaseModel):
     tool_name: Optional[str] = None  # only for tools/call
     file_path: Optional[str] = None
     file_extension: Optional[str] = None
+    source_path: Optional[str] = None  # for copy/move operations
+    dest_path: Optional[str] = None  # for copy/move operations
     arguments_summary: Optional[ArgumentsSummary] = None
 
     # --- config ---

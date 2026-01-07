@@ -129,7 +129,7 @@ class AuditLoggingMiddleware(Middleware):
             request_id: Request ID for dict-based lookup (works across async context boundaries).
 
         Returns:
-            Dict with tool_name, file_path, file_extension.
+            Dict with tool_name, file_path, file_extension, source_path, dest_path.
             Empty dict if no tool context is set.
         """
         tool_name = get_tool_name(request_id)
@@ -147,6 +147,8 @@ class AuditLoggingMiddleware(Middleware):
             "tool_name": metadata.get("tool_name"),
             "file_path": metadata.get("file_path"),
             "file_extension": metadata.get("file_extension"),
+            "source_path": metadata.get("source_path"),
+            "dest_path": metadata.get("dest_path"),
         }
 
     def _create_arguments_summary(self, context: MiddlewareContext[Any]) -> ArgumentsSummary | None:
@@ -265,6 +267,8 @@ class AuditLoggingMiddleware(Middleware):
                 tool_name=tool_metadata.get("tool_name"),
                 file_path=tool_metadata.get("file_path"),
                 file_extension=tool_metadata.get("file_extension"),
+                source_path=tool_metadata.get("source_path"),
+                dest_path=tool_metadata.get("dest_path"),
                 arguments_summary=self._create_arguments_summary(context),
                 config_version=self.config_version,
                 duration=DurationInfo(duration_ms=duration_ms),

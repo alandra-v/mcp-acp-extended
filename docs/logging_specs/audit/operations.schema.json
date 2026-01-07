@@ -225,6 +225,30 @@
       "default": null,
       "title": "File Extension"
     },
+    "source_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Source Path"
+    },
+    "dest_path": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Dest Path"
+    },
     "arguments_summary": {
       "anyOf": [
         {

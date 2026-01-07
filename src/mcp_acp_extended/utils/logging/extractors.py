@@ -10,9 +10,11 @@ __all__ = [
     "ClientInfo",
     "detect_operation_type",
     "extract_client_info",
+    "extract_dest_path",
     "extract_file_metadata",
     "extract_file_path",
     "extract_initialize_metadata",
+    "extract_source_path",
     "extract_tool_metadata",
     "redact_sensitive_content",
 ]
@@ -45,6 +47,29 @@ from mcp_acp_extended.constants import PATH_ARGUMENT_NAMES
 from mcp_acp_extended.utils.logging.logging_helpers import (
     normalize_file_path,
     sanitize_for_logging,
+)
+
+# Source path argument names (for move/copy operations)
+# Matched by tools like move_file(source, destination), copy_path(source, destination)
+SOURCE_PATH_ARGS: tuple[str, ...] = (
+    "source",
+    "src",
+    "from",
+    "from_path",
+    "source_path",
+    "origin",
+)
+
+# Destination path argument names (for move/copy operations)
+DEST_PATH_ARGS: tuple[str, ...] = (
+    "destination",
+    "destination_path",
+    "dest",
+    "to",
+    "to_path",
+    "dest_path",
+    "target",
+    "target_path",
 )
 
 # Content-related argument names to redact during logging
@@ -91,6 +116,52 @@ def extract_file_path(arguments: dict[str, Any], system_logger: logging.Logger |
         if key in arguments:
             raw_path = str(arguments[key])
             # Normalize and sanitize the path for security
+            return normalize_file_path(raw_path, system_logger)
+
+    return None
+
+
+def extract_source_path(arguments: dict[str, Any], system_logger: logging.Logger | None = None) -> str | None:
+    """Extract and normalize source path from tool arguments.
+
+    Used for copy/move operations where source path is specified separately.
+
+    Args:
+        arguments: Tool call arguments.
+        system_logger: Optional logger for warnings.
+
+    Returns:
+        str | None: Normalized, sanitized source path if found, None otherwise.
+    """
+    if not arguments:
+        return None
+
+    for key in SOURCE_PATH_ARGS:
+        if key in arguments and arguments[key]:
+            raw_path = str(arguments[key])
+            return normalize_file_path(raw_path, system_logger)
+
+    return None
+
+
+def extract_dest_path(arguments: dict[str, Any], system_logger: logging.Logger | None = None) -> str | None:
+    """Extract and normalize destination path from tool arguments.
+
+    Used for copy/move operations where destination path is specified separately.
+
+    Args:
+        arguments: Tool call arguments.
+        system_logger: Optional logger for warnings.
+
+    Returns:
+        str | None: Normalized, sanitized destination path if found, None otherwise.
+    """
+    if not arguments:
+        return None
+
+    for key in DEST_PATH_ARGS:
+        if key in arguments and arguments[key]:
+            raw_path = str(arguments[key])
             return normalize_file_path(raw_path, system_logger)
 
     return None
@@ -210,6 +281,8 @@ def extract_tool_metadata(
             - tool_name: Name of the tool.
             - operation_type: Type of operation (read/write/delete/list/other).
             - file_path: Extracted file path (if present).
+            - source_path: Source path for copy/move operations (if present).
+            - dest_path: Destination path for copy/move operations (if present).
             - file_metadata: File extension, size, type (if applicable).
             - arguments_redacted: Arguments with sensitive content removed.
     """
@@ -230,6 +303,15 @@ def extract_tool_metadata(
         content = arguments.get("content") or arguments.get("data")
         file_meta = extract_file_metadata(file_path, content)
         metadata.update(file_meta)
+
+    # Extract source/dest paths for copy/move operations
+    source_path = extract_source_path(arguments, system_logger)
+    if source_path:
+        metadata["source_path"] = source_path
+
+    dest_path = extract_dest_path(arguments, system_logger)
+    if dest_path:
+        metadata["dest_path"] = dest_path
 
     # Redact sensitive content from arguments
     metadata["arguments_redacted"] = redact_sensitive_content(arguments)
