@@ -347,56 +347,53 @@ CLI commands for visibility without the web UI. Enables headless deployments, se
 ### File-Based Commands (no API, work offline)
 
 #### JSON Output for Existing Commands
-- [ ] `auth status --json` - Token info as JSON
-- [ ] `config show --json` - Config as JSON
-- [ ] `policy show --json` - Policy as JSON
+- [x] `auth status --json` - Token info as JSON
+- [x] `config show --json` - Config as JSON
+- [x] `policy show --json` - Policy as JSON
 
 #### Log Viewing
-- [ ] **`logs` command group** (`cli/commands/logs.py`)
-  - [ ] `logs tail` - Tail log files (like `tail -f`)
-    - [ ] `--type=TYPE`: decisions, operations, auth, system (default: all)
-    - [ ] `--json` for raw JSONL output
-    - [ ] Default: formatted, human-readable output
-    - [ ] Ctrl+C to stop
-  - [ ] `logs show` - Show recent log entries
-    - [ ] `--type=TYPE`: decisions, operations, auth, system
-    - [ ] `--limit=N` (default: 50)
-    - [ ] `--json` for raw output
+- [x] **`logs` command group** (`cli/commands/logs.py`)
+  - [x] `logs tail` - Tail log files (like `tail -f`)
+    - [x] `--type=TYPE`: decisions, operations, auth, system
+    - [x] `--json` for raw JSONL output
+    - [x] Default: formatted, human-readable output
+    - [x] Ctrl+C to stop
+  - [x] `logs show` - Show recent log entries
+    - [x] `--type=TYPE`: decisions, operations, auth, system
+    - [x] `--limit=N` (default: 50)
+    - [x] `--json` for raw output
 
 #### Policy Management (extend `cli/commands/policy.py`)
-- [ ] `policy show` - Display current policy from file
-  - [ ] `--format=yaml|json` (default: yaml)
-  - [ ] Shows rule count, last modified
-- [ ] `policy edit` - Open policy in $EDITOR (let user know policy reload necessary or proxy restart)
-- [ ] `policy add` - Add rule interactively (let user know policy reload necessary or proxy restart)
+- [x] `policy show` - Display current policy from file
+  - [x] `--json` flag
+  - [x] Shows rule count, last modified
+- [x] `policy edit` - Open policy in $EDITOR (let user know policy reload necessary or proxy restart)
+- [x] `policy add` - Add rule interactively (let user know policy reload necessary or proxy restart)
 
 ---
 
 ### Runtime Commands (require running proxy via API)
 
 #### Status & Health
-- [ ] **`status` command** (`cli/commands/status.py`)
-  - [ ] Proxy health (running, uptime)
-  - [ ] Auth status (valid, expired)
-  - [ ] Active session count
-  - [ ] `--json` for scriptable output
+- [x] **`status` command** (`cli/commands/status.py`)
+  - [x] Proxy health (running, uptime)
+  - [x] Active session count
+  - [x] `--json` for scriptable output
 
 #### Session Management
-- [ ] **`sessions list` command** (`cli/commands/sessions.py`)
-  - [ ] Show active sessions
-  - [ ] Columns: session_id, user_id, started_at, request_count
-  - [ ] `--json` for scriptable output
+- [x] **`sessions list` command** (`cli/commands/sessions.py`)
+  - [x] Show active sessions
+  - [x] Columns: session_id, user_id, started_at
+  - [x] `--json` for scriptable output
 
 #### Approval Management
-- [ ] **`approvals` command group** (`cli/commands/approvals.py`)
-  - [ ] `approvals pending` - Show pending HITL queue
-    - [ ] Columns: id, tool, path, user, waiting_since
-  - [ ] `approvals cache` - Show cached approvals
-    - [ ] Columns: tool, path, user, expires_at
-  - [ ] `approvals cache clear [--all|--tool=X]` - Clear cache entries
-    - [ ] `--all` clears entire cache
-    - [ ] `--tool=X` clears specific tool's approvals
-    - [ ] Confirmation prompt
+- [x] **`approvals` command group** (`cli/commands/approvals.py`)
+  - [x] `approvals cache` - Show cached approvals
+    - [x] Columns: tool, path, user, expires_at
+  - [x] `approvals clear` - Clear cache entries
+    - [x] `--all` clears entire cache
+    - [x] `--entry=N` clears specific entry by number
+    - [x] Confirmation prompt
 
 #### Policy Reload (already exists)
 - [x] `policy reload` - Trigger hot reload via API
@@ -411,7 +408,7 @@ CLI commands for visibility without the web UI. Enables headless deployments, se
 - Use `get_config_path()`, `get_log_dir()` helpers
 
 **Runtime commands:**
-- Connect to proxy API (`127.0.0.1:{port}`)
+- Connect to proxy API via shared helper (`cli/api_client.py`)
 - Read port/token from `~/.mcp-acp-extended/manager.json`
 - Graceful error: "Proxy not running. Start with 'mcp-acp-extended start'"
 

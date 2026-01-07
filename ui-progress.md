@@ -215,20 +215,25 @@ Full React UI with real-time data.
 
 ### Context Providers
 
-- [x] `PendingApprovalsContext` - global SSE subscription, pending state, title updates
+- [x] `AppStateContext` - global SSE subscription, pending state, connection status
   - Single SSE connection shared across all pages
   - Document title shows `🔴 (N) MCP ACP` when pending > 0
   - Audio chime notification on new pending approval
   - approve/approveOnce/deny actions
+  - Connection status tracking (connected/reconnecting/disconnected)
+  - Live stats updates via `stats_updated` event
+  - Toast notifications for all system events
+  - Auth state sync via custom DOM events
 
 ### Hooks Implemented
 
 - [x] `useProxies` - fetch proxy list with error state
-- [x] `usePendingApprovals` - (legacy, use context instead)
-- [x] `useLogs` - fetch log entries by type
+- [x] `useLogs` - log fetching with filters, cursor pagination, SSE refresh
+- [x] `useMultiLogs` - fetch multiple log types, merge by timestamp
 - [x] `useAuth` - auth status + login/logout/refresh + SSE state sync
-- [x] `useCachedApprovals` - polling for cached approvals with TTL
+- [x] `useCachedApprovals` - cached approvals with clear/delete actions
 - [x] `useDeviceFlow` - OAuth device flow for login dialog
+- [x] `useCountdown` - countdown timer for HITL timeout display
 - [x] `useNotificationSound` - Web Audio API approval chime
 - [x] `useErrorSound` - Web Audio API error sound for critical events
 
@@ -353,59 +358,83 @@ Comprehensive toast notifications and SSE event handling for all system events.
 
 ---
 
+## Phase 10: Log Viewing
+
+**Status: COMPLETE**
+
+Full log viewing with filtering, pagination, and multi-file support.
+
+- [x] **LogViewer component** (`components/logs/LogViewer.tsx`)
+  - [x] Folder selection (audit, system, debug)
+  - [x] File selection with "All Files" option per folder
+  - [x] Time range filter (5m, 1h, 24h, all)
+  - [x] Decision filter (allow, deny, hitl) for decisions log
+  - [x] HITL outcome filter (allowed, denied, timeout)
+  - [x] Log level filter (ERROR, WARNING, INFO, DEBUG) for system log
+  - [x] Session ID and Request ID filters
+  - [x] Policy version and Config version filters
+  - [x] Cursor-based pagination with "Load More"
+  - [x] Expandable rows showing full JSON
+
+- [x] **DataTable component** (`components/logs/DataTable.tsx`)
+  - [x] TanStack Table integration
+  - [x] Column visibility toggles
+  - [x] Row expansion for full entry details
+  - [x] Loading and empty states
+
+- [x] **Column configuration** (`components/logs/columns.tsx`)
+  - [x] Per-log-type column definitions
+  - [x] Merged columns for "All Files" view
+  - [x] Default visibility settings per log type
+  - [x] Timestamp, decision, tool, path, outcome columns
+
+- [x] **Multi-log fetching** (`hooks/useMultiLogs.ts`)
+  - [x] Fetch multiple log types in parallel
+  - [x] Merge entries by timestamp (newest first)
+  - [x] Unified pagination across sources
+
+- [x] **API integration** (`api/logs.ts`)
+  - [x] All log type endpoints
+  - [x] Filter parameter building
+  - [x] Cursor pagination support
+
+- [x] **Page integration**
+  - [x] GlobalLogsPage with full LogViewer
+  - [x] ProxyDetailPage logs section with LogViewer
+  - [x] ActivitySection uses LogViewer (compact mode)
+
+---
+
 ## Future Work
 
-### Error Handling & Resilience
+### Pages & Features (Remaining)
 
-- [x] ~~**Background data fetch errors**~~ (Completed in Phase 9)
-  - [x] ~~Retry with backoff for failed proxy/session fetches~~
-  - [x] ~~Visual indicator when data is stale~~
-  - [x] ~~Reconnection logic for SSE disconnects~~
+- [x] ~~**Global Logs page** (`/logs`)~~ (Completed in Phase 10)
+  - [x] ~~Log type tabs (decisions, operations, auth, system)~~
+  - [x] ~~Filtering and search~~
+  - [x] ~~Virtual scroll for large logs~~
+  - [x] ~~Live streaming option~~
 
-- [x] ~~**Proxy shutdown scenarios**~~ (Completed in Phase 9)
-  - [x] ~~Graceful handling when proxy goes offline~~
-  - [x] ~~Clear UI state when proxy unavailable~~
-  - [x] ~~Reconnection when proxy comes back~~
-
-- [x] ~~**Health checks**~~ (Completed in Phase 9)
-  - [x] ~~health check error toasts~~
-  - [x] ~~Warning when proxy unreachable~~
-
-- [x] ~~**Log display in UI**~~ (Completed in Phase 9)
-  - [x] ~~Toast or banner for critical errors~~
-
-### Pages & Features
-
-- [ ] **Global Logs page** (`/logs`)
-  - [ ] Log type tabs (decisions, operations, auth, system)
-  - [ ] Filtering and maybesearch
-  - [ ] Virtual scroll for large logs
-  - [ ] Live streaming option
-
-- [ ] **Proxies page stats**
-  - [ ] Request counts (today, all-time)
-  - [ ] Latency metrics
-
-- [ ] **Proxy detail - Overview**
-  - [ ] Recent activity with full log details
-  - [ ] Click-to-expand log entries
-  - [ ] Real-time updates
-
-- [ ] **Proxy detail - Stats**
-  - [ ] Request volume charts
-  - [ ] Latency distribution?
-
-- [ ] **Proxy detail - Logs**
-  - [ ] Full log viewer for this proxy
-  - [ ] Filter by type, time range , request id or session id, event type
+- [x] ~~**Proxy detail - Logs**~~ (Completed in Phase 10)
+  - [x] ~~Full log viewer for this proxy~~
+  - [x] ~~Filter by type, time range, request id or session id, event type~~
 
 - [ ] **Proxy detail - Config**
   - [ ] View current configuration
   - [ ] Edit configuration (with validation)
   - [ ] Restart required indicator
+  - Note: API complete (`GET/PUT /api/config`), UI pending
 
 - [ ] **Proxy detail - Policy**
   - [ ] View policy rules
   - [ ] Add/edit/delete rules
   - [ ] Policy validation
-  - [ ] Auto-reload on save?
+  - [ ] Auto-reload on save
+  - Note: API complete (full CRUD `/api/policy/rules`), UI pending
+
+### Multi-Proxy Manager (Phase 2)
+
+- [ ] Manager process for multi-backend support
+- [ ] Worker registration protocol
+- [ ] Proxy lifecycle management (start/stop/restart)
+- [ ] Multi-proxy dashboard aggregation
