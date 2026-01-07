@@ -3,26 +3,15 @@
 Defines the CLI group and registers all subcommands.
 
 Commands:
-    auth     - Authentication commands (login, logout, status)
-    config   - Configuration management (show, path, edit, validate)
-    init     - Initialize proxy configuration (interactive or with flags)
-    policy   - Policy management (validate, path)
-    start    - Start the proxy server manually (for testing)
-
-Usage:
-    mcp-acp-extended -h, --help         Show help message
-    mcp-acp-extended -v, --version      Show version
-    mcp-acp-extended auth login         Authenticate via browser (Device Flow)
-    mcp-acp-extended auth logout        Clear stored credentials
-    mcp-acp-extended auth status        Show authentication status
-    mcp-acp-extended config show        Display configuration
-    mcp-acp-extended config path        Show config file path
-    mcp-acp-extended config edit        Edit configuration in $EDITOR
-    mcp-acp-extended config validate    Validate configuration file
-    mcp-acp-extended init               Initialize configuration
-    mcp-acp-extended policy validate    Validate policy file
-    mcp-acp-extended policy path        Show policy file path
-    mcp-acp-extended start              Start proxy server
+    approvals - Approval cache management (cache, clear)
+    auth      - Authentication commands (login, logout, status)
+    config    - Configuration management (show, path, edit, validate)
+    init      - Initialize proxy configuration
+    logs      - Log viewing (show, tail)
+    policy    - Policy management (show, edit, add, validate, reload)
+    sessions  - Session management (list)
+    start     - Start the proxy server manually
+    status    - Show proxy runtime status
 
 Subcommand help:
     mcp-acp-extended COMMAND -h         Show help for a specific command
@@ -38,11 +27,15 @@ import click
 
 from mcp_acp_extended import __version__
 
+from .commands.approvals import approvals
 from .commands.auth import auth
 from .commands.config import config
 from .commands.init import init
+from .commands.logs import logs
 from .commands.policy import policy
+from .commands.sessions import sessions
 from .commands.start import start
+from .commands.status import status
 
 
 class ReorderedGroup(click.Group):
@@ -108,11 +101,15 @@ def cli(ctx: click.Context, version: bool) -> None:
 
 
 # Register commands
+cli.add_command(approvals)
 cli.add_command(auth)
 cli.add_command(config)
 cli.add_command(init)
+cli.add_command(logs)
 cli.add_command(policy)
+cli.add_command(sessions)
 cli.add_command(start)
+cli.add_command(status)
 
 
 def main() -> None:

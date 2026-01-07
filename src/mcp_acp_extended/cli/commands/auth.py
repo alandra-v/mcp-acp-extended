@@ -11,7 +11,7 @@ from __future__ import annotations
 __all__ = ["auth"]
 
 import webbrowser
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import click
 import httpx
@@ -298,25 +298,143 @@ def _do_federated_logout(oidc_config: OIDCConfig) -> None:
 
 
 @auth.command()
-def status() -> None:
+@click.option("--json", "as_json", is_flag=True, help="Output as JSON")
+def status(as_json: bool) -> None:
     """Show authentication status.
 
     Displays token validity, user info, and storage backend.
     """
+    import json as json_module
+
     # Load config
     config = _load_config()
 
+    # Build result dict for JSON output
+    result: dict[str, Any] = {
+        "configured": False,
+        "authenticated": False,
+        "status": "not_configured",
+    }
+
     if config.auth is None or config.auth.oidc is None:
-        click.echo(click.style("Authentication not configured", fg="yellow"))
-        click.echo()
-        click.echo("Add 'auth.oidc' section to your config to enable authentication.")
+        result["status"] = "not_configured"
+        if as_json:
+            click.echo(json_module.dumps(result, indent=2))
+        else:
+            click.echo(click.style("Authentication not configured", fg="yellow"))
+            click.echo()
+            click.echo("Add 'auth.oidc' section to your config to enable authentication.")
         return
 
+    result["configured"] = True
     oidc_config = config.auth.oidc
     storage = create_token_storage(oidc_config)
 
-    # Show storage info
+    # Storage info
     storage_info = get_token_storage_info()
+    result["storage"] = storage_info
+
+    # OIDC config (non-sensitive)
+    result["oidc"] = {
+        "issuer": oidc_config.issuer,
+        "client_id": oidc_config.client_id,
+        "audience": oidc_config.audience,
+    }
+
+    # Check for token
+    if not storage.exists():
+        result["status"] = "not_authenticated"
+        if as_json:
+            click.echo(json_module.dumps(result, indent=2))
+        else:
+            _print_status_formatted(result, storage_info, oidc_config, config)
+        return
+
+    # Load and validate token
+    try:
+        token = storage.load()
+    except AuthenticationError as e:
+        result["status"] = "token_corrupted"
+        result["error"] = str(e)
+        if as_json:
+            click.echo(json_module.dumps(result, indent=2))
+        else:
+            click.echo(click.style("Status: Token corrupted", fg="red"))
+            click.echo(f"  Error: {e}")
+            click.echo()
+            click.echo("Run 'mcp-acp-extended auth logout' then 'auth login' to fix.")
+        return
+
+    if token is None:
+        result["status"] = "not_authenticated"
+        if as_json:
+            click.echo(json_module.dumps(result, indent=2))
+        else:
+            _print_status_formatted(result, storage_info, oidc_config, config)
+        return
+
+    # Token info
+    result["token"] = {
+        "expires_in_seconds": token.seconds_until_expiry,
+        "has_refresh_token": bool(token.refresh_token),
+        "has_id_token": bool(token.id_token),
+    }
+
+    # Check expiry
+    if token.is_expired:
+        result["status"] = "token_expired"
+        result["authenticated"] = False
+    else:
+        result["status"] = "authenticated"
+        result["authenticated"] = True
+
+    # Try to extract user info from ID token
+    if token.id_token:
+        try:
+            from mcp_acp_extended.security.auth.jwt_validator import JWTValidator
+
+            validator = JWTValidator(oidc_config)
+            claims = validator.decode_without_validation(token.id_token)
+
+            result["user"] = {}
+            if "email" in claims:
+                result["user"]["email"] = claims["email"]
+            if "name" in claims:
+                result["user"]["name"] = claims["name"]
+            if "sub" in claims:
+                result["user"]["subject"] = claims["sub"]
+
+        except (ValueError, KeyError):
+            pass  # Can't decode ID token - not critical
+
+    # mTLS certificate status if configured
+    if config.auth.mtls:
+        from mcp_acp_extended.utils.transport import get_certificate_expiry_info
+
+        cert_info = get_certificate_expiry_info(config.auth.mtls.client_cert_path)
+        result["mtls_configured"] = True
+        result["mtls_client_cert_path"] = str(config.auth.mtls.client_cert_path)
+        result["mtls_client_key_path"] = str(config.auth.mtls.client_key_path)
+        result["mtls_ca_bundle_path"] = str(config.auth.mtls.ca_bundle_path)
+        result["mtls_cert_status"] = cert_info.get("status", "unknown")
+        result["mtls_cert_days_until_expiry"] = cert_info.get("days_until_expiry")
+        if "error" in cert_info:
+            result["mtls_cert_error"] = cert_info["error"]
+
+    if as_json:
+        click.echo(json_module.dumps(result, indent=2))
+    else:
+        _print_status_formatted(result, storage_info, oidc_config, config)
+
+
+def _print_status_formatted(
+    result: dict[str, Any],
+    storage_info: dict[str, Any],
+    oidc_config: OIDCConfig,
+    config: AppConfig,
+) -> None:
+    """Print auth status in human-readable format."""
+    # Show storage info
     click.echo(click.style("Storage", fg="cyan", bold=True))
     click.echo(f"  Backend: {storage_info['backend']}")
     if "keyring_backend" in storage_info:
@@ -325,32 +443,19 @@ def status() -> None:
         click.echo(f"  Location: {storage_info['location']}")
     click.echo()
 
-    # Check for token
-    if not storage.exists():
+    # Status
+    status_val = result.get("status", "unknown")
+
+    if status_val == "not_authenticated":
         click.echo(click.style("Status: Not authenticated", fg="yellow"))
         click.echo()
         click.echo("Run 'mcp-acp-extended auth login' to authenticate.")
         return
 
-    # Load and validate token
-    try:
-        token = storage.load()
-    except AuthenticationError as e:
-        click.echo(click.style("Status: Token corrupted", fg="red"))
-        click.echo(f"  Error: {e}")
-        click.echo()
-        click.echo("Run 'mcp-acp-extended auth logout' then 'auth login' to fix.")
-        return
-
-    if token is None:
-        click.echo(click.style("Status: Not authenticated", fg="yellow"))
-        return
-
-    # Check expiry
-    if token.is_expired:
+    if status_val == "token_expired":
         click.echo(click.style("Status: Token expired", fg="red"))
         click.echo()
-        if token.refresh_token:
+        if result.get("token", {}).get("has_refresh_token"):
             click.echo("Token will be refreshed automatically on next proxy start.")
             click.echo("Or run 'mcp-acp-extended auth login' to re-authenticate now.")
         else:
@@ -362,39 +467,32 @@ def status() -> None:
     click.echo()
 
     # Show token info
-    click.echo(click.style("Token", fg="cyan", bold=True))
+    token_info = result.get("token", {})
+    if token_info:
+        click.echo(click.style("Token", fg="cyan", bold=True))
 
-    hours_until_expiry = token.seconds_until_expiry / 3600
-    if hours_until_expiry > 24:
-        days = hours_until_expiry / 24
-        click.echo(f"  Expires in: {days:.1f} days")
-    else:
-        click.echo(f"  Expires in: {hours_until_expiry:.1f} hours")
+        expires_in = token_info.get("expires_in_seconds", 0)
+        hours_until_expiry = expires_in / 3600
+        if hours_until_expiry > 24:
+            days = hours_until_expiry / 24
+            click.echo(f"  Expires in: {days:.1f} days")
+        else:
+            click.echo(f"  Expires in: {hours_until_expiry:.1f} hours")
 
-    click.echo(f"  Has refresh token: {'Yes' if token.refresh_token else 'No'}")
-    click.echo(f"  Has ID token: {'Yes' if token.id_token else 'No'}")
+        click.echo(f"  Has refresh token: {'Yes' if token_info.get('has_refresh_token') else 'No'}")
+        click.echo(f"  Has ID token: {'Yes' if token_info.get('has_id_token') else 'No'}")
 
-    # Try to extract user info from ID token
-    if token.id_token:
-        try:
-            from mcp_acp_extended.security.auth.jwt_validator import JWTValidator
-
-            # Extract claims from id_token for display (trusted - from our auth flow)
-            validator = JWTValidator(oidc_config)
-            claims = validator.decode_without_validation(token.id_token)
-
-            click.echo()
-            click.echo(click.style("User", fg="cyan", bold=True))
-            if "email" in claims:
-                click.echo(f"  Email: {claims['email']}")
-            if "name" in claims:
-                click.echo(f"  Name: {claims['name']}")
-            if "sub" in claims:
-                click.echo(f"  Subject: {claims['sub']}")
-
-        except (ValueError, KeyError) as e:
-            # Can't decode ID token - not critical, just skip user info display
-            click.echo(f"  (Could not decode ID token: {e})", err=True)
+    # User info
+    user_info = result.get("user")
+    if user_info:
+        click.echo()
+        click.echo(click.style("User", fg="cyan", bold=True))
+        if "email" in user_info:
+            click.echo(f"  Email: {user_info['email']}")
+        if "name" in user_info:
+            click.echo(f"  Name: {user_info['name']}")
+        if "subject" in user_info:
+            click.echo(f"  Subject: {user_info['subject']}")
 
     click.echo()
     click.echo(click.style("OIDC Configuration", fg="cyan", bold=True))
@@ -403,33 +501,28 @@ def status() -> None:
     click.echo(f"  Audience: {oidc_config.audience}")
 
     # Show mTLS certificate status if configured
-    if config.auth.mtls:
-        from mcp_acp_extended.utils.transport import get_certificate_expiry_info
-
+    if result.get("mtls_configured") and config.auth and config.auth.mtls:
         click.echo()
         click.echo(click.style("mTLS Certificate", fg="cyan", bold=True))
-        click.echo(f"  Client cert: {config.auth.mtls.client_cert_path}")
-        click.echo(f"  Client key: {config.auth.mtls.client_key_path}")
-        click.echo(f"  CA bundle: {config.auth.mtls.ca_bundle_path}")
+        click.echo(f"  Client cert: {result.get('mtls_client_cert_path')}")
+        click.echo(f"  Client key: {result.get('mtls_client_key_path')}")
+        click.echo(f"  CA bundle: {result.get('mtls_ca_bundle_path')}")
 
-        # Check certificate expiry
-        cert_info = get_certificate_expiry_info(config.auth.mtls.client_cert_path)
-
-        if "error" in cert_info:
-            click.echo(f"  Status: {click.style('Error', fg='red')} - {cert_info['error']}")
+        if result.get("mtls_cert_error"):
+            click.echo(f"  Status: {click.style('Error', fg='red')} - {result['mtls_cert_error']}")
         else:
-            status = cert_info["status"]
-            days_value = cert_info.get("days_until_expiry")
+            cert_status = result.get("mtls_cert_status", "unknown")
+            days_value = result.get("mtls_cert_days_until_expiry")
             days = int(days_value) if days_value is not None else 0
 
-            if status == "expired":
+            if cert_status == "expired":
                 click.echo(f"  Status: {click.style('EXPIRED', fg='red', bold=True)}")
                 click.echo(f"  Expired: {abs(days)} days ago")
-            elif status == "critical":
+            elif cert_status == "critical":
                 click.echo(f"  Status: {click.style('CRITICAL', fg='red', bold=True)}")
                 click.echo(f"  Expires in: {click.style(f'{days} days', fg='red')}")
                 click.echo("  Renew immediately!")
-            elif status == "warning":
+            elif cert_status == "warning":
                 click.echo(f"  Status: {click.style('Warning', fg='yellow')}")
                 click.echo(f"  Expires in: {click.style(f'{days} days', fg='yellow')}")
                 click.echo("  Consider renewing soon.")
