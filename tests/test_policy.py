@@ -1354,7 +1354,7 @@ class TestPolicyEngineHITL:
         """Given matching HITL rule, returns HITL decision."""
         # Arrange
         engine = PolicyEngine(sample_policy)
-        ctx = make_context(tool_name="write_file", path="/project/config.yaml")
+        ctx = make_context(tool_name="write_file", path="/project/config.json")
 
         # Act
         decision = engine.evaluate(ctx)
