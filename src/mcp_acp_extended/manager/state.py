@@ -376,18 +376,32 @@ class ProxyState:
     # Request Statistics
     # =========================================================================
 
+    def record_request(self) -> None:
+        """Record an MCP request for stats tracking.
+
+        Called by middleware at the start of EVERY request (including discovery).
+        Emits stats_updated SSE event if UI is connected.
+        """
+        self._requests_total += 1
+
+        # Emit live updates to connected UI clients
+        if self.is_ui_connected:
+            self.emit_system_event(
+                SSEEventType.STATS_UPDATED,
+                stats=self.get_stats().to_dict(),
+            )
+
     def record_decision(self, decision: "Decision") -> None:
         """Record a policy decision for stats tracking.
 
-        Called by middleware after each request is processed.
+        Called by middleware after policy-evaluated requests.
+        Does NOT increment total (already counted by record_request).
         Emits stats_updated SSE event if UI is connected.
 
         Args:
             decision: The policy decision (ALLOW, DENY, or HITL).
         """
         from mcp_acp_extended.pdp import Decision
-
-        self._requests_total += 1
 
         if decision == Decision.ALLOW:
             self._requests_allowed += 1

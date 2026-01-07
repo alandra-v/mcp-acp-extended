@@ -1,5 +1,6 @@
 import { Link } from 'react-router-dom'
 import { cn } from '@/lib/utils'
+import { useAppState } from '@/context/AppStateContext'
 import type { Proxy } from '@/types/api'
 
 interface ProxyCardProps {
@@ -8,6 +9,9 @@ interface ProxyCardProps {
 
 export function ProxyCard({ proxy }: ProxyCardProps) {
   const isActive = proxy.status === 'running'
+  // Use live stats from SSE if available, otherwise fall back to API data
+  const { stats: liveStats } = useAppState()
+  const stats = liveStats ?? proxy.stats
 
   return (
     <Link to={`/proxy/${proxy.id}`} className="proxy-card">
@@ -54,11 +58,11 @@ export function ProxyCard({ proxy }: ProxyCardProps) {
             <span className="proxy-stat-label">Uptime</span>
           </div>
           <div className="proxy-stat">
-            <span className="proxy-stat-value">--</span>
+            <span className="proxy-stat-value">{stats.requests_total}</span>
             <span className="proxy-stat-label">Requests</span>
           </div>
           <div className="proxy-stat">
-            <span className="proxy-stat-value">--</span>
+            <span className="proxy-stat-value">{stats.requests_denied}</span>
             <span className="proxy-stat-label">Denied</span>
           </div>
         </div>

@@ -694,6 +694,10 @@ class PolicyEnforcementMiddleware(Middleware):
         arguments = self._extract_arguments(context)
         method = context.method or "unknown"
 
+        # Record request for stats (counts ALL requests including discovery)
+        if self._hitl_handler.proxy_state is not None:
+            self._hitl_handler.proxy_state.record_request()
+
         # Rate limiting check (before policy evaluation for efficiency)
         if self._rate_breach_handler and method == "tools/call":
             tool_name = arguments.get("name") if arguments else None
