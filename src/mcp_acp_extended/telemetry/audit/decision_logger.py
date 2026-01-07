@@ -15,15 +15,18 @@ __all__ = [
 
 import logging
 from pathlib import Path
-from typing import Callable
+from typing import TYPE_CHECKING, Callable
 
 from mcp.shared.exceptions import McpError
 from mcp.types import ErrorData, INTERNAL_ERROR
 
 from mcp_acp_extended.context import DecisionContext
 from mcp_acp_extended.pdp import Decision, MatchedRule
-from mcp_acp_extended.pep.hitl import HITLOutcome
 from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallback
+
+if TYPE_CHECKING:
+    from mcp_acp_extended.pep.hitl import HITLOutcome
+
 from mcp_acp_extended.telemetry.models.decision import DecisionEvent, MatchedRuleLog
 from mcp_acp_extended.utils.logging.logger_setup import setup_failclosed_audit_logger
 from mcp_acp_extended.utils.logging.logging_helpers import serialize_audit_event
@@ -136,6 +139,9 @@ class DecisionEventLogger:
         # Map USER_ALLOWED_ONCE to user_allowed for logging (same outcome, different caching)
         hitl_outcome_value: str | None = None
         if hitl_outcome:
+            # Local import to avoid circular dependency (pep.hitl -> pep.__init__ -> pep.middleware -> here)
+            from mcp_acp_extended.pep.hitl import HITLOutcome
+
             if hitl_outcome == HITLOutcome.USER_ALLOWED_ONCE:
                 hitl_outcome_value = "user_allowed"
             else:
