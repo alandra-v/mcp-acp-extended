@@ -402,15 +402,7 @@ def create_proxy(
                             f"Another proxy instance is already running (socket: {SOCKET_PATH})"
                         )
                     except (ConnectionRefusedError, FileNotFoundError, OSError):
-                        # Stale socket, safe to remove
-                        system_logger.warning(
-                            {
-                                "event": "uds_stale_socket_cleaned",
-                                "message": f"Cleaned up stale socket: {SOCKET_PATH}",
-                                "component": "proxy",
-                                "path": str(SOCKET_PATH),
-                            }
-                        )
+                        # Stale socket, remove it
                         SOCKET_PATH.unlink(missing_ok=True)
 
                 # Check if HTTP port is already in use (another instance running)
@@ -456,10 +448,17 @@ def create_proxy(
                 uds_server = uvicorn.Server(uds_config)
 
                 # HTTP server for browser
+                # Create socket with SO_REUSEADDR to avoid TIME_WAIT issues after crashes
+                # This allows immediate rebinding if the previous process died unexpectedly
+                http_socket = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM)
+                http_socket.setsockopt(socket_module.SOL_SOCKET, socket_module.SO_REUSEADDR, 1)
+                http_socket.bind(("127.0.0.1", DEFAULT_API_PORT))
+                http_socket.listen(100)
+                http_socket.setblocking(False)
+
                 http_config = uvicorn.Config(
                     http_app,
-                    host="127.0.0.1",
-                    port=DEFAULT_API_PORT,
+                    fd=http_socket.fileno(),
                     log_config=None,
                 )
                 http_server = uvicorn.Server(http_config)
@@ -673,9 +672,17 @@ def create_proxy(
                         }
                     )
 
-                # Note: Socket cleanup is NOT done here because os._exit() in signal
+                # Note: UDS socket file cleanup is NOT done here because os._exit() in signal
                 # handlers bypasses finally blocks. Stale socket detection at startup
-                # (cleanup_stale_socket) handles orphaned sockets instead.
+                # (cleanup_stale_socket) handles orphaned UDS sockets instead.
+                #
+                # However, we DO close the HTTP socket here to release the port binding.
+                # This helps avoid TIME_WAIT issues on graceful shutdown.
+                # (If os._exit() is called, the OS will clean up the TCP socket anyway)
+                try:
+                    http_socket.close()
+                except (NameError, Exception):
+                    pass  # Socket not created or already closed
 
             await device_monitor.stop()
             await audit_monitor.stop()
@@ -796,6 +803,11 @@ def create_proxy(
 
     # Create ProxyState aggregating all state for UI exposure
     # Wraps ApprovalStore and SessionManager - proxy is source of truth
+    # Compute mtls_enabled: True if HTTPS backend with mTLS config
+    backend_url = config.backend.http.url if config.backend.http else None
+    mtls_enabled = (
+        mtls_config is not None and backend_url is not None and backend_url.lower().startswith("https://")
+    )
     proxy_state = ProxyState(
         backend_id=config.backend.server_name,
         api_port=DEFAULT_API_PORT,
@@ -803,7 +815,9 @@ def create_proxy(
         session_manager=session_manager,
         command=config.backend.stdio.command if config.backend.stdio else None,
         args=config.backend.stdio.args if config.backend.stdio else None,
-        url=config.backend.http.url if config.backend.http else None,
+        url=backend_url,
+        backend_transport=transport_type,
+        mtls_enabled=mtls_enabled,
     )
 
     # Wire proxy state to HITL handler for web UI integration

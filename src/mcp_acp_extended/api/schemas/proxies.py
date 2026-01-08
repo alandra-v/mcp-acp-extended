@@ -34,4 +34,8 @@ class ProxyResponse(BaseModel):
     command: str | None = None
     args: list[str] | None = None
     url: str | None = None
+    client_transport: str = "stdio"
+    backend_transport: str = "stdio"
+    mtls_enabled: bool = False
+    client_id: str | None = None
     stats: StatsResponse

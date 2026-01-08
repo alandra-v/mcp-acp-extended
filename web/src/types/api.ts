@@ -18,6 +18,10 @@ export interface Proxy {
   command: string | null
   args: string[] | null
   url: string | null
+  client_transport: 'stdio' | 'sse' | 'streamable-http'
+  backend_transport: 'stdio' | 'streamablehttp'
+  mtls_enabled: boolean
+  client_id: string | null
   stats: ProxyStats
 }
 

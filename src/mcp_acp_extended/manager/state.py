@@ -153,6 +153,10 @@ class ProxyInfo:
         command: Backend command (for STDIO transport).
         args: Backend command arguments (for STDIO transport).
         url: Backend URL (for HTTP transport).
+        client_transport: Transport type for client-to-proxy connection.
+        backend_transport: Transport type for proxy-to-backend connection.
+        mtls_enabled: Whether mTLS is enabled for backend connection.
+        client_id: MCP client application name (from initialize request).
     """
 
     id: str
@@ -165,6 +169,10 @@ class ProxyInfo:
     command: str | None = None
     args: list[str] | None = None
     url: str | None = None
+    client_transport: str = "stdio"
+    backend_transport: str = "stdio"
+    mtls_enabled: bool = False
+    client_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -313,6 +321,8 @@ class ProxyState:
         command: str | None = None,
         args: list[str] | None = None,
         url: str | None = None,
+        backend_transport: str = "stdio",
+        mtls_enabled: bool = False,
     ) -> None:
         """Initialize proxy state.
 
@@ -324,6 +334,8 @@ class ProxyState:
             command: Backend command (for STDIO transport).
             args: Backend command arguments (for STDIO transport).
             url: Backend URL (for HTTP transport).
+            backend_transport: Transport type for proxy-to-backend ("stdio" or "streamablehttp").
+            mtls_enabled: Whether mTLS is enabled for backend connection.
         """
         # Generate unique proxy ID: 8-char UUID prefix + backend ID
         self._id = f"{uuid.uuid4().hex[:8]}:{backend_id}"
@@ -335,6 +347,9 @@ class ProxyState:
         self._command = command
         self._args = args
         self._url = url
+        self._backend_transport = backend_transport
+        self._mtls_enabled = mtls_enabled
+        self._client_id: str | None = None  # Set by middleware on first initialize
 
         # Pending approvals (for SSE)
         self._pending: dict[str, PendingApprovalRequest] = {}
@@ -352,6 +367,18 @@ class ProxyState:
     def proxy_id(self) -> str:
         """Get the unique proxy ID."""
         return self._id
+
+    def set_client_id(self, client_id: str) -> None:
+        """Set MCP client ID from initialize request.
+
+        Called by middleware when client first connects. Only sets once
+        (first client wins for the session).
+
+        Args:
+            client_id: Client application name (e.g., "claude-desktop").
+        """
+        if self._client_id is None:
+            self._client_id = client_id
 
     def get_proxy_info(self) -> ProxyInfo:
         """Get current proxy information.
@@ -371,6 +398,10 @@ class ProxyState:
             command=self._command,
             args=self._args,
             url=self._url,
+            client_transport="stdio",  # Always stdio for now (Claude Desktop)
+            backend_transport=self._backend_transport,
+            mtls_enabled=self._mtls_enabled,
+            client_id=self._client_id,
         )
 
     # =========================================================================

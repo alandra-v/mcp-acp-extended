@@ -246,6 +246,8 @@ class PolicyEnforcementMiddleware(Middleware):
     def _extract_client_name(self, context: MiddlewareContext[Any]) -> None:
         """Extract and cache client name from initialize request.
 
+        Also updates ProxyState with client_id for UI display.
+
         Args:
             context: Middleware context.
         """
@@ -255,6 +257,9 @@ class PolicyEnforcementMiddleware(Middleware):
         client_info = extract_client_info(context)
         if client_info.name:
             self._client_name = client_info.name
+            # Update ProxyState for UI display
+            if self._hitl_handler.proxy_state is not None:
+                self._hitl_handler.proxy_state.set_client_id(client_info.name)
 
     async def _build_context(
         self,

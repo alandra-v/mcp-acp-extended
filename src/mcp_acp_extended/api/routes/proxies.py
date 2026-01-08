@@ -31,6 +31,10 @@ def _build_proxy_response(info: ProxyInfo, stats: ProxyStats) -> ProxyResponse:
         command=info.command,
         args=info.args,
         url=info.url,
+        client_transport=info.client_transport,
+        backend_transport=info.backend_transport,
+        mtls_enabled=info.mtls_enabled,
+        client_id=info.client_id,
         stats=StatsResponse(
             requests_total=stats.requests_total,
             requests_allowed=stats.requests_allowed,

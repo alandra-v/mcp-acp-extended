@@ -4,6 +4,7 @@ import { ArrowLeft } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { DetailSidebar, type DetailSection } from '@/components/detail/DetailSidebar'
+import { TransportFlow } from '@/components/detail/TransportFlow'
 import { StatsSection } from '@/components/detail/StatsSection'
 import { ApprovalsSection } from '@/components/detail/ApprovalsSection'
 import { CachedSection } from '@/components/detail/CachedSection'
@@ -110,6 +111,14 @@ export function ProxyDetailPage() {
         <div className="min-w-0">
           {activeSection === 'overview' && (
             <>
+              <TransportFlow
+                clientTransport={proxy.client_transport}
+                backendTransport={proxy.backend_transport}
+                mtlsEnabled={proxy.mtls_enabled}
+                backendName={proxy.backend_id}
+                clientId={proxy.client_id}
+                loaded={loaded}
+              />
               <StatsSection loaded={loaded} />
               <ApprovalsSection
                 approvals={proxyPending}
