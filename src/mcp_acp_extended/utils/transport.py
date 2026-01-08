@@ -11,9 +11,11 @@ import ssl
 import time
 from typing import TYPE_CHECKING, Literal
 
+import httpx
 from fastmcp.client.transports import ClientTransport, StdioTransport, StreamableHttpTransport
 from fastmcp.server.proxy import ProxyClient
 
+from mcp_acp_extended import __version__
 from mcp_acp_extended.constants import (
     BACKEND_RETRY_BACKOFF_MULTIPLIER,
     BACKEND_RETRY_INITIAL_DELAY,
@@ -31,7 +33,12 @@ from mcp_acp_extended.security.mtls import (
     validate_mtls_config,
 )
 
+# User-Agent header for HTTP backend connections (informational, not security)
+USER_AGENT = f"mcp-acp-extended/{__version__}"
+
 if TYPE_CHECKING:
+    from mcp.shared._httpx_utils import McpHttpClientFactory
+
     from mcp_acp_extended.config import BackendConfig, HttpTransportConfig, MTLSConfig, StdioTransportConfig
 
 logger = logging.getLogger(__name__)
@@ -40,15 +47,82 @@ logger = logging.getLogger(__name__)
 __all__ = [
     "SSLCertificateError",
     "SSLHandshakeError",
+    "USER_AGENT",
     "_check_certificate_expiry",
     "_validate_certificates",
     "check_http_health",
     "check_http_health_with_retry",
     "create_backend_transport",
+    "create_httpx_client_factory",
     "create_mtls_client_factory",
     "get_certificate_expiry_info",
     "validate_mtls_config",
 ]
+
+
+# =============================================================================
+# HTTP Client Factory
+# =============================================================================
+
+
+def create_httpx_client_factory(
+    mtls_config: "MTLSConfig | None" = None,
+    url: str | None = None,
+) -> "McpHttpClientFactory":
+    """Create an httpx client factory with User-Agent header.
+
+    Always includes the mcp-acp-extended User-Agent header for observability.
+    Optionally configures mTLS if certificates are provided and URL is HTTPS.
+
+    Args:
+        mtls_config: Optional mTLS configuration for client certificate auth.
+        url: Optional URL to check if HTTPS (mTLS only applies to HTTPS).
+
+    Returns:
+        Factory callable that creates configured httpx.AsyncClient instances.
+    """
+    # Determine if mTLS should be used (only for HTTPS URLs)
+    use_mtls = mtls_config is not None and url is not None and url.lower().startswith("https://")
+
+    if use_mtls:
+        # Get the mTLS factory and wrap it to add User-Agent
+        assert mtls_config is not None  # Guaranteed by use_mtls check
+        mtls_factory = create_mtls_client_factory(mtls_config)
+
+        def factory_with_mtls(
+            headers: dict[str, str] | None = None,
+            timeout: httpx.Timeout | None = None,
+            auth: httpx.Auth | None = None,
+        ) -> httpx.AsyncClient:
+            """Create httpx client with mTLS and User-Agent."""
+            merged_headers = {"User-Agent": USER_AGENT}
+            if headers:
+                merged_headers.update(headers)
+            return mtls_factory(
+                headers=merged_headers,
+                timeout=timeout,
+                auth=auth,
+            )
+
+        return factory_with_mtls
+
+    # No mTLS - create simple factory with just User-Agent
+    def factory_simple(
+        headers: dict[str, str] | None = None,
+        timeout: httpx.Timeout | None = None,
+        auth: httpx.Auth | None = None,
+    ) -> httpx.AsyncClient:
+        """Create httpx client with User-Agent."""
+        merged_headers = {"User-Agent": USER_AGENT}
+        if headers:
+            merged_headers.update(headers)
+        return httpx.AsyncClient(
+            headers=merged_headers,
+            timeout=timeout,
+            auth=auth,
+        )
+
+    return factory_simple
 
 
 # =============================================================================
@@ -220,11 +294,8 @@ def create_backend_transport(
                 "Internal error: HTTP transport selected but http_config is None. "
                 "This indicates a bug in transport selection logic."
             )
-        # Create mTLS client factory if configured AND URL is https://
-        # mTLS only applies to HTTPS connections
-        httpx_client_factory = None
-        if mtls_config is not None and http_config.url.lower().startswith("https://"):
-            httpx_client_factory = create_mtls_client_factory(mtls_config)
+        # Create httpx client factory with User-Agent (and optionally mTLS)
+        httpx_client_factory = create_httpx_client_factory(mtls_config, http_config.url)
 
         transport: ClientTransport = StreamableHttpTransport(
             url=http_config.url,
@@ -319,11 +390,9 @@ async def _check_async(
         FileNotFoundError: If mTLS certificate files don't exist.
         ValueError: If mTLS certificates are invalid.
     """
-    # Create mTLS client factory if configured AND URL is https://
-    # mTLS only applies to HTTPS connections
-    httpx_client_factory = None
-    if mtls_config is not None and url.lower().startswith("https://"):
-        httpx_client_factory = create_mtls_client_factory(mtls_config)
+    # Create httpx client factory with User-Agent header
+    # mTLS is only enabled if mtls_config provided AND url is https://
+    httpx_client_factory = create_httpx_client_factory(mtls_config, url)
 
     transport = StreamableHttpTransport(url=url, httpx_client_factory=httpx_client_factory)
     client = ProxyClient(transport)

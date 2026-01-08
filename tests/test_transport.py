@@ -12,11 +12,13 @@ from fastmcp.client.transports import StdioTransport, StreamableHttpTransport
 
 from mcp_acp_extended.config import BackendConfig, HttpTransportConfig, MTLSConfig, StdioTransportConfig
 from mcp_acp_extended.utils.transport import (
+    USER_AGENT,
     SSLCertificateError,
     SSLHandshakeError,
     _check_certificate_expiry,
     _validate_certificates,
     create_backend_transport,
+    create_httpx_client_factory,
     create_mtls_client_factory,
 )
 
@@ -475,8 +477,8 @@ class TestTransportWithMTLS:
         # Verify factory was set
         assert transport.httpx_client_factory is not None
 
-    def test_http_transport_without_mtls_no_factory(self, http_config: HttpTransportConfig):
-        """StreamableHttpTransport created without factory when mTLS is None."""
+    def test_http_transport_without_mtls_has_user_agent_factory(self, http_config: HttpTransportConfig):
+        """StreamableHttpTransport always has factory for User-Agent header."""
         # Arrange
         config = BackendConfig(server_name="test", transport="streamablehttp", http=http_config)
 
@@ -484,9 +486,9 @@ class TestTransportWithMTLS:
         with patch("mcp_acp_extended.utils.transport.check_http_health"):
             transport, _ = create_backend_transport(config, mtls_config=None)
 
-        # Assert
+        # Assert - factory is always set (for User-Agent), even without mTLS
         assert isinstance(transport, StreamableHttpTransport)
-        assert transport.httpx_client_factory is None
+        assert transport.httpx_client_factory is not None
 
     def test_stdio_transport_ignores_mtls(self, stdio_config: StdioTransportConfig, mtls_config: MTLSConfig):
         """STDIO transport ignores mTLS configuration."""
@@ -519,3 +521,95 @@ class TestTransportWithMTLS:
         call_args = mock_health.call_args
         assert call_args[0][0] == http_config.url  # URL
         assert call_args[0][2] == mtls_config  # mtls_config (3rd positional arg)
+
+
+# ============================================================================
+# Tests: User-Agent Header
+# ============================================================================
+
+
+class TestUserAgentHeader:
+    """Tests for User-Agent header in HTTP client factory."""
+
+    def test_user_agent_format(self):
+        """User-Agent follows expected format."""
+        # Assert - format is "mcp-acp-extended/{version}"
+        assert USER_AGENT.startswith("mcp-acp-extended/")
+        # Version should be present (e.g., "0.1.0")
+        version_part = USER_AGENT.split("/")[1]
+        assert len(version_part) > 0
+
+    @pytest.mark.asyncio
+    async def test_factory_without_mtls_includes_user_agent(self):
+        """Factory without mTLS includes User-Agent header."""
+        # Arrange
+        factory = create_httpx_client_factory(mtls_config=None, url="http://localhost:3000")
+
+        # Act
+        client = factory()
+
+        # Assert
+        assert client.headers.get("User-Agent") == USER_AGENT
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_factory_with_mtls_includes_user_agent(self, tmp_path: Path):
+        """Factory with mTLS includes User-Agent header."""
+        # Arrange - create mTLS config with valid paths
+        cert_path = tmp_path / "client.pem"
+        key_path = tmp_path / "client-key.pem"
+        ca_path = tmp_path / "ca-bundle.pem"
+        cert_path.write_text("cert")
+        key_path.write_text("key")
+        ca_path.write_text("ca")
+
+        mtls_config = MTLSConfig(
+            client_cert_path=str(cert_path),
+            client_key_path=str(key_path),
+            ca_bundle_path=str(ca_path),
+        )
+
+        # Act - mock both certificate validations (create_mtls_client_factory calls _validate_certificates)
+        with (
+            patch("mcp_acp_extended.utils.transport.create_mtls_client_factory") as mock_mtls,
+            patch("mcp_acp_extended.security.mtls._validate_certificates"),
+        ):
+            # Mock the mTLS factory to return a simple client factory
+            mock_mtls.return_value = lambda headers=None, timeout=None, auth=None: httpx.AsyncClient(
+                headers=headers, timeout=timeout, auth=auth
+            )
+            factory = create_httpx_client_factory(mtls_config=mtls_config, url="https://localhost:3000")
+            client = factory()
+
+        # Assert
+        assert client.headers.get("User-Agent") == USER_AGENT
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_factory_merges_custom_headers_with_user_agent(self):
+        """Factory merges custom headers with User-Agent."""
+        # Arrange
+        factory = create_httpx_client_factory(mtls_config=None, url="http://localhost:3000")
+        custom_headers = {"X-Custom-Header": "test-value"}
+
+        # Act
+        client = factory(headers=custom_headers)
+
+        # Assert - both headers present
+        assert client.headers.get("User-Agent") == USER_AGENT
+        assert client.headers.get("X-Custom-Header") == "test-value"
+        await client.aclose()
+
+    @pytest.mark.asyncio
+    async def test_custom_user_agent_overrides_default(self):
+        """Custom User-Agent in headers overrides default."""
+        # Arrange
+        factory = create_httpx_client_factory(mtls_config=None, url="http://localhost:3000")
+        custom_headers = {"User-Agent": "custom-agent/1.0"}
+
+        # Act
+        client = factory(headers=custom_headers)
+
+        # Assert - custom User-Agent takes precedence
+        assert client.headers.get("User-Agent") == "custom-agent/1.0"
+        await client.aclose()

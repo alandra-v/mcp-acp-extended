@@ -96,7 +96,6 @@ def create_mtls_client_factory(
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
-        follow_redirects: bool = False,
     ) -> httpx.AsyncClient:
         """Create httpx client with mTLS certificates.
 
@@ -106,7 +105,6 @@ def create_mtls_client_factory(
             headers: Optional headers to pass to the client.
             timeout: Optional timeout configuration.
             auth: Optional httpx auth handler.
-            follow_redirects: Whether to follow HTTP redirects.
 
         Returns:
             Configured httpx.AsyncClient with mTLS certificates.
@@ -121,7 +119,6 @@ def create_mtls_client_factory(
             headers=headers,
             timeout=timeout,
             auth=auth,
-            follow_redirects=follow_redirects,
         )
 
     return factory
