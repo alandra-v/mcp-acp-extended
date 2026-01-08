@@ -58,6 +58,16 @@ async def pending_approvals_stream(state: ProxyStateDep) -> StreamingResponse:
             }
             yield f"data: {json.dumps(snapshot)}\n\n"
 
+            # Send current cached approvals
+            cached_approvals = state.get_cached_approvals_for_sse()
+            cached_snapshot = {
+                "type": SSEEventType.CACHED_SNAPSHOT.value,
+                "approvals": cached_approvals,
+                "ttl_seconds": state._approval_store.ttl_seconds,
+                "count": len(cached_approvals),
+            }
+            yield f"data: {json.dumps(cached_snapshot)}\n\n"
+
             # Stream new events
             while True:
                 try:

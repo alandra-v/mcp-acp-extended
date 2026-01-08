@@ -44,12 +44,6 @@ export interface CachedApproval {
   expires_in_seconds: number
 }
 
-export interface CachedApprovalsResponse {
-  count: number
-  ttl_seconds: number
-  approvals: CachedApproval[]
-}
-
 export interface ProxyStatus {
   running: boolean
   uptime_seconds: number
@@ -164,6 +158,14 @@ export interface SSECacheEvent extends SSESystemEventBase {
   count?: number
 }
 
+// Cached approvals snapshot (full state update via SSE)
+export interface SSECachedSnapshotEvent {
+  type: 'cached_snapshot'
+  approvals: CachedApproval[]
+  ttl_seconds: number
+  count?: number
+}
+
 // Backend Connection Events
 export interface SSEBackendEvent extends SSESystemEventBase {
   type: 'backend_connected' | 'backend_reconnected' | 'backend_disconnected' | 'backend_timeout' | 'backend_refused'
@@ -220,6 +222,7 @@ export type SSESystemEvent =
 // Discriminated union of all SSE event types
 export type SSEEvent =
   | SSESnapshotEvent
+  | SSECachedSnapshotEvent
   | SSEPendingCreatedEvent
   | SSEPendingResolvedEvent
   | SSEPendingTimeoutEvent

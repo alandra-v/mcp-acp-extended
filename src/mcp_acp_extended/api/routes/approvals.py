@@ -103,4 +103,7 @@ async def delete_approval(
         path=path,
     )
 
+    # Emit updated cache snapshot
+    state.emit_cached_snapshot()
+
     return DeleteApprovalResponse(deleted=True, status="ok")

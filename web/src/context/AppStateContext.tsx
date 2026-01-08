@@ -1,9 +1,9 @@
 import { createContext, useContext, useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
-import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest } from '@/api/approvals'
+import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest, clearCachedApprovals, deleteCachedApproval } from '@/api/approvals'
 import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
 import { playErrorSound } from '@/hooks/useErrorSound'
-import type { PendingApproval, ProxyStats, SSEEvent, SSEEventType, SSESystemEvent } from '@/types/api'
+import type { CachedApproval, PendingApproval, ProxyStats, SSEEvent, SSEEventType, SSESystemEvent } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
 
@@ -98,12 +98,16 @@ export type ConnectionStatus = 'connected' | 'reconnecting' | 'disconnected'
 
 interface AppStateContextValue {
   pending: PendingApproval[]
+  cached: CachedApproval[]
+  cachedTtlSeconds: number
   stats: ProxyStats | null
   connected: boolean
   connectionStatus: ConnectionStatus
   approve: (id: string) => Promise<void>
   approveOnce: (id: string) => Promise<void>
   deny: (id: string) => Promise<void>
+  clearCached: () => Promise<void>
+  deleteCached: (subjectId: string, toolName: string, path: string | null) => Promise<void>
 }
 
 const AppStateContext = createContext<AppStateContextValue | null>(null)
@@ -113,6 +117,8 @@ const MAX_RECONNECT_ERRORS = 5
 
 export function AppStateProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<PendingApproval[]>([])
+  const [cached, setCached] = useState<CachedApproval[]>([])
+  const [cachedTtlSeconds, setCachedTtlSeconds] = useState(0)
   const [stats, setStats] = useState<ProxyStats | null>(null)
   const [connected, setConnected] = useState(false)
   const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('reconnecting')
@@ -157,6 +163,14 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           if (event.approval_id) {
             setPending((prev) => prev.filter((p) => p.id !== event.approval_id))
             toast.warning('Approval request timed out')
+          }
+          break
+
+        // Cached approvals snapshot (full state from SSE)
+        case 'cached_snapshot':
+          setCached(event.approvals || [])
+          if (event.ttl_seconds !== undefined) {
+            setCachedTtlSeconds(event.ttl_seconds)
           }
           break
 
@@ -267,8 +281,30 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     }
   }, [])
 
+  const clearCached = useCallback(async () => {
+    try {
+      await clearCachedApprovals()
+      // Note: State update comes from SSE cached_snapshot event
+    } catch (e) {
+      console.error('Failed to clear cache:', e)
+      toast.error('Failed to clear cache')
+      playErrorSound()
+    }
+  }, [])
+
+  const deleteCached = useCallback(async (subjectId: string, toolName: string, path: string | null) => {
+    try {
+      await deleteCachedApproval(subjectId, toolName, path)
+      // Note: State update comes from SSE cached_snapshot event
+    } catch (e) {
+      console.error('Failed to delete cached approval:', e)
+      toast.error('Failed to delete cached approval')
+      playErrorSound()
+    }
+  }, [])
+
   return (
-    <AppStateContext.Provider value={{ pending, stats, connected, connectionStatus, approve, approveOnce, deny }}>
+    <AppStateContext.Provider value={{ pending, cached, cachedTtlSeconds, stats, connected, connectionStatus, approve, approveOnce, deny, clearCached, deleteCached }}>
       {children}
     </AppStateContext.Provider>
   )

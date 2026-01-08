@@ -89,6 +89,7 @@ class SSEEventType(str, Enum):
     # Cache
     CACHE_CLEARED = "cache_cleared"
     CACHE_ENTRY_DELETED = "cache_entry_deleted"
+    CACHED_SNAPSHOT = "cached_snapshot"
 
     # Request processing
     REQUEST_ERROR = "request_error"
@@ -461,6 +462,51 @@ class ProxyState:
 
         return result
 
+    def get_cached_approvals_for_sse(self) -> list[dict[str, Any]]:
+        """Get cached approvals in SSE-ready format.
+
+        Returns:
+            List of dicts with approval details for SSE transmission.
+        """
+        ttl = self._approval_store.ttl_seconds
+        now = time.monotonic()
+        result = []
+
+        for (subject_id, tool_name, path), approval in self._approval_store.iter_all():
+            age = now - approval.stored_at
+            expires_in = max(0.0, ttl - age)
+            result.append(
+                {
+                    "subject_id": subject_id,
+                    "tool_name": tool_name,
+                    "path": path,
+                    "request_id": approval.request_id,
+                    "age_seconds": round(age, 1),
+                    "ttl_seconds": ttl,
+                    "expires_in_seconds": round(expires_in, 1),
+                }
+            )
+
+        return result
+
+    def emit_cached_snapshot(self) -> None:
+        """Emit current cached approvals to all SSE subscribers.
+
+        Called after cache modifications to keep UI in sync.
+        """
+        if not self.is_ui_connected:
+            return
+
+        approvals = self.get_cached_approvals_for_sse()
+        self._broadcast_event(
+            {
+                "type": SSEEventType.CACHED_SNAPSHOT.value,
+                "approvals": approvals,
+                "ttl_seconds": self._approval_store.ttl_seconds,
+                "count": len(approvals),
+            }
+        )
+
     def clear_all_cached_approvals(self) -> int:
         """Clear all cached approvals.
 
@@ -474,6 +520,8 @@ class ProxyState:
             message="Approval cache cleared",
             count=count,
         )
+        # Emit updated (empty) cache snapshot
+        self.emit_cached_snapshot()
         return count
 
     # =========================================================================

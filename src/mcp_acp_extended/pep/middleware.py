@@ -627,6 +627,9 @@ class PolicyEnforcementMiddleware(Middleware):
                     path=path,
                     request_id=request_id,
                 )
+                # Emit updated cache to UI
+                if self._hitl_handler.proxy_state is not None:
+                    self._hitl_handler.proxy_state.emit_cached_snapshot()
 
             # Log and allow
             self._decision_logger.log(

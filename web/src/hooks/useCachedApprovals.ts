@@ -1,7 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
-import { toast } from '@/components/ui/sonner'
-import { getCachedApprovals, clearCachedApprovals, deleteCachedApproval } from '@/api/approvals'
-import { playErrorSound } from '@/hooks/useErrorSound'
+import { useAppState } from '@/context/AppStateContext'
 import type { CachedApproval } from '@/types/api'
 
 interface UseCachedApprovalsReturn {
@@ -10,71 +7,26 @@ interface UseCachedApprovalsReturn {
   loading: boolean
   clear: () => Promise<void>
   deleteEntry: (subjectId: string, toolName: string, path: string | null) => Promise<void>
-  refresh: () => Promise<void>
+  refresh: () => void
 }
 
+/**
+ * Hook for accessing cached approvals from SSE-powered context.
+ *
+ * Cached approvals are now delivered via SSE (no polling).
+ * State is managed centrally in AppStateContext.
+ */
 export function useCachedApprovals(): UseCachedApprovalsReturn {
-  const [cached, setCached] = useState<CachedApproval[]>([])
-  const [ttlSeconds, setTtlSeconds] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const mountedRef = useRef(true)
+  const { cached, cachedTtlSeconds, connected, clearCached, deleteCached } = useAppState()
 
-  const fetchCached = useCallback(async () => {
-    try {
-      setLoading(true)
-      const data = await getCachedApprovals()
-      if (mountedRef.current) {
-        setCached(data.approvals)
-        setTtlSeconds(data.ttl_seconds)
-      }
-    } catch {
-      // Silent failure - cached approvals are non-critical
-    } finally {
-      if (mountedRef.current) {
-        setLoading(false)
-      }
-    }
-  }, [])
-
-  const clear = useCallback(async () => {
-    try {
-      await clearCachedApprovals()
-      if (mountedRef.current) {
-        setCached([])
-      }
-      // Note: Success toast comes from SSE event (cache_cleared)
-    } catch {
-      toast.error('Failed to clear cache')
-      playErrorSound()
-    }
-  }, [])
-
-  const deleteEntry = useCallback(async (subjectId: string, toolName: string, path: string | null) => {
-    try {
-      await deleteCachedApproval(subjectId, toolName, path)
-      if (mountedRef.current) {
-        setCached((prev) => prev.filter(
-          (c) => !(c.subject_id === subjectId && c.tool_name === toolName && c.path === path)
-        ))
-      }
-      // Note: Success toast comes from SSE event (cache_entry_deleted)
-    } catch {
-      toast.error('Failed to delete cached approval')
-      playErrorSound()
-    }
-  }, [])
-
-  useEffect(() => {
-    mountedRef.current = true
-    fetchCached()
-
-    // Refresh every 10 seconds
-    const interval = setInterval(fetchCached, 10000)
-    return () => {
-      mountedRef.current = false
-      clearInterval(interval)
-    }
-  }, [fetchCached])
-
-  return { cached, ttlSeconds, loading, clear, deleteEntry, refresh: fetchCached }
+  return {
+    cached,
+    ttlSeconds: cachedTtlSeconds,
+    // We're "loading" until we receive the first SSE snapshot
+    loading: !connected,
+    clear: clearCached,
+    deleteEntry: deleteCached,
+    // Refresh is now a no-op since SSE delivers updates automatically
+    refresh: () => {},
+  }
 }
