@@ -258,8 +258,13 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     try {
       await approveRequest(id)
       toast.success('Request approved')
-    } catch {
-      // Error toast handled via SSE pending_not_found event
+    } catch (e) {
+      // 404 errors emit SSE pending_not_found event, but network errors don't
+      // Show fallback toast for non-404 errors (e.g., network failure)
+      if (e instanceof Error && !e.message.includes('404')) {
+        toast.error('Failed to approve request')
+        playErrorSound()
+      }
     }
   }, [])
 
@@ -267,8 +272,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     try {
       await approveOnceRequest(id)
       toast.success('Request approved (once)')
-    } catch {
-      // Error toast handled via SSE pending_not_found event
+    } catch (e) {
+      if (e instanceof Error && !e.message.includes('404')) {
+        toast.error('Failed to approve request')
+        playErrorSound()
+      }
     }
   }, [])
 
@@ -276,8 +284,11 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
     try {
       await denyRequest(id)
       toast.success('Request denied')
-    } catch {
-      // Error toast handled via SSE pending_not_found event
+    } catch (e) {
+      if (e instanceof Error && !e.message.includes('404')) {
+        toast.error('Failed to deny request')
+        playErrorSound()
+      }
     }
   }, [])
 
