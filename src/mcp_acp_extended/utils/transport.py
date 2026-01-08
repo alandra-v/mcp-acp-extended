@@ -9,7 +9,7 @@ import asyncio
 import logging
 import ssl
 import time
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 import httpx
 from fastmcp.client.transports import ClientTransport, StdioTransport, StreamableHttpTransport
@@ -93,6 +93,7 @@ def create_httpx_client_factory(
             headers: dict[str, str] | None = None,
             timeout: httpx.Timeout | None = None,
             auth: httpx.Auth | None = None,
+            **kwargs: Any,  # Accept additional args like follow_redirects
         ) -> httpx.AsyncClient:
             """Create httpx client with mTLS and User-Agent."""
             merged_headers = {"User-Agent": USER_AGENT}
@@ -102,6 +103,7 @@ def create_httpx_client_factory(
                 headers=merged_headers,
                 timeout=timeout,
                 auth=auth,
+                **kwargs,
             )
 
         return factory_with_mtls
@@ -111,6 +113,7 @@ def create_httpx_client_factory(
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
+        **kwargs: Any,  # Accept additional args like follow_redirects
     ) -> httpx.AsyncClient:
         """Create httpx client with User-Agent."""
         merged_headers = {"User-Agent": USER_AGENT}
@@ -120,6 +123,7 @@ def create_httpx_client_factory(
             headers=merged_headers,
             timeout=timeout,
             auth=auth,
+            **kwargs,
         )
 
     return factory_simple

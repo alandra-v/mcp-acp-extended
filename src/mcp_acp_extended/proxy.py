@@ -487,21 +487,52 @@ def create_proxy(
                 max_polls = int(API_SERVER_STARTUP_TIMEOUT_SECONDS / poll_interval)
                 for _ in range(max_polls):
                     await asyncio.sleep(poll_interval)
+                    # Check if server task crashed during startup
+                    if api_task.done():
+                        exc = api_task.exception()
+                        if exc:
+                            system_logger.error(
+                                {
+                                    "event": "api_server_startup_failed",
+                                    "message": f"API server failed to start: {exc}",
+                                    "component": "proxy",
+                                    "error": str(exc),
+                                    "error_type": type(exc).__name__,
+                                }
+                            )
+                            raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
                     if is_port_in_use(DEFAULT_API_PORT):
                         break
+
+                # Verify HTTP server is actually listening after poll timeout
+                if not is_port_in_use(DEFAULT_API_PORT):
+                    # Check if task failed after poll loop
+                    if api_task.done():
+                        exc = api_task.exception()
+                        if exc:
+                            raise RuntimeError(f"HTTP server failed to start: {exc}") from exc
+                    system_logger.error(
+                        {
+                            "event": "api_server_startup_timeout",
+                            "message": f"HTTP server not listening after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s",
+                            "component": "proxy",
+                            "port": DEFAULT_API_PORT,
+                        }
+                    )
+                    raise RuntimeError(
+                        f"HTTP server not listening on port {DEFAULT_API_PORT} "
+                        f"after {API_SERVER_STARTUP_TIMEOUT_SECONDS}s"
+                    )
 
                 # Set socket permissions after creation (0600 = owner read/write only)
                 if SOCKET_PATH.exists():
                     SOCKET_PATH.chmod(0o600)
 
-                # Register cleanup for socket (runs even on crash/signal)
-                # OS also cleans TemporaryItems on reboot, but this is belt-and-suspenders
+                # Define socket cleanup function (called from finally block and atexit)
+                # Primary cleanup is in finally block; atexit is belt-and-suspenders
+                # for edge cases where finally doesn't run (e.g., os._exit())
                 def cleanup_socket() -> None:
-                    """Remove UDS socket file on process exit.
-
-                    Registered with atexit to run on normal exit, signals,
-                    or unhandled exceptions. Logs but doesn't raise on failure.
-                    """
+                    """Remove UDS socket file on process exit."""
                     try:
                         SOCKET_PATH.unlink(missing_ok=True)
                     except OSError as e:
@@ -518,21 +549,24 @@ def create_proxy(
 
                 atexit.register(cleanup_socket)
 
-                # Auto-open management UI in browser (only if not already running)
-                if not ui_already_running:
-                    try:
-                        webbrowser.open(f"http://127.0.0.1:{DEFAULT_API_PORT}")
-                    except Exception:
-                        pass  # Non-fatal - UI can be opened manually
-
-                # Wire shared state to BOTH apps
+                # Wire shared state to BOTH apps BEFORE opening browser
                 # Both UDS and HTTP apps need access to the same state objects
+                # This must happen before browser opens to avoid race condition
+                # where SSE endpoint is hit before proxy_state is available
                 for api_app in (uds_app, http_app):
                     api_app.state.policy_reloader = policy_reloader
                     api_app.state.proxy_state = proxy_state
                     api_app.state.identity_provider = identity_provider
                     api_app.state.config = config
                     api_app.state.approval_store = enforcement_middleware.approval_store
+
+                # Auto-open management UI in browser (only if not already running)
+                # Must be after state wiring to ensure SSE endpoint works
+                if not ui_already_running:
+                    try:
+                        webbrowser.open(f"http://127.0.0.1:{DEFAULT_API_PORT}")
+                    except Exception:
+                        pass  # Non-fatal - UI can be opened manually
 
             # Setup SIGHUP handler for policy hot reload (Unix only)
             def handle_sighup() -> None:
@@ -639,8 +673,9 @@ def create_proxy(
                         }
                     )
 
-                # Socket cleanup is handled by atexit.register(cleanup_socket)
-                # No manager.json to delete - UDS replaces it
+                # Note: Socket cleanup is NOT done here because os._exit() in signal
+                # handlers bypasses finally blocks. Stale socket detection at startup
+                # (cleanup_stale_socket) handles orphaned sockets instead.
 
             await device_monitor.stop()
             await audit_monitor.stop()

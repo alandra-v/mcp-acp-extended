@@ -114,14 +114,17 @@ def start(no_ui: bool) -> None:
         click.echo("Proxy server ready - listening on STDIO", err=True)
         click.echo("Press Ctrl+C to stop", err=True)
 
-        # Set up clean shutdown on Ctrl+C
+        # Set up clean shutdown on Ctrl+C and kill
+        # Use os._exit(0) for immediate exit - finally blocks don't reliably run
+        # in async context with signals. Stale socket cleanup at startup handles this.
+        import os
         import signal
 
-        def handle_sigint(signum: int, frame: object) -> None:
-            # Raise SystemExit to allow cleanup (atexit handlers, finally blocks)
-            raise SystemExit(0)
+        def handle_shutdown(signum: int, frame: object) -> None:
+            os._exit(0)
 
-        signal.signal(signal.SIGINT, handle_sigint)
+        signal.signal(signal.SIGINT, handle_shutdown)
+        signal.signal(signal.SIGTERM, handle_shutdown)
 
         # proxy server listens for clients via STDIO
         try:

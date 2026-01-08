@@ -18,7 +18,7 @@ import logging
 import ssl
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from cryptography import x509
@@ -96,6 +96,7 @@ def create_mtls_client_factory(
         headers: dict[str, str] | None = None,
         timeout: httpx.Timeout | None = None,
         auth: httpx.Auth | None = None,
+        **kwargs: Any,  # Accept additional args like follow_redirects
     ) -> httpx.AsyncClient:
         """Create httpx client with mTLS certificates.
 
@@ -105,6 +106,7 @@ def create_mtls_client_factory(
             headers: Optional headers to pass to the client.
             timeout: Optional timeout configuration.
             auth: Optional httpx auth handler.
+            **kwargs: Additional arguments passed to httpx.AsyncClient.
 
         Returns:
             Configured httpx.AsyncClient with mTLS certificates.
@@ -119,6 +121,7 @@ def create_mtls_client_factory(
             headers=headers,
             timeout=timeout,
             auth=auth,
+            **kwargs,
         )
 
     return factory
