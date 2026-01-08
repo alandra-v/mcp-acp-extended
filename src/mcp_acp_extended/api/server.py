@@ -8,10 +8,11 @@ Currently implements:
 - Control API (/api/control) - policy reload
 
 Security:
-- All /api/* endpoints require bearer token authentication
-- Host header validation (DNS rebinding protection)
-- Origin header validation (CSRF protection)
-- Security response headers
+- HTTP: Bearer token authentication for /api/* endpoints
+- HTTP: Host header validation (DNS rebinding protection)
+- HTTP: Origin header validation (CSRF protection)
+- UDS: OS file permissions provide authentication (no token needed)
+- All: Security response headers
 
 Future additions:
 - Config management (/api/config)
@@ -52,12 +53,15 @@ from .security import SecurityMiddleware, is_valid_token_format
 STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
 
 
-def create_api_app(token: str | None = None) -> FastAPI:
+def create_api_app(token: str | None = None, is_uds: bool = False) -> FastAPI:
     """Create the FastAPI application with all routes.
 
     Args:
         token: Bearer token for API authentication. If None, security
             middleware is disabled (for standalone dev/testing).
+        is_uds: If True, this app serves UDS connections (OS permissions = auth).
+            UDS apps skip token/host/origin validation but keep size limits
+            and security headers.
 
     Returns:
         Configured FastAPI application.
@@ -68,14 +72,18 @@ def create_api_app(token: str | None = None) -> FastAPI:
         version="0.1.0",
     )
 
-    # Store token for injection into index.html
+    # Store token for injection into index.html (HTTP only, not UDS)
     app.state.api_token = token
 
+    # Mark if this is a UDS server (CLI uses UDS, browser uses HTTP)
+    app.state.is_uds_server = is_uds
+
     # Security middleware (must be added before CORS)
-    # Only enabled when token is provided (proxy mode)
-    # Disabled for standalone dev/testing
-    if token:
-        app.add_middleware(SecurityMiddleware, token=token)
+    # For UDS: skip token/host/origin checks (OS permissions = auth)
+    # For HTTP: full validation with token
+    # Disabled for standalone dev/testing (no token, not UDS)
+    if token or is_uds:
+        app.add_middleware(SecurityMiddleware, token=token, is_uds=is_uds)
 
     # CORS configuration
     # In production, this API runs on localhost only (same-origin with proxy)

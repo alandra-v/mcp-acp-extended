@@ -14,13 +14,13 @@ import webbrowser
 from typing import TYPE_CHECKING, Any
 
 import click
-import httpx
 
 from mcp_acp_extended.config import AppConfig
 
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
-from mcp_acp_extended.api.security import read_manager_file
+from mcp_acp_extended.cli.api_client import APIError, ProxyNotRunningError, api_request
+from mcp_acp_extended.constants import CLI_NOTIFICATION_TIMEOUT_SECONDS
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth.device_flow import (
     DeviceFlowDeniedError,
@@ -36,7 +36,7 @@ from mcp_acp_extended.utils.config import get_config_path
 
 
 def _notify_proxy(endpoint: str) -> bool:
-    """Notify running proxy of auth change.
+    """Notify running proxy of auth change via UDS.
 
     Args:
         endpoint: API endpoint path (e.g., "/api/auth/notify-login")
@@ -44,25 +44,11 @@ def _notify_proxy(endpoint: str) -> bool:
     Returns:
         True if notification succeeded, False otherwise.
     """
-    manager_info = read_manager_file()
-    if manager_info is None:
-        return False  # No proxy running
-
-    port = manager_info.get("port")
-    token = manager_info.get("token")
-    if not port or not token:
-        return False
-
     try:
-        url = f"http://127.0.0.1:{port}{endpoint}"
-        response = httpx.post(
-            url,
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=5.0,
-        )
-        return response.status_code == 200
-    except httpx.HTTPError:
-        return False
+        api_request("POST", endpoint, timeout=CLI_NOTIFICATION_TIMEOUT_SECONDS)
+        return True
+    except (ProxyNotRunningError, APIError):
+        return False  # Proxy not running or request failed
 
 
 def _load_config() -> AppConfig:

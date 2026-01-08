@@ -48,11 +48,21 @@ __all__ = [
     "DISCOVERY_METHODS",
     # Management API server
     "DEFAULT_API_PORT",
+    "SOCKET_CONNECT_TIMEOUT_SECONDS",
+    "API_SERVER_STARTUP_TIMEOUT_SECONDS",
+    "API_SERVER_SHUTDOWN_TIMEOUT_SECONDS",
+    "CLI_NOTIFICATION_TIMEOUT_SECONDS",
+    "CLI_POLICY_RELOAD_TIMEOUT_SECONDS",
+    # Runtime directory (UDS socket)
+    "RUNTIME_DIR",
+    "SOCKET_PATH",
     # History versioning
     "INITIAL_VERSION",
 ]
 
-from platformdirs import user_config_dir
+from pathlib import Path
+
+from platformdirs import user_config_dir, user_runtime_dir
 
 # ============================================================================
 # Protected Configuration Directory (Built-in Security)
@@ -220,7 +230,7 @@ TRANSPORT_ERRORS: tuple[type[Exception], ...] = _build_transport_errors()
 # - Client timeout: 30s, HITL timeout: 30s → Client times out during approval
 # - Client timeout: 60s, HITL timeout: 30s → Safe, 30s buffer for user response
 #
-DEFAULT_HITL_TIMEOUT_SECONDS: int = 30
+DEFAULT_HITL_TIMEOUT_SECONDS: int = 60
 
 # HITL timeout validation range (seconds)
 MIN_HITL_TIMEOUT_SECONDS: int = 5  # Minimum time for user to read and respond
@@ -288,6 +298,43 @@ DISCOVERY_METHODS: frozenset[str] = frozenset(
 # Default port for the management API server (serves UI and /api endpoints)
 # Runs inside the proxy process to share memory (sessions, approval cache)
 DEFAULT_API_PORT: int = 8765
+
+# Timeout for stale socket connection test (seconds)
+# Used when checking if another proxy instance is running
+SOCKET_CONNECT_TIMEOUT_SECONDS: float = 1.0
+
+# Timeout for API servers to become ready (seconds)
+# Proxy waits for HTTP port to accept connections before continuing
+API_SERVER_STARTUP_TIMEOUT_SECONDS: float = 2.0
+
+# Timeout for graceful API server shutdown (seconds)
+# After this, task is cancelled
+API_SERVER_SHUTDOWN_TIMEOUT_SECONDS: float = 5.0
+
+# Timeout for CLI proxy notifications (seconds)
+# Used for quick health checks (login/logout/reload notifications)
+CLI_NOTIFICATION_TIMEOUT_SECONDS: float = 5.0
+
+# Timeout for policy reload command (seconds)
+# Longer than notifications because it reads and validates policy file
+CLI_POLICY_RELOAD_TIMEOUT_SECONDS: float = 10.0
+
+# ============================================================================
+# Runtime Directory (Unix Domain Socket)
+# ============================================================================
+
+# Runtime directory for ephemeral files (sockets)
+# Platform-specific:
+#   - macOS: ~/Library/Caches/TemporaryItems/mcp-acp-extended/
+#   - Linux: $XDG_RUNTIME_DIR/mcp-acp-extended/ (auto-cleaned on logout)
+#
+# Note: This implementation is macOS-only. Linux support can be added later.
+RUNTIME_DIR: Path = Path(user_runtime_dir("mcp-acp-extended"))
+
+# Unix Domain Socket for CLI communication
+# OS file permissions provide authentication (no token needed)
+# CLI connects via UDS, browser uses HTTP with token
+SOCKET_PATH: Path = RUNTIME_DIR / "api.sock"
 
 # ============================================================================
 # History Versioning

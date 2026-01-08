@@ -3,26 +3,18 @@
 Tests token management, validation, and security middleware.
 """
 
-import json
-from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
-
 import pytest
-from fastapi import FastAPI, Request
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from starlette.responses import JSONResponse
 
 from mcp_acp_extended.api.security import (
     ALLOWED_HOSTS,
     ALLOWED_ORIGINS,
     MAX_REQUEST_SIZE,
     SecurityMiddleware,
-    delete_manager_file,
     generate_token,
     is_valid_token_format,
-    read_manager_file,
     validate_token,
-    write_manager_file,
 )
 
 
@@ -130,106 +122,12 @@ class TestValidateToken:
         assert validate_token(token, wrong) is False
 
 
-class TestWriteManagerFile:
-    """Tests for write_manager_file function."""
-
-    def test_writes_json_with_port_and_token(self, tmp_path):
-        """Creates manager.json with port, token, and timestamp."""
-        manager_file = tmp_path / ".mcp-acp-extended" / "manager.json"
-
-        with patch("mcp_acp_extended.api.security.MANAGER_FILE", manager_file):
-            write_manager_file(port=8765, token="test-token")
-
-        assert manager_file.exists()
-        data = json.loads(manager_file.read_text())
-        assert data["port"] == 8765
-        assert data["token"] == "test-token"
-        assert "started_at" in data
-
-    def test_creates_parent_directory(self, tmp_path):
-        """Creates parent directory if it doesn't exist."""
-        manager_file = tmp_path / "new_dir" / "manager.json"
-
-        with patch("mcp_acp_extended.api.security.MANAGER_FILE", manager_file):
-            write_manager_file(port=8765, token="test-token")
-
-        assert manager_file.parent.exists()
-
-    def test_sets_restrictive_permissions(self, tmp_path):
-        """Sets file permissions to 0o600 (owner read/write only)."""
-        manager_file = tmp_path / ".mcp-acp-extended" / "manager.json"
-
-        with patch("mcp_acp_extended.api.security.MANAGER_FILE", manager_file):
-            write_manager_file(port=8765, token="test-token")
-
-        # Check file mode (last 3 octal digits)
-        mode = manager_file.stat().st_mode & 0o777
-        assert mode == 0o600
-
-
-class TestDeleteManagerFile:
-    """Tests for delete_manager_file function."""
-
-    def test_deletes_existing_file(self, tmp_path):
-        """Deletes manager.json if it exists."""
-        manager_file = tmp_path / "manager.json"
-        manager_file.write_text("{}")
-
-        with patch("mcp_acp_extended.api.security.MANAGER_FILE", manager_file):
-            delete_manager_file()
-
-        assert not manager_file.exists()
-
-    def test_handles_missing_file(self, tmp_path):
-        """Does not raise if file doesn't exist."""
-        manager_file = tmp_path / "nonexistent.json"
-
-        with patch("mcp_acp_extended.api.security.MANAGER_FILE", manager_file):
-            delete_manager_file()  # Should not raise
-
-        assert not manager_file.exists()
-
-
-class TestReadManagerFile:
-    """Tests for read_manager_file function."""
-
-    def test_reads_existing_file(self, tmp_path):
-        """Returns dict from valid manager.json."""
-        manager_file = tmp_path / "manager.json"
-        data = {"port": 8765, "token": "test-token", "started_at": "2024-01-01T00:00:00"}
-        manager_file.write_text(json.dumps(data))
-
-        with patch("mcp_acp_extended.api.security.MANAGER_FILE", manager_file):
-            result = read_manager_file()
-
-        assert result == data
-
-    def test_returns_none_for_missing_file(self, tmp_path):
-        """Returns None if file doesn't exist."""
-        manager_file = tmp_path / "nonexistent.json"
-
-        with patch("mcp_acp_extended.api.security.MANAGER_FILE", manager_file):
-            result = read_manager_file()
-
-        assert result is None
-
-    def test_returns_none_for_invalid_json(self, tmp_path):
-        """Returns None if file contains invalid JSON."""
-        manager_file = tmp_path / "manager.json"
-        manager_file.write_text("not valid json")
-
-        with patch("mcp_acp_extended.api.security.MANAGER_FILE", manager_file):
-            result = read_manager_file()
-
-        assert result is None
-
-
-class TestSecurityMiddleware:
-    """Tests for SecurityMiddleware."""
+class TestSecurityMiddlewareHTTP:
+    """Tests for SecurityMiddleware with HTTP connections."""
 
     @pytest.fixture
     def app_with_middleware(self):
-        """Create app with security middleware."""
+        """Create app with security middleware (HTTP mode)."""
         app = FastAPI()
         token = "a" * 64
 
@@ -249,7 +147,8 @@ class TestSecurityMiddleware:
         async def public_endpoint():
             return {"status": "public"}
 
-        app.add_middleware(SecurityMiddleware, token=token)
+        # HTTP mode (is_uds=False is default)
+        app.add_middleware(SecurityMiddleware, token=token, is_uds=False)
         return app, token
 
     @pytest.fixture
@@ -418,6 +317,97 @@ class TestSecurityMiddleware:
         response = client.get("/public", headers={"host": "localhost:8765"})
 
         assert response.status_code == 200
+
+
+class TestSecurityMiddlewareUDS:
+    """Tests for SecurityMiddleware with UDS connections.
+
+    UDS connections are pre-authenticated by OS file permissions,
+    so token/host/origin validation is skipped.
+    """
+
+    @pytest.fixture
+    def uds_app_with_middleware(self):
+        """Create app with security middleware (UDS mode)."""
+        app = FastAPI()
+
+        @app.get("/api/test")
+        async def test_endpoint():
+            return {"status": "ok"}
+
+        @app.post("/api/mutate")
+        async def mutate_endpoint():
+            return {"status": "mutated"}
+
+        @app.get("/public")
+        async def public_endpoint():
+            return {"status": "public"}
+
+        # UDS mode - no token needed, OS permissions = auth
+        app.add_middleware(SecurityMiddleware, token=None, is_uds=True)
+        return app
+
+    @pytest.fixture
+    def uds_client(self, uds_app_with_middleware):
+        """Create test client for UDS app."""
+        return TestClient(uds_app_with_middleware, raise_server_exceptions=False)
+
+    def test_uds_bypasses_host_validation(self, uds_client):
+        """UDS requests skip host header validation."""
+        # Invalid host that would fail in HTTP mode
+        response = uds_client.get("/api/test", headers={"host": "evil.com"})
+
+        assert response.status_code == 200
+
+    def test_uds_bypasses_origin_validation(self, uds_client):
+        """UDS requests skip origin header validation."""
+        # Invalid origin that would fail in HTTP mode
+        response = uds_client.get(
+            "/api/test",
+            headers={"host": "localhost", "origin": "http://evil.com"},
+        )
+
+        assert response.status_code == 200
+
+    def test_uds_bypasses_token_validation(self, uds_client):
+        """UDS requests don't require bearer token."""
+        # No Authorization header
+        response = uds_client.get("/api/test", headers={"host": "localhost"})
+
+        assert response.status_code == 200
+
+    def test_uds_allows_mutations_without_origin(self, uds_client):
+        """UDS POST requests don't require origin header."""
+        response = uds_client.post("/api/mutate", headers={"host": "localhost"})
+
+        assert response.status_code == 200
+
+    def test_uds_still_enforces_request_size_limit(self, uds_client):
+        """UDS still checks request size limit."""
+        response = uds_client.post(
+            "/api/mutate",
+            headers={
+                "host": "localhost",
+                "content-length": str(MAX_REQUEST_SIZE + 1),
+            },
+            content=b"x",
+        )
+
+        assert response.status_code == 413
+
+    def test_uds_still_adds_security_headers(self, uds_client):
+        """UDS responses still include security headers."""
+        response = uds_client.get("/api/test", headers={"host": "localhost"})
+
+        assert response.headers["X-Content-Type-Options"] == "nosniff"
+        assert response.headers["X-Frame-Options"] == "DENY"
+        assert "Content-Security-Policy" in response.headers
+
+    def test_uds_allows_any_host_header(self, uds_client):
+        """UDS accepts any host header (or none)."""
+        for host in ["localhost", "127.0.0.1", "evil.com", "", "anything:9999"]:
+            response = uds_client.get("/api/test", headers={"host": host})
+            assert response.status_code == 200, f"Failed for host: {host}"
 
 
 class TestAllowedHostsAndOrigins:

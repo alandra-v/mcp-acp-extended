@@ -3,14 +3,18 @@
 Implements security controls per docs/design/ui-security.md:
 - Host header validation (DNS rebinding protection)
 - Origin header validation (CSRF protection)
-- Bearer token authentication
+- Bearer token authentication (for HTTP browser connections)
 - SSE authentication (same-origin or query param for dev)
 - Security response headers
 
 Token lifecycle:
 - Generated on proxy startup (32 bytes, hex encoded)
-- Written to ~/.mcp-acp-extended/manager.json for CLI/UI discovery
-- Deleted on proxy shutdown
+- Used for browser HTTP connections (injected into HTML)
+- CLI uses UDS (Unix Domain Socket) instead - no token needed
+
+Authentication architecture:
+- Browser: HTTP + Bearer token (browsers can't use UDS)
+- CLI: UDS + OS file permissions (socket is 0600, owner-only)
 """
 
 from __future__ import annotations
@@ -18,21 +22,15 @@ from __future__ import annotations
 __all__ = [
     "ALLOWED_HOSTS",
     "ALLOWED_ORIGINS",
-    "MANAGER_FILE",
+    "MAX_REQUEST_SIZE",
     "SecurityMiddleware",
-    "delete_manager_file",
     "generate_token",
     "is_valid_token_format",
-    "read_manager_file",
     "validate_token",
-    "write_manager_file",
 ]
 
 import hmac
-import json
 import secrets
-from datetime import UTC, datetime
-from pathlib import Path
 
 from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
@@ -42,9 +40,6 @@ from starlette.types import ASGIApp
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 
 logger = get_system_logger()
-
-# Token file location
-MANAGER_FILE = Path.home() / ".mcp-acp-extended" / "manager.json"
 
 # Security constants
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
@@ -112,85 +107,6 @@ def validate_token(provided: str, expected: str) -> bool:
     return hmac.compare_digest(provided, expected)
 
 
-def write_manager_file(port: int, token: str) -> None:
-    """Write manager.json with port and token for discovery.
-
-    The file is written atomically with restrictive permissions
-    (0o600 = owner read/write only).
-
-    Args:
-        port: API server port.
-        token: Bearer token for authentication.
-    """
-    try:
-        # Ensure parent directory exists with restrictive permissions
-        MANAGER_FILE.parent.mkdir(mode=0o700, exist_ok=True)
-
-        data = {
-            "port": port,
-            "token": token,
-            "started_at": datetime.now(UTC).isoformat(),
-        }
-
-        # Write atomically via temp file
-        temp_file = MANAGER_FILE.with_suffix(".tmp")
-        temp_file.write_text(json.dumps(data, indent=2))
-        temp_file.chmod(0o600)  # Owner read/write only
-        temp_file.rename(MANAGER_FILE)
-    except Exception as e:
-        logger.warning(
-            {
-                "event": "manager_file_write_failed",
-                "message": f"Failed to write manager file: {e}",
-                "component": "api_security",
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            }
-        )
-
-
-def delete_manager_file() -> None:
-    """Delete manager.json on shutdown.
-
-    Best-effort cleanup - failures are logged but not raised.
-    """
-    try:
-        MANAGER_FILE.unlink(missing_ok=True)
-    except Exception as e:
-        logger.warning(
-            {
-                "event": "manager_file_delete_failed",
-                "message": f"Failed to delete manager file: {e}",
-                "component": "api_security",
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            }
-        )
-
-
-def read_manager_file() -> dict[str, str | int] | None:
-    """Read manager.json if it exists.
-
-    Returns:
-        Dict with port, token, started_at or None if file doesn't exist.
-    """
-    try:
-        if MANAGER_FILE.exists():
-            data: dict[str, str | int] = json.loads(MANAGER_FILE.read_text())
-            return data
-    except Exception as e:
-        logger.warning(
-            {
-                "event": "manager_file_read_failed",
-                "message": f"Failed to read manager file: {e}",
-                "component": "api_security",
-                "error_type": type(e).__name__,
-                "error_message": str(e),
-            }
-        )
-    return None
-
-
 # =============================================================================
 # Security Middleware
 # =============================================================================
@@ -199,24 +115,31 @@ def read_manager_file() -> dict[str, str | int] | None:
 class SecurityMiddleware(BaseHTTPMiddleware):
     """Security middleware implementing all HTTP security controls.
 
-    Checks (in order):
-    1. Request size limit
-    2. Host header validation
-    3. Origin header validation
-    4. Origin required for mutations
-    5. Token authentication for /api/* endpoints
-    6. Security response headers
+    For HTTP servers:
+        1. Request size limit
+        2. Host header validation
+        3. Origin header validation
+        4. Origin required for mutations
+        5. Token authentication for /api/* endpoints
+        6. Security response headers
+
+    For UDS servers:
+        1. Request size limit
+        2. Security response headers
+        (Skip host/origin/token - OS permissions provide authentication)
     """
 
-    def __init__(self, app: ASGIApp, token: str) -> None:
-        """Initialize middleware with bearer token.
+    def __init__(self, app: ASGIApp, token: str | None = None, is_uds: bool = False) -> None:
+        """Initialize middleware.
 
         Args:
             app: ASGI application.
-            token: Bearer token for authentication.
+            token: Bearer token for authentication (required for HTTP, None for UDS).
+            is_uds: If True, this serves UDS connections (OS permissions = auth).
         """
         super().__init__(app)
         self.token = token
+        self.is_uds = is_uds
 
     async def dispatch(self, request: Request, call_next: RequestResponseEndpoint) -> Response:
         """Process request through security checks.
@@ -228,7 +151,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         Returns:
             Response (error or from handler).
         """
-        # 1. Request size limit
+        # 1. Request size limit (applies to both HTTP and UDS)
         content_length = request.headers.get("content-length")
         if content_length:
             try:
@@ -242,6 +165,15 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     status_code=400,
                     content={"error": "Invalid content-length header"},
                 )
+
+        # UDS connections are pre-authenticated by OS file permissions.
+        # Skip host/origin/token validation - just check size and add headers.
+        if self.is_uds:
+            response = await call_next(request)
+            self._add_security_headers(response)
+            return response
+
+        # HTTP-specific security checks (2-5)
 
         # 2. Host header validation (DNS rebinding protection)
         host = request.headers.get("host", "").split(":")[0]
@@ -282,7 +214,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
             if not origin:
                 # Allow if valid bearer token present (CLI access)
                 auth_header = request.headers.get("authorization", "")
-                if auth_header.startswith("Bearer "):
+                if auth_header.startswith("Bearer ") and self.token:
                     token = auth_header[7:]
                     if validate_token(token, self.token):
                         pass  # CLI with valid token - allow without Origin
@@ -325,6 +257,16 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # 7. Add security headers
+        self._add_security_headers(response)
+
+        return response
+
+    def _add_security_headers(self, response: Response) -> None:
+        """Add security headers to response.
+
+        Args:
+            response: Response to add headers to.
+        """
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-Frame-Options"] = "DENY"
         # CSP: allow Google Fonts and inline styles for UI
@@ -340,8 +282,6 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         response.headers["Referrer-Policy"] = "same-origin"
         # Disable unnecessary browser features
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
-
-        return response
 
     def _check_auth(self, request: Request) -> bool:
         """Check if request is authenticated.
@@ -359,7 +299,7 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         """
         # Check Authorization header
         auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer "):
+        if auth_header.startswith("Bearer ") and self.token:
             token = auth_header[7:]
             if validate_token(token, self.token):
                 return True
@@ -392,8 +332,8 @@ class SecurityMiddleware(BaseHTTPMiddleware):
 
             # Cross-origin: accept token in query param (dev mode only)
             # This is for EventSource which can't send custom headers
-            token = request.query_params.get("token")
-            if token and validate_token(token, self.token):
+            query_token = request.query_params.get("token")
+            if query_token and self.token and validate_token(query_token, self.token):
                 return True
 
         return False

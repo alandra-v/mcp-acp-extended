@@ -14,9 +14,9 @@ import sys
 from pathlib import Path
 
 import click
-import httpx
 
-from mcp_acp_extended.constants import DEFAULT_API_PORT
+from mcp_acp_extended.cli.api_client import APIError, ProxyNotRunningError, api_request
+from mcp_acp_extended.constants import CLI_POLICY_RELOAD_TIMEOUT_SECONDS
 from mcp_acp_extended.utils.policy import get_policy_path, load_policy, save_policy
 
 
@@ -83,37 +83,20 @@ def policy_reload() -> None:
     Validates and applies the current policy.json without restarting the proxy.
     Requires the proxy to be running (start with 'mcp-acp-extended start' or via MCP client).
 
-    This command communicates with the proxy's management API on localhost.
+    This command communicates with the proxy's management API via UDS.
 
     Exit codes:
         0: Policy reloaded successfully
         1: Reload failed (validation error, file error, or proxy not running)
     """
-    from mcp_acp_extended.api.security import read_manager_file
-
-    # Read token from manager.json
-    manager_info = read_manager_file()
-    if not manager_info:
-        click.echo("✗ Error: Cannot connect to proxy API", err=True)
-        click.echo("  Either the proxy is not running, or it was started with --no-ui", err=True)
-        click.echo("  Start the proxy with: mcp-acp-extended start", err=True)
-        sys.exit(1)
-
-    token = manager_info.get("token")
-    if not token:
-        click.echo("✗ Error: Invalid manager.json (no token)", err=True)
-        sys.exit(1)
-
     try:
-        response = httpx.post(
-            f"http://127.0.0.1:{DEFAULT_API_PORT}/api/control/reload-policy",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10.0,
-        )
-        response.raise_for_status()
-        result = response.json()
+        result = api_request("POST", "/api/control/reload-policy", timeout=CLI_POLICY_RELOAD_TIMEOUT_SECONDS)
 
-        if result["status"] == "success":
+        if not isinstance(result, dict):
+            click.echo("✗ Reload failed: Unexpected response", err=True)
+            sys.exit(1)
+
+        if result.get("status") == "success":
             old_count = result.get("old_rules_count", "?")
             new_count = result.get("new_rules_count", "?")
             approvals_cleared = result.get("approvals_cleared", 0)
@@ -131,22 +114,13 @@ def policy_reload() -> None:
             click.echo(f"✗ Reload failed: {error}", err=True)
             sys.exit(1)
 
-    except httpx.ConnectError:
+    except ProxyNotRunningError:
         click.echo("✗ Error: Proxy not running", err=True)
         click.echo("  Start the proxy with: mcp-acp-extended start", err=True)
         click.echo("  Or restart your MCP client (e.g., Claude Desktop)", err=True)
         sys.exit(1)
-    except httpx.HTTPStatusError as e:
-        click.echo(f"✗ Error: HTTP {e.response.status_code}", err=True)
-        try:
-            detail = e.response.json().get("detail", str(e))
-            click.echo(f"  {detail}", err=True)
-        except (ValueError, KeyError):
-            click.echo(f"  {e}", err=True)
-        sys.exit(1)
-    except httpx.TimeoutException:
-        click.echo("✗ Error: Request timed out", err=True)
-        click.echo("  The proxy may be busy or unresponsive", err=True)
+    except APIError as e:
+        click.echo(f"✗ Error: {e.message}", err=True)
         sys.exit(1)
 
 

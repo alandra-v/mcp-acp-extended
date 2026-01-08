@@ -120,11 +120,10 @@ def start(no_ui: bool) -> None:
 
         # Set up clean shutdown on Ctrl+C
         import signal
-        import os
 
         def handle_sigint(signum: int, frame: object) -> None:
-            # Force exit without waiting for cleanup
-            os._exit(0)
+            # Raise SystemExit to allow cleanup (atexit handlers, finally blocks)
+            raise SystemExit(0)
 
         signal.signal(signal.SIGINT, handle_sigint)
 
@@ -256,7 +255,7 @@ def start(no_ui: bool) -> None:
         )
         click.echo(f"Error: Audit log failure: {e}", err=True)
         click.echo("The proxy cannot start without a writable audit log.", err=True)
-        sys.exit(10)
+        sys.exit(AuditFailure.exit_code)
 
     except AuthenticationError as e:
         error_msg = str(e).lower()
@@ -303,7 +302,7 @@ def start(no_ui: bool) -> None:
                 detail=f"{e}\n\nRun 'mcp-acp-extended auth login' to re-authenticate.",
                 backoff=True,
             )
-        sys.exit(13)
+        sys.exit(AuthenticationError.exit_code)
 
     except DeviceHealthError as e:
         show_startup_error_popup(
@@ -314,7 +313,7 @@ def start(no_ui: bool) -> None:
         )
         click.echo(f"\nError: Device health check failed", err=True)
         click.echo(str(e), err=True)
-        sys.exit(14)
+        sys.exit(DeviceHealthError.exit_code)
 
     except (PermissionError, RuntimeError, OSError) as e:
         show_startup_error_popup(
