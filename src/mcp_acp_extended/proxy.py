@@ -18,6 +18,12 @@ Security:
 
 from __future__ import annotations
 
+# Suppress websockets deprecation warning BEFORE importing uvicorn
+# uvicorn imports websockets.server which triggers the warning
+import warnings
+
+warnings.filterwarnings("ignore", category=DeprecationWarning, module="websockets")
+
 __all__ = [
     "create_proxy",
 ]
@@ -622,13 +628,16 @@ def create_proxy(
                     except asyncio.CancelledError:
                         pass
 
-                system_logger.warning(
-                    {
-                        "event": "api_servers_stopped",
-                        "message": "API servers stopped (UDS and HTTP)",
-                        "component": "proxy",
-                    }
-                )
+                # Only log on error shutdown, not on normal Ctrl+C
+                if end_reason != "normal":
+                    system_logger.warning(
+                        {
+                            "event": "api_servers_stopped",
+                            "message": "API servers stopped (UDS and HTTP)",
+                            "component": "proxy",
+                            "end_reason": end_reason,
+                        }
+                    )
 
                 # Socket cleanup is handled by atexit.register(cleanup_socket)
                 # No manager.json to delete - UDS replaces it

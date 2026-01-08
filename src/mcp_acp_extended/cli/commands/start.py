@@ -4,10 +4,6 @@ Starts the proxy server for manual testing.
 """
 
 import sys
-import warnings
-
-# Suppress websockets deprecation warnings from uvicorn
-warnings.filterwarnings("ignore", category=DeprecationWarning, module="websockets")
 
 __all__ = [
     "start",
