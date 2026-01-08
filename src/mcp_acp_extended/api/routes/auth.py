@@ -6,6 +6,7 @@ Provides authentication management with full CLI parity:
 - GET /api/auth/login/poll - Poll for device flow completion
 - POST /api/auth/logout - Local logout (clear keychain)
 - POST /api/auth/logout-federated - Federated logout (Auth0)
+- GET /api/auth/dev-token - Get API token (dev mode only)
 
 Routes mounted at: /api/auth
 """
@@ -15,10 +16,12 @@ from __future__ import annotations
 __all__ = ["router"]
 
 import asyncio
+import os
 import time
 from typing import TYPE_CHECKING, Literal, cast
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import OIDCConfigDep
 from mcp_acp_extended.api.schemas import (
@@ -29,6 +32,7 @@ from mcp_acp_extended.api.schemas import (
     LogoutResponse,
     NotifyResponse,
 )
+from mcp_acp_extended.api.security import VITE_DEV_PORT
 from mcp_acp_extended.exceptions import AuthenticationError
 from mcp_acp_extended.security.auth.device_flow import (
     DeviceCodeResponse,
@@ -46,6 +50,50 @@ if TYPE_CHECKING:
     from mcp_acp_extended.security.auth.device_flow import PollOnceResult
 
 router = APIRouter()
+
+
+# =============================================================================
+# Dev mode token endpoint
+# =============================================================================
+
+
+class DevTokenResponse(BaseModel):
+    """Response for dev-token endpoint."""
+
+    token: str
+
+
+def _is_dev_mode() -> bool:
+    """Check if running in development mode.
+
+    Dev mode is detected by MCP_ACP_CORS_ORIGINS containing the Vite dev port.
+    """
+    cors_origins = os.environ.get("MCP_ACP_CORS_ORIGINS", "")
+    return f":{VITE_DEV_PORT}" in cors_origins
+
+
+@router.get("/dev-token")
+async def get_dev_token(request: Request) -> DevTokenResponse:
+    """Get API token for development mode.
+
+    This endpoint is ONLY available in dev mode (when MCP_ACP_CORS_ORIGINS
+    includes the Vite dev port). In production, returns 404.
+
+    Used by Vite dev server since it serves its own index.html and can't
+    get the token from the API server's token injection.
+
+    Security: This endpoint is protected by the same localhost-only
+    restrictions as all other endpoints. The token is only exposed
+    to local development tools.
+    """
+    if not _is_dev_mode():
+        raise HTTPException(status_code=404, detail="Not found")
+
+    token = getattr(request.app.state, "api_token", None)
+    if not token:
+        raise HTTPException(status_code=503, detail="Token not available")
+
+    return DevTokenResponse(token=token)
 
 
 # =============================================================================

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from mcp_acp_extended.api.security import (
     ALLOWED_HOSTS,
     ALLOWED_ORIGINS,
+    AUTH_BYPASS_ENDPOINTS,
     MAX_REQUEST_SIZE,
     SecurityMiddleware,
     generate_token,
@@ -243,6 +244,41 @@ class TestSecurityMiddlewareHTTP:
 
         assert response.status_code == 401
 
+    def test_accepts_valid_cookie_token(self, client, app_with_middleware):
+        """Given valid token in HttpOnly cookie, accepts request."""
+        _, token = app_with_middleware
+
+        response = client.get(
+            "/api/test",
+            headers={"host": "localhost:8765"},
+            cookies={"api_token": token},
+        )
+
+        assert response.status_code == 200
+
+    def test_rejects_invalid_cookie_token(self, client):
+        """Given invalid token in cookie, returns 401."""
+        response = client.get(
+            "/api/test",
+            headers={"host": "localhost:8765"},
+            cookies={"api_token": "wrong-token"},
+        )
+
+        assert response.status_code == 401
+
+    def test_bearer_token_takes_precedence_over_cookie(self, client, app_with_middleware):
+        """Given both bearer token and cookie, bearer token is used."""
+        _, token = app_with_middleware
+
+        # Valid bearer, invalid cookie - should succeed (bearer takes precedence)
+        response = client.get(
+            "/api/test",
+            headers={"host": "localhost:8765", "authorization": f"Bearer {token}"},
+            cookies={"api_token": "wrong-token"},
+        )
+
+        assert response.status_code == 200
+
     def test_requires_origin_for_mutations(self, client):
         """Given POST without origin or token, returns 403."""
         response = client.post("/api/mutate", headers={"host": "localhost:8765"})
@@ -427,3 +463,62 @@ class TestAllowedHostsAndOrigins:
         # Development (Vite)
         assert "http://localhost:3000" in ALLOWED_ORIGINS
         assert "http://127.0.0.1:3000" in ALLOWED_ORIGINS
+
+    def test_auth_bypass_endpoints_includes_dev_token(self):
+        """AUTH_BYPASS_ENDPOINTS includes dev-token endpoint."""
+        assert "/api/auth/dev-token" in AUTH_BYPASS_ENDPOINTS
+
+
+class TestAuthBypassEndpoints:
+    """Tests for auth bypass endpoints (dev-token)."""
+
+    @pytest.fixture
+    def app_with_middleware(self):
+        """Create app with security middleware and dev-token bypass."""
+        app = FastAPI()
+        token = "a" * 64
+
+        @app.get("/api/auth/dev-token")
+        async def dev_token_endpoint():
+            return {"token": token}
+
+        @app.get("/api/other")
+        async def other_endpoint():
+            return {"status": "ok"}
+
+        app.add_middleware(SecurityMiddleware, token=token, is_uds=False)
+        return app, token
+
+    @pytest.fixture
+    def client(self, app_with_middleware):
+        """Create test client."""
+        app, _ = app_with_middleware
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_dev_token_endpoint_bypasses_auth(self, client):
+        """Given dev-token endpoint without auth, accepts request."""
+        response = client.get(
+            "/api/auth/dev-token",
+            headers={"host": "localhost:8765"},
+        )
+
+        assert response.status_code == 200
+        assert "token" in response.json()
+
+    def test_other_api_endpoints_still_require_auth(self, client):
+        """Given other /api/* endpoint without auth, returns 401."""
+        response = client.get(
+            "/api/other",
+            headers={"host": "localhost:8765"},
+        )
+
+        assert response.status_code == 401
+
+    def test_dev_token_still_validates_host(self, client):
+        """Given dev-token with invalid host, returns 403."""
+        response = client.get(
+            "/api/auth/dev-token",
+            headers={"host": "evil.com"},
+        )
+
+        assert response.status_code == 403

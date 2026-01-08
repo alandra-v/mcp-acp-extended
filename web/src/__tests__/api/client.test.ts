@@ -238,24 +238,24 @@ describe('API Client', () => {
   })
 
   describe('createSSEConnection', () => {
-    it('creates EventSource with correct URL', () => {
+    it('creates EventSource with correct URL', async () => {
       const onMessage = vi.fn()
-      const es = createSSEConnection('/approvals/pending', onMessage)
+      const es = await createSSEConnection('/approvals/pending', onMessage)
 
       expect(es.url).toContain('/api/approvals/pending')
     })
 
-    it('includes token in URL when available', () => {
+    it('includes token in URL when available', async () => {
       const onMessage = vi.fn()
-      const es = createSSEConnection('/approvals/pending', onMessage)
+      const es = await createSSEConnection('/approvals/pending', onMessage)
 
       // Token should be included as query param
       expect(es.url).toContain('token=')
     })
 
-    it('parses JSON messages and calls handler', () => {
+    it('parses JSON messages and calls handler', async () => {
       const onMessage = vi.fn()
-      const es = createSSEConnection('/approvals/pending', onMessage)
+      const es = await createSSEConnection('/approvals/pending', onMessage)
 
       // Simulate message event
       const mockEvent = new MessageEvent('message', {
@@ -266,10 +266,10 @@ describe('API Client', () => {
       expect(onMessage).toHaveBeenCalledWith({ type: 'snapshot', approvals: [] })
     })
 
-    it('calls error handler on SSE error', () => {
+    it('calls error handler on SSE error', async () => {
       const onMessage = vi.fn()
       const onError = vi.fn()
-      const es = createSSEConnection('/approvals/pending', onMessage, onError)
+      const es = await createSSEConnection('/approvals/pending', onMessage, onError)
 
       // Simulate error event
       const mockEvent = new Event('error')
@@ -278,11 +278,11 @@ describe('API Client', () => {
       expect(onError).toHaveBeenCalledWith(mockEvent)
     })
 
-    it('handles malformed JSON gracefully', () => {
+    it('handles malformed JSON gracefully', async () => {
       const onMessage = vi.fn()
       const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
 
-      const es = createSSEConnection('/approvals/pending', onMessage)
+      const es = await createSSEConnection('/approvals/pending', onMessage)
 
       // Simulate malformed message
       const mockEvent = new MessageEvent('message', {
@@ -296,9 +296,9 @@ describe('API Client', () => {
       consoleSpy.mockRestore()
     })
 
-    it('returns closeable EventSource', () => {
+    it('returns closeable EventSource', async () => {
       const onMessage = vi.fn()
-      const es = createSSEConnection('/approvals/pending', onMessage)
+      const es = await createSSEConnection('/approvals/pending', onMessage)
 
       es.close()
 

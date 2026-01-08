@@ -6,19 +6,70 @@ const API_BASE = '/api'
 const MAX_RETRIES = 3
 const INITIAL_DELAY_MS = 1000
 
-// Token is injected by server into index.html as window.__API_TOKEN__
-// In dev mode with Vite proxy, same-origin requests don't need token
+// Authentication:
+// - Production (same-origin): Uses HttpOnly cookie (set by server, auto-sent)
+// - Dev mode (cross-origin): Token fetched from /api/auth/dev-token endpoint
+//
+// In dev mode, Vite runs on :3000 while API runs on :8765 (cross-origin).
+// Cookies with SameSite=Strict won't be sent cross-origin, so we fall back
+// to token fetch + Authorization header for dev mode.
+//
+// Legacy: window.__API_TOKEN__ was used for token injection, but Vite serves
+// its own index.html so the API server can't inject there. We still check it
+// for backwards compatibility and tests.
 declare global {
   interface Window {
     __API_TOKEN__?: string
   }
 }
 
-// Capture token once and clear from window to minimize XSS exposure window.
-// The token is validated server-side to be hex-only before injection.
-const API_TOKEN = window.__API_TOKEN__
+// Token storage - captured from window or fetched from dev-token endpoint
+let API_TOKEN: string | null = null
+let tokenPromise: Promise<void> | null = null
+
+// Capture token if present (legacy injection or test mode)
 if (window.__API_TOKEN__) {
+  API_TOKEN = window.__API_TOKEN__
   delete window.__API_TOKEN__
+}
+
+/**
+ * Ensure the API token is available (for dev mode).
+ * In production, cookies handle auth so this is a no-op.
+ * In dev mode, fetches token from /api/auth/dev-token if not already present.
+ */
+async function ensureToken(): Promise<void> {
+  // Token already available (from window injection, test, or previous fetch)
+  if (API_TOKEN) return
+
+  // Already fetching - wait for that
+  if (tokenPromise) {
+    await tokenPromise
+    return
+  }
+
+  // Try to fetch dev token (only works in dev mode)
+  tokenPromise = (async () => {
+    try {
+      const res = await fetch(`${API_BASE}/auth/dev-token`, {
+        credentials: 'same-origin',
+      })
+      if (res.ok) {
+        const data = await res.json()
+        API_TOKEN = data.token
+      }
+      // 404 means production mode - that's fine, cookies will be used
+    } catch (e) {
+      // Network error (TypeError) or other issue - continue without token
+      // In production, cookies will handle auth
+      // Log only if it's an unexpected error type
+      if (!(e instanceof TypeError)) {
+        console.warn('Unexpected error fetching dev token:', e)
+      }
+    }
+  })()
+
+  await tokenPromise
 }
 
 function getAuthHeaders(): HeadersInit {
@@ -126,6 +177,9 @@ async function apiRequest<T>(
   body?: unknown,
   options?: RequestOptions
 ): Promise<T> {
+  // Ensure token is available (dev mode fetches from /api/auth/dev-token)
+  await ensureToken()
+
   const headers: HeadersInit = {
     ...getAuthHeaders(),
     ...(body ? { 'Content-Type': 'application/json' } : {}),
@@ -136,6 +190,7 @@ async function apiRequest<T>(
     headers,
     body: body ? JSON.stringify(body) : undefined,
     signal: options?.signal,
+    credentials: 'same-origin', // Send cookies for same-origin requests (production)
   })
 
   if (!res.ok) {
@@ -166,14 +221,16 @@ export function apiDelete<T>(path: string, options?: RequestOptions): Promise<T>
 }
 
 // SSE connection for pending approvals
-// EventSource doesn't support custom headers, so we pass token as query param
-// In production (same-origin), the security middleware allows SSE without token
-// In dev mode (cross-origin via Vite proxy), we need the token query param
-export function createSSEConnection<T = unknown>(
+// - Production: Cookie is sent automatically with EventSource (withCredentials: true)
+// - Dev mode: Token passed as query param (EventSource can't send custom headers)
+export async function createSSEConnection<T = unknown>(
   path: string,
   onMessage: (data: T) => void,
   onError?: (error: Event) => void
-): EventSource {
+): Promise<EventSource> {
+  // Ensure token is available (dev mode fetches from /api/auth/dev-token)
+  await ensureToken()
+
   let url = `${API_BASE}${path}`
 
   // Add token as query param for cross-origin dev mode
@@ -183,7 +240,9 @@ export function createSSEConnection<T = unknown>(
     url = `${url}${separator}token=${encodeURIComponent(API_TOKEN)}`
   }
 
-  const es = new EventSource(url)
+  // withCredentials sends cookies for same-origin requests (production)
+  // In dev mode (cross-origin), cookies won't be sent but token query param is used
+  const es = new EventSource(url, { withCredentials: true })
 
   es.onmessage = (event) => {
     try {

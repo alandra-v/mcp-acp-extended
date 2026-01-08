@@ -10,10 +10,10 @@ export async function getPendingApprovals(): Promise<PendingApproval[]> {
   return apiGet<PendingApproval[]>('/approvals/pending/list')
 }
 
-export function subscribeToPendingApprovals(
+export async function subscribeToPendingApprovals(
   onEvent: (event: SSEEvent) => void,
   onError?: (error: Event) => void
-): EventSource {
+): Promise<EventSource> {
   return createSSEConnection<SSEEvent>('/approvals/pending', onEvent, onError)
 }
 

@@ -3,17 +3,19 @@
 Implements security controls per docs/design/ui-security.md:
 - Host header validation (DNS rebinding protection)
 - Origin header validation (CSRF protection)
-- Bearer token authentication (for HTTP browser connections)
-- SSE authentication (same-origin or query param for dev)
+- Bearer token or HttpOnly cookie authentication (for HTTP browser connections)
+- SSE authentication (same-origin with cookie, or query param for dev)
 - Security response headers
 
 Token lifecycle:
 - Generated on proxy startup (32 bytes, hex encoded)
-- Used for browser HTTP connections (injected into HTML)
+- Production: Set as HttpOnly cookie (XSS-safe, auto-sent with requests)
+- Dev mode: Injected into HTML for cross-origin auth (Vite on :3000)
 - CLI uses UDS (Unix Domain Socket) instead - no token needed
 
 Authentication architecture:
-- Browser: HTTP + Bearer token (browsers can't use UDS)
+- Browser (production): HTTP + HttpOnly cookie (same-origin)
+- Browser (dev mode): HTTP + Bearer token (cross-origin to API)
 - CLI: UDS + OS file permissions (socket is 0600, owner-only)
 """
 
@@ -22,7 +24,9 @@ from __future__ import annotations
 __all__ = [
     "ALLOWED_HOSTS",
     "ALLOWED_ORIGINS",
+    "AUTH_BYPASS_ENDPOINTS",
     "MAX_REQUEST_SIZE",
+    "VITE_DEV_PORT",
     "SecurityMiddleware",
     "generate_token",
     "is_valid_token_format",
@@ -43,17 +47,24 @@ logger = get_system_logger()
 
 # Security constants
 ALLOWED_HOSTS = {"localhost", "127.0.0.1", "[::1]"}
+
+# Vite dev server port - used to detect cross-origin dev mode
+VITE_DEV_PORT = "3000"
+
 ALLOWED_ORIGINS = {
     # Production (API served from same origin)
     "http://localhost:8765",
     "http://127.0.0.1:8765",
     # Development (Vite dev server)
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
+    f"http://localhost:{VITE_DEV_PORT}",
+    f"http://127.0.0.1:{VITE_DEV_PORT}",
 }
 
 # SSE endpoints that allow special auth handling
 SSE_ENDPOINTS = ("/pending", "/stream")
+
+# Endpoints that bypass auth (dev mode only, protected by endpoint logic)
+AUTH_BYPASS_ENDPOINTS = ("/api/auth/dev-token",)
 
 # Max request size (1MB)
 MAX_REQUEST_SIZE = 1024 * 1024
@@ -238,7 +249,8 @@ class SecurityMiddleware(BaseHTTPMiddleware):
                     )
 
         # 5. Token validation for /api/* endpoints
-        if request.url.path.startswith("/api/"):
+        # Exception: dev-token endpoint bypasses auth (protected by endpoint logic)
+        if request.url.path.startswith("/api/") and request.url.path not in AUTH_BYPASS_ENDPOINTS:
             if not self._check_auth(request):
                 logger.warning(
                     {
@@ -283,13 +295,39 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         # Disable unnecessary browser features
         response.headers["Permissions-Policy"] = "camera=(), microphone=(), geolocation=()"
 
+    def _extract_token(self, request: Request) -> str | None:
+        """Extract token from Authorization header or HttpOnly cookie.
+
+        Priority:
+        1. Authorization header (CLI via HTTP, dev mode browser)
+        2. HttpOnly cookie (production browser)
+
+        Args:
+            request: Incoming request.
+
+        Returns:
+            Token string if found, None otherwise.
+        """
+        # 1. Try Authorization header
+        auth_header: str = request.headers.get("authorization", "")
+        if auth_header.startswith("Bearer "):
+            return auth_header[7:]
+
+        # 2. Try HttpOnly cookie (browser production mode)
+        cookie_token: str | None = request.cookies.get("api_token")
+        if cookie_token:
+            return cookie_token
+
+        return None
+
     def _check_auth(self, request: Request) -> bool:
         """Check if request is authenticated.
 
         Authentication methods (in order):
         1. Bearer token in Authorization header
-        2. SSE endpoints: same-origin (no Origin header) is trusted
-        3. SSE endpoints: token in query param (dev mode)
+        2. HttpOnly cookie (browser production mode)
+        3. SSE endpoints: same-origin (no Origin header) is trusted
+        4. SSE endpoints: token in query param (dev mode)
 
         Args:
             request: Incoming request.
@@ -297,15 +335,14 @@ class SecurityMiddleware(BaseHTTPMiddleware):
         Returns:
             True if authenticated, False otherwise.
         """
-        # Check Authorization header
-        auth_header = request.headers.get("authorization", "")
-        if auth_header.startswith("Bearer ") and self.token:
-            token = auth_header[7:]
-            if validate_token(token, self.token):
-                return True
+        # Check Authorization header or HttpOnly cookie
+        token = self._extract_token(request)
+        if token and self.token and validate_token(token, self.token):
+            return True
 
         # SSE endpoints have special handling because EventSource API
         # doesn't support custom headers (can't send Authorization).
+        # In production, cookies ARE sent with EventSource automatically.
         if request.method == "GET" and self._is_sse_endpoint(request.url.path):
             origin = request.headers.get("origin")
 

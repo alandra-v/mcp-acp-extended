@@ -211,11 +211,32 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    const es = subscribeToPendingApprovals(handleEvent, handleError)
-    eventSourceRef.current = es
+    // Track if effect was cleaned up before async completes
+    let cancelled = false
+
+    const connect = async () => {
+      try {
+        const es = await subscribeToPendingApprovals(handleEvent, handleError)
+        if (cancelled) {
+          es.close()
+          return
+        }
+        eventSourceRef.current = es
+      } catch (e) {
+        // Token fetch or connection failed - trigger error handler
+        // This can happen if the API server is unreachable
+        if (!cancelled) {
+          console.error('Failed to establish SSE connection:', e)
+          handleError()
+        }
+      }
+    }
+
+    connect()
 
     return () => {
-      es.close()
+      cancelled = true
+      eventSourceRef.current?.close()
     }
   }, [])
 

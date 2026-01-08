@@ -8,7 +8,7 @@ Currently implements:
 - Control API (/api/control) - policy reload
 
 Security:
-- HTTP: Bearer token authentication for /api/* endpoints
+- HTTP: HttpOnly cookie (production) or Bearer token (dev) for /api/* endpoints
 - HTTP: Host header validation (DNS rebinding protection)
 - HTTP: Origin header validation (CSRF protection)
 - UDS: OS file permissions provide authentication (no token needed)
@@ -47,10 +47,25 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
 from .routes import approvals, auth, config, control, logs, pending, policy, proxies, sessions
-from .security import SecurityMiddleware, is_valid_token_format
+from .security import VITE_DEV_PORT, SecurityMiddleware, is_valid_token_format
 
 # Static files directory (built React app)
 STATIC_DIR = Path(__file__).parent.parent / "web" / "static"
+
+
+def _is_dev_mode_request(request: Request) -> bool:
+    """Check if request is from Vite dev server (cross-origin).
+
+    Dev mode: Vite on :VITE_DEV_PORT makes requests to API on :8765
+    Production: Browser loads page directly from :8765 (same-origin)
+
+    In dev mode, we inject the token into HTML for cross-origin auth.
+    In production, we use HttpOnly cookies instead.
+    """
+    origin = request.headers.get("origin", "")
+    referer = request.headers.get("referer", "")
+    dev_port_pattern = f":{VITE_DEV_PORT}"
+    return dev_port_pattern in origin or dev_port_pattern in referer
 
 
 def create_api_app(token: str | None = None, is_uds: bool = False) -> FastAPI:
@@ -158,19 +173,32 @@ def create_api_app(token: str | None = None, is_uds: bool = False) -> FastAPI:
 
                 # SPA fallback: serve index.html
                 html = index_file.read_text()
-
-                # Inject API token into HTML for frontend authentication
-                # Security: Token is validated to be hex-only before injection
-                # to prevent XSS even if token were somehow tampered with.
-                # json.dumps provides additional escaping as defense-in-depth.
                 api_token = getattr(request.app.state, "api_token", None)
-                if api_token and is_valid_token_format(api_token):
+
+                # Dev mode only: inject token into HTML for cross-origin auth
+                # In production (same-origin), we use HttpOnly cookies instead.
+                # Security: Token is validated to be hex-only before injection
+                # to prevent XSS. json.dumps provides additional escaping.
+                if _is_dev_mode_request(request) and api_token and is_valid_token_format(api_token):
                     token_script = f"<script>window.__API_TOKEN__ = {json.dumps(api_token)};</script>"
                     html = html.replace("</head>", f"{token_script}\n  </head>")
 
-                return HTMLResponse(
+                response = HTMLResponse(
                     content=html,
                     headers={"Cache-Control": "no-cache, no-store, must-revalidate"},
                 )
+
+                # Always set HttpOnly cookie for browser authentication
+                # Works in production (same-origin), harmless in dev (cross-origin won't send it)
+                if api_token:
+                    response.set_cookie(
+                        key="api_token",
+                        value=api_token,
+                        httponly=True,
+                        samesite="strict",
+                        path="/api",
+                    )
+
+                return response
 
     return app
