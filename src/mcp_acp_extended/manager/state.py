@@ -18,6 +18,8 @@ __all__ = [
     "ProxyState",
     "ProxyStats",
     "SSEEventType",
+    "get_global_proxy_state",
+    "set_global_proxy_state",
 ]
 
 import asyncio
@@ -30,6 +32,21 @@ from enum import Enum
 from typing import TYPE_CHECKING, Any, Literal, NamedTuple
 
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
+
+# Global proxy state for SSE event emission from non-middleware code paths
+# (e.g., LoggingProxyClient connection failures that bypass middleware)
+_global_proxy_state: "ProxyState | None" = None
+
+
+def set_global_proxy_state(state: "ProxyState") -> None:
+    """Set the global proxy state for SSE event emission."""
+    global _global_proxy_state
+    _global_proxy_state = state
+
+
+def get_global_proxy_state() -> "ProxyState | None":
+    """Get the global proxy state for SSE event emission."""
+    return _global_proxy_state
 
 
 class SSEEventType(str, Enum):
@@ -363,6 +380,9 @@ class ProxyState:
         self._requests_denied = 0
         self._requests_hitl = 0
 
+        # Backend connection state tracking (for reconnect detection)
+        self._backend_disconnected = False
+
     @property
     def proxy_id(self) -> str:
         """Get the unique proxy ID."""
@@ -463,6 +483,32 @@ class ProxyState:
             requests_denied=self._requests_denied,
             requests_hitl=self._requests_hitl,
         )
+
+    # =========================================================================
+    # Backend Connection State (for reconnect detection)
+    # =========================================================================
+
+    def mark_backend_disconnected(self) -> None:
+        """Mark backend as disconnected.
+
+        Called by middleware when a backend transport error occurs.
+        Sets flag to enable reconnection detection on next successful request.
+        """
+        self._backend_disconnected = True
+
+    def mark_backend_success(self) -> None:
+        """Mark backend request as successful.
+
+        Called by middleware after a successful backend request.
+        If backend was previously disconnected, emits BACKEND_RECONNECTED event.
+        """
+        if self._backend_disconnected:
+            self._backend_disconnected = False
+            self.emit_system_event(
+                SSEEventType.BACKEND_RECONNECTED,
+                severity="success",
+                message="Backend reconnected",
+            )
 
     # =========================================================================
     # Approval Cache (delegates to ApprovalStore)

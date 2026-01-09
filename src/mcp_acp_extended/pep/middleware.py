@@ -412,6 +412,9 @@ class PolicyEnforcementMiddleware(Middleware):
             self._hitl_handler.proxy_state.record_decision(Decision.ALLOW)
 
         # Execute backend call with error detection for SSE events
+        # NOTE: Connection errors during get_tools() (before middleware runs) are caught
+        # by LoggingProxyClient.__aenter__. This handles mid-request errors only.
+        # See docs/implementation/sse-system-events.md for architecture details.
         from mcp_acp_extended.manager.state import SSEEventType
 
         try:
@@ -429,6 +432,28 @@ class PolicyEnforcementMiddleware(Middleware):
             # Other transport errors (connection reset, broken pipe, httpx errors)
             self._emit_backend_error(SSEEventType.BACKEND_DISCONNECTED, "Backend connection lost", e, method)
             raise
+        except RuntimeError as e:
+            # FastMCP wraps transport errors in RuntimeError
+            # Check the error message to classify the error type
+            error_str = str(e).lower()
+            if "ssl" in error_str or "certificate" in error_str or "tls" in error_str:
+                self._emit_backend_error(SSEEventType.TLS_ERROR, "Backend TLS/SSL error", e, method)
+            elif "timeout" in error_str:
+                self._emit_backend_error(SSEEventType.BACKEND_TIMEOUT, "Backend request timed out", e, method)
+            elif "refused" in error_str:
+                self._emit_backend_error(
+                    SSEEventType.BACKEND_REFUSED, "Backend connection refused", e, method
+                )
+            else:
+                # Default to disconnect for other RuntimeErrors from transport
+                self._emit_backend_error(
+                    SSEEventType.BACKEND_DISCONNECTED, "Backend connection lost", e, method
+                )
+            raise
+
+        # Backend call succeeded - check for reconnection
+        if self._hitl_handler.proxy_state is not None:
+            self._hitl_handler.proxy_state.mark_backend_success()
 
         # Sanitize tools/list responses to protect against prompt injection
         if method == "tools/list":
@@ -494,6 +519,8 @@ class PolicyEnforcementMiddleware(Middleware):
             }
         )
         if self._hitl_handler.proxy_state is not None:
+            # Mark backend as disconnected for reconnect detection
+            self._hitl_handler.proxy_state.mark_backend_disconnected()
             self._hitl_handler.proxy_state.emit_system_event(
                 event_type,
                 severity="error",

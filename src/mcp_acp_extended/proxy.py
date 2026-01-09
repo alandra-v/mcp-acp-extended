@@ -55,7 +55,7 @@ from mcp_acp_extended.exceptions import (
     DeviceHealthError,
     SessionBindingViolationError,
 )
-from mcp_acp_extended.manager import ProxyState
+from mcp_acp_extended.manager import ProxyState, set_global_proxy_state
 from mcp_acp_extended.pep import create_context_middleware, create_enforcement_middleware, PolicyReloader
 from mcp_acp_extended.pips.auth import SessionManager
 from mcp_acp_extended.security import create_identity_provider, SessionRateTracker
@@ -103,8 +103,8 @@ def create_proxy(
     to a backend MCP server using the provided configuration.
 
     Transport selection (handled by create_backend_transport):
-    - If config.backend.transport is set, use that transport (fail if unavailable)
-    - If config.backend.transport is None, auto-detect:
+    - If config.backend.transport is "stdio" or "streamablehttp", use that transport
+    - If config.backend.transport is "auto", auto-detect:
       - Prefer Streamable HTTP if configured and reachable
       - Fall back to STDIO if HTTP unavailable or not configured
 
@@ -819,6 +819,10 @@ def create_proxy(
         backend_transport=transport_type,
         mtls_enabled=mtls_enabled,
     )
+
+    # Set global proxy state for SSE emission from non-middleware code paths
+    # (e.g., LoggingProxyClient connection failures that bypass middleware)
+    set_global_proxy_state(proxy_state)
 
     # Wire proxy state to HITL handler for web UI integration
     # This allows HITL to check is_ui_connected and use web approvals

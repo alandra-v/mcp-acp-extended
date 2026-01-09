@@ -12,6 +12,19 @@ Wire logs include:
 Logs are written to <log_dir>/mcp_acp_extended_logs/debug/backend_wire.jsonl using Pydantic models.
 The log_dir is specified in the user's configuration file.
 
+IMPORTANT - Backend Connection Error Handling:
+
+This module also handles SSE event emission for backend connection errors. This is
+necessary because FastMCP's architecture calls get_tools() BEFORE middleware runs,
+so connection errors bypass the middleware exception handlers.
+
+Error handling happens at TWO layers:
+1. HERE (LoggingProxyClient.__aenter__): Catches connection establishment errors
+2. PolicyEnforcementMiddleware: Catches mid-request errors (backend dies during call)
+
+Both layers call mark_backend_success() on success to detect reconnection.
+See docs/implementation/sse-system-events.md for full architecture details.
+
 IMPORTANT - Initialize Logging Limitation:
 Initialize is logged as INGRESS ONLY (backend_response), with no corresponding
 EGRESS (proxy_request). This is because FastMCP's ProxyClient handles the MCP
@@ -137,6 +150,52 @@ class LoggingProxyClient(ProxyClient):
         except Exception as e:
             log_backend_error(self._logger, self._transport, method, start_time, e)
             raise
+
+    def _emit_connection_error(self, error: Exception) -> None:
+        """Emit SSE event for backend connection failure.
+
+        This catches connection errors that bypass middleware (e.g., during
+        get_tools() which runs before tool call middleware).
+
+        Args:
+            error: The connection exception.
+        """
+        from mcp_acp_extended.manager.state import SSEEventType, get_global_proxy_state
+
+        # Log to system logger
+        self._system_logger.error(
+            {
+                "event": "backend_disconnected",
+                "message": "Backend connection lost",
+                "error_type": type(error).__name__,
+                "error": str(error)[:200],
+                "transport": self._transport,
+            }
+        )
+
+        # Emit SSE event if proxy state is available
+        proxy_state = get_global_proxy_state()
+        if proxy_state is not None:
+            proxy_state.mark_backend_disconnected()
+            proxy_state.emit_system_event(
+                SSEEventType.BACKEND_DISCONNECTED,
+                severity="error",
+                message="Backend connection lost",
+                error_type=type(error).__name__,
+            )
+
+    def _emit_connection_success(self) -> None:
+        """Check for reconnection and emit SSE event if recovering from disconnect.
+
+        Called after successful connection. If we were previously disconnected,
+        emits BACKEND_RECONNECTED event.
+        """
+        from mcp_acp_extended.manager.state import get_global_proxy_state
+
+        proxy_state = get_global_proxy_state()
+        if proxy_state is not None:
+            # mark_backend_success() emits BACKEND_RECONNECTED if recovering
+            proxy_state.mark_backend_success()
 
     # ==================== MCP Method Wrappers ====================
     # FastMCP proxy managers call the _mcp variants, not the regular methods
@@ -308,11 +367,20 @@ class LoggingProxyClient(ProxyClient):
         Raises:
             Exception: If connection fails.
         """
-        # Enter context manager
-        if self._is_wrapper:
-            await self._client.__aenter__()  # type: ignore[union-attr]
-        else:
-            await super().__aenter__()
+        # Enter context manager - catch connection failures for SSE notification
+        try:
+            if self._is_wrapper:
+                await self._client.__aenter__()  # type: ignore[union-attr]
+            else:
+                await super().__aenter__()
+        except Exception as e:
+            # Emit SSE event for backend connection failure
+            # This catches errors that bypass middleware (e.g., get_tools() before tool call)
+            self._emit_connection_error(e)
+            raise
+
+        # Connection succeeded - check for reconnection (emits BACKEND_RECONNECTED if recovering)
+        self._emit_connection_success()
 
         # Log initialize response (once per session, globally)
         try:

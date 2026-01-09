@@ -17,6 +17,8 @@ from .state import (
     PendingApprovalRequest,
     ProxyInfo,
     ProxyState,
+    get_global_proxy_state,
+    set_global_proxy_state,
 )
 
 __all__ = [
@@ -25,4 +27,6 @@ __all__ = [
     "PendingApprovalRequest",
     "ProxyInfo",
     "ProxyState",
+    "get_global_proxy_state",
+    "set_global_proxy_state",
 ]
