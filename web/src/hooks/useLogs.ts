@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLogs, type LogType, type LogFilters } from '@/api/logs'
 import { toast } from '@/components/ui/sonner'
-import type { LogEntry } from '@/types/api'
+import { ApiError, type LogEntry } from '@/types/api'
 
 export interface UseLogsResult {
   logs: LogEntry[]
@@ -66,12 +66,9 @@ export function useLogs(
       setHasMore(data.has_more)
       setTotalScanned((prev) => reset ? data.total_scanned : prev + data.total_scanned)
     } catch (e) {
-      const err = e instanceof Error ? e : new Error('Failed to fetch logs')
-
-      // Show toast for log loading failures
       // Check for 404 on debug logs (not available unless DEBUG level)
       const isDebugLog = type === 'client_wire' || type === 'backend_wire'
-      const is404 = err.message.includes('404') || err.message.includes('not found')
+      const is404 = e instanceof ApiError && e.status === 404
 
       if (isDebugLog && is404) {
         toast.warning('Debug logs not available. Set log_level to DEBUG in config.')

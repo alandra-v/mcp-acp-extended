@@ -521,6 +521,40 @@ export const mergedColumns: ColumnDef<LogEntry>[] = [
   },
 ]
 
+/**
+ * Merged columns for system folder (time, source, event, message)
+ */
+export const systemMergedColumns: ColumnDef<LogEntry>[] = [
+  {
+    accessorKey: 'time',
+    header: 'Time',
+    cell: ({ row }) => (
+      <span className="font-mono text-xs text-base-500">
+        {formatDateTime(row.original.time)}
+      </span>
+    ),
+  },
+  {
+    accessorKey: '_source',
+    header: 'Source',
+    cell: ({ row }) => <SourceBadge source={(row.original as Record<string, unknown>)._source as string} />,
+  },
+  {
+    accessorKey: 'event',
+    header: 'Event',
+    cell: ({ row }) => (
+      <span className="font-mono text-xs text-base-300">
+        {String(row.original.event || '--')}
+      </span>
+    ),
+  },
+  {
+    accessorKey: 'message',
+    header: 'Message',
+    cell: ({ row }) => <TruncatedCell value={row.original.message} maxLength={80} />,
+  },
+]
+
 // =============================================================================
 // Column Config Map
 // =============================================================================
@@ -531,7 +565,15 @@ export interface ColumnConfig {
 }
 
 /** Get merged column config for "All Files" view within a folder */
-export function getMergedColumnConfig(_folder: string): ColumnConfig {
+export function getMergedColumnConfig(folder: string): ColumnConfig {
+  // System folder uses simplified columns: time, event, message
+  if (folder === 'system') {
+    return {
+      columns: systemMergedColumns,
+      defaultVisibility: {},
+    }
+  }
+
   return {
     columns: mergedColumns,
     defaultVisibility: {

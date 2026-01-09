@@ -14,6 +14,7 @@ import { DataTable } from './DataTable'
 import { getColumnConfig, getMergedColumnConfig } from './columns'
 import { useLogs } from '@/hooks/useLogs'
 import { useMultiLogs } from '@/hooks/useMultiLogs'
+import { useConfig } from '@/hooks/useConfig'
 import type { LogType, TimeRange, LogFilters } from '@/api/logs'
 import type { LogEntry } from '@/types/api'
 import { cn } from '@/lib/utils'
@@ -97,6 +98,10 @@ export function LogViewer({
   hideLogTypeSelector = false,
   compact = false,
 }: LogViewerProps) {
+  // Config for checking debug log availability
+  const { config } = useConfig()
+  const debugEnabled = config?.logging.log_level === 'DEBUG'
+
   // Filter state
   const [folder, setFolder] = useState(initialFolder)
   const [logType, setLogType] = useState<string>(initialLogType)
@@ -109,6 +114,20 @@ export function LogViewer({
   const [configVersion, setConfigVersion] = useState('')
   const [policyVersion, setPolicyVersion] = useState('')
 
+  // Check if debug folder is selected but debug logging is not enabled
+  const debugFolderWithoutDebug = folder === 'debug' && !debugEnabled
+
+  // Normalize version input: "1" -> "v1", "v1" -> "v1"
+  const normalizeVersion = (input: string): string => {
+    if (!input) return input
+    const trimmed = input.trim()
+    // If it's just a number, prepend "v"
+    if (/^\d+$/.test(trimmed)) {
+      return `v${trimmed}`
+    }
+    return trimmed
+  }
+
   // Build filters object (exclude _all values)
   const filters = useMemo<Omit<LogFilters, 'before' | 'limit'>>(() => {
     const f: Omit<LogFilters, 'before' | 'limit'> = {
@@ -119,8 +138,8 @@ export function LogViewer({
     if (decision && decision !== '_all') f.decision = decision
     if (hitlOutcome && hitlOutcome !== '_all') f.hitl_outcome = hitlOutcome
     if (level && level !== '_all') f.level = level
-    if (configVersion) f.config_version = configVersion
-    if (policyVersion) f.policy_version = policyVersion
+    if (configVersion) f.config_version = normalizeVersion(configVersion)
+    if (policyVersion) f.policy_version = normalizeVersion(policyVersion)
     return f
   }, [timeRange, sessionId, requestId, decision, hitlOutcome, level, configVersion, policyVersion])
 
@@ -139,14 +158,15 @@ export function LogViewer({
   const isMultiType = logType === '_all'
 
   // Fetch logs using appropriate hook (only one is active at a time)
+  // Disable fetching when debug folder is selected but debug logging is not enabled
   const singleResult = useLogs(
     logType as LogType,
     filters,
     50,
-    !isMultiType // Disable when viewing "All Files"
+    !isMultiType && !debugFolderWithoutDebug
   )
   const multiResult = useMultiLogs(
-    isMultiType ? logTypesToFetch : [],
+    isMultiType && !debugFolderWithoutDebug ? logTypesToFetch : [],
     filters,
     50
   )
@@ -345,16 +365,28 @@ export function LogViewer({
         </Button>
       </div>
 
-      {/* Data Table */}
-      <DataTable
-        columns={columns}
-        data={logs}
-        defaultColumnVisibility={defaultVisibility}
-        onLoadMore={loadMore}
-        hasMore={hasMore}
-        loading={loading}
-        renderExpandedRow={renderExpandedRow}
-      />
+      {/* Data Table or Debug Not Enabled Message */}
+      {debugFolderWithoutDebug ? (
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <p className="text-muted-foreground mb-2">
+            Debug logs are not available.
+          </p>
+          <p className="text-sm text-muted-foreground/70">
+            Set <code className="px-1.5 py-0.5 bg-base-800 rounded text-xs">log_level</code> to{' '}
+            <code className="px-1.5 py-0.5 bg-base-800 rounded text-xs">DEBUG</code> in config to enable wire-level logging.
+          </p>
+        </div>
+      ) : (
+        <DataTable
+          columns={columns}
+          data={logs}
+          defaultColumnVisibility={defaultVisibility}
+          onLoadMore={loadMore}
+          hasMore={hasMore}
+          loading={loading}
+          renderExpandedRow={renderExpandedRow}
+        />
+      )}
     </div>
   )
 }
