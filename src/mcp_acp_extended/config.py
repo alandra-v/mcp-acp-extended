@@ -57,9 +57,9 @@ class OIDCConfig(BaseModel):
         scopes: OAuth scopes to request (default includes offline_access for refresh).
     """
 
-    issuer: str
-    client_id: str
-    audience: str
+    issuer: str = Field(min_length=1)
+    client_id: str = Field(min_length=1)
+    audience: str = Field(min_length=1)
     scopes: list[str] = Field(
         default=["openid", "profile", "email", "offline_access"],
         description="OAuth scopes to request",
@@ -78,9 +78,9 @@ class MTLSConfig(BaseModel):
         ca_bundle_path: Path to CA bundle for server verification (PEM format).
     """
 
-    client_cert_path: str
-    client_key_path: str
-    ca_bundle_path: str
+    client_cert_path: str = Field(min_length=1)
+    client_key_path: str = Field(min_length=1)
+    ca_bundle_path: str = Field(min_length=1)
 
 
 class AuthConfig(BaseModel):
@@ -128,7 +128,7 @@ class LoggingConfig(BaseModel):
         include_payloads: Whether to include full message payloads in debug logs.
     """
 
-    log_dir: str
+    log_dir: str = Field(min_length=1)
     log_level: Literal["DEBUG", "INFO"] = "INFO"
     include_payloads: bool = True
 
@@ -141,7 +141,7 @@ class StdioTransportConfig(BaseModel):
         args: Arguments to pass to backend command.
     """
 
-    command: str
+    command: str = Field(min_length=1)
     args: list[str] = Field(default_factory=list)
 
 
@@ -153,7 +153,7 @@ class HttpTransportConfig(BaseModel):
         timeout: Connection timeout in seconds (1-300).
     """
 
-    url: str
+    url: str = Field(min_length=1, pattern=r"^https?://")
     timeout: int = Field(
         default=DEFAULT_HTTP_TIMEOUT_SECONDS,
         ge=MIN_HTTP_TIMEOUT_SECONDS,
@@ -178,7 +178,7 @@ class BackendConfig(BaseModel):
         http: Streamable HTTP transport configuration (url, timeout).
     """
 
-    server_name: str
+    server_name: str = Field(min_length=1)
     transport: Literal["stdio", "streamablehttp", "auto"] = "auto"
     stdio: StdioTransportConfig | None = None
     http: HttpTransportConfig | None = None
@@ -191,7 +191,7 @@ class ProxyConfig(BaseModel):
         name: Proxy server name for identification.
     """
 
-    name: str = "mcp-acp-extended"
+    name: str = Field(default="mcp-acp-extended", min_length=1)
 
 
 class AppConfig(BaseModel):

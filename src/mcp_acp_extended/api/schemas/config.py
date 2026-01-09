@@ -6,6 +6,8 @@ __all__ = [
     # Response schemas
     "AuthConfigResponse",
     "BackendConfigResponse",
+    "ConfigChange",
+    "ConfigComparisonResponse",
     "ConfigResponse",
     "ConfigUpdateResponse",
     "HttpTransportResponse",
@@ -121,7 +123,7 @@ class ConfigResponse(BaseModel):
 class LoggingConfigUpdate(BaseModel):
     """Updatable logging fields."""
 
-    log_dir: str | None = None
+    log_dir: str | None = Field(default=None, min_length=1)
     log_level: Literal["DEBUG", "INFO"] | None = None
     include_payloads: bool | None = None
 
@@ -129,14 +131,14 @@ class LoggingConfigUpdate(BaseModel):
 class StdioTransportUpdate(BaseModel):
     """Updatable STDIO transport fields."""
 
-    command: str | None = None
+    command: str | None = Field(default=None, min_length=1)
     args: list[str] | None = None
 
 
 class HttpTransportUpdate(BaseModel):
     """Updatable HTTP transport fields."""
 
-    url: str | None = None
+    url: str | None = Field(default=None, min_length=1, pattern=r"^https?://")
     timeout: int | None = Field(
         default=None,
         ge=MIN_HTTP_TIMEOUT_SECONDS,
@@ -147,7 +149,7 @@ class HttpTransportUpdate(BaseModel):
 class BackendConfigUpdate(BaseModel):
     """Updatable backend fields including transport details."""
 
-    server_name: str | None = None
+    server_name: str | None = Field(default=None, min_length=1)
     transport: Literal["stdio", "streamablehttp", "auto"] | None = None
     stdio: StdioTransportUpdate | None = None
     http: HttpTransportUpdate | None = None
@@ -156,24 +158,24 @@ class BackendConfigUpdate(BaseModel):
 class ProxyConfigUpdate(BaseModel):
     """Updatable proxy fields."""
 
-    name: str | None = None
+    name: str | None = Field(default=None, min_length=1)
 
 
 class OIDCConfigUpdate(BaseModel):
     """Updatable OIDC fields."""
 
-    issuer: str | None = None
-    client_id: str | None = None
-    audience: str | None = None
+    issuer: str | None = Field(default=None, min_length=1)
+    client_id: str | None = Field(default=None, min_length=1)
+    audience: str | None = Field(default=None, min_length=1)
     scopes: list[str] | None = None
 
 
 class MTLSConfigUpdate(BaseModel):
     """Updatable mTLS fields."""
 
-    client_cert_path: str | None = None
-    client_key_path: str | None = None
-    ca_bundle_path: str | None = None
+    client_cert_path: str | None = Field(default=None, min_length=1)
+    client_key_path: str | None = Field(default=None, min_length=1)
+    ca_bundle_path: str | None = Field(default=None, min_length=1)
 
 
 class AuthConfigUpdate(BaseModel):
@@ -200,4 +202,27 @@ class ConfigUpdateResponse(BaseModel):
     """Response after updating configuration."""
 
     config: ConfigResponse
+    message: str
+
+
+# =============================================================================
+# Config Comparison Schemas
+# =============================================================================
+
+
+class ConfigChange(BaseModel):
+    """A single configuration change between running and saved config."""
+
+    field: str  # Dot-notation path, e.g., "logging.log_level"
+    running_value: str | int | bool | list[str] | None
+    saved_value: str | int | bool | list[str] | None
+
+
+class ConfigComparisonResponse(BaseModel):
+    """Comparison between running (in-memory) and saved (file) configuration."""
+
+    running_config: ConfigResponse
+    saved_config: ConfigResponse
+    has_changes: bool
+    changes: list[ConfigChange]
     message: str
