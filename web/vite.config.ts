@@ -7,6 +7,13 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, '../src/mcp_acp_extended/web/static'),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+        },
+      },
+    },
   },
   server: {
     port: 3000,
