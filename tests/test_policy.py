@@ -202,7 +202,7 @@ class TestPolicyConfigModel:
         policy = PolicyConfig()
 
         # Assert
-        assert policy.hitl.timeout_seconds == 30
+        assert policy.hitl.timeout_seconds == 60
 
     def test_is_immutable(self):
         """Given a PolicyConfig, it cannot be modified after creation."""

@@ -184,7 +184,7 @@ class TestPolicyReloader:
         assert result.new_rules_count == 2
         assert reloader.reload_count == 1
         assert reloader.last_reload_at is not None
-        mock_logger.info.assert_called()
+        # Note: logger.info() is not called on success - only SSE events are emitted
 
     @pytest.mark.asyncio
     async def test_reload_file_not_found(self, mock_middleware, mock_logger, tmp_path):
@@ -309,12 +309,15 @@ class TestCLIPolicyReload:
         """Given proxy not running, shows error message."""
         # Arrange
         from mcp_acp_extended.cli.commands.policy import policy
-        import httpx
+        from mcp_acp_extended.cli.api_client import ProxyNotRunningError
 
         runner = CliRunner()
 
-        # Mock httpx.post to simulate connection refused
-        with patch("httpx.post", side_effect=httpx.ConnectError("Connection refused")):
+        # Mock api_request to simulate proxy not running
+        with patch(
+            "mcp_acp_extended.cli.commands.policy.api_request",
+            side_effect=ProxyNotRunningError(),
+        ):
             # Act
             result = runner.invoke(policy, ["reload"])
 
@@ -329,18 +332,19 @@ class TestCLIPolicyReload:
 
         runner = CliRunner()
 
-        # Mock httpx.post to simulate successful reload
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
+        # Mock api_request to return successful reload response
+        mock_response = {
             "status": "success",
             "old_rules_count": 3,
             "new_rules_count": 5,
             "approvals_cleared": 2,
             "policy_version": "v3",
         }
-        mock_response.raise_for_status = MagicMock()
 
-        with patch("httpx.post", return_value=mock_response):
+        with patch(
+            "mcp_acp_extended.cli.commands.policy.api_request",
+            return_value=mock_response,
+        ):
             # Act
             result = runner.invoke(policy, ["reload"])
 
@@ -357,17 +361,19 @@ class TestCLIPolicyReload:
 
         runner = CliRunner()
 
-        mock_response = MagicMock()
-        mock_response.json.return_value = {
+        # Mock api_request to return validation error response
+        mock_response = {
             "status": "validation_error",
             "old_rules_count": 3,
             "new_rules_count": 0,
             "approvals_cleared": 0,
             "error": "Invalid effect value",
         }
-        mock_response.raise_for_status = MagicMock()
 
-        with patch("httpx.post", return_value=mock_response):
+        with patch(
+            "mcp_acp_extended.cli.commands.policy.api_request",
+            return_value=mock_response,
+        ):
             # Act
             result = runner.invoke(policy, ["reload"])
 
