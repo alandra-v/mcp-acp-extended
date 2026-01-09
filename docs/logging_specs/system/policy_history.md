@@ -1,4 +1,10 @@
+### Policy History
+
 Policy history logs capture the full lifecycle of policy configuration, including creation, updates, loads, manual changes, and validation failures. The design mirrors config_history for consistency and follows the same security logging best practices (OWASP, NIST SP 800-92/800-128, CIS Control 8).
+
+**Log file**: `logs/system/policy_history.jsonl`
+
+**Model**: `PolicyHistoryEvent` in `telemetry/models/system.py`
 
 ### Fields
 
@@ -22,7 +28,7 @@ checksum — e.g. "sha256:abcd1234..."
 
 ## Snapshot
 snapshot_format — "json" (only JSON supported for policies)
-snapshot — optional, full policy content
+snapshot — optional, full policy content (string)
 
 ## Rule details (for rule updates)
 rule_id — optional, ID of added/removed rule

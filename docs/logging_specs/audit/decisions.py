@@ -1,6 +1,19 @@
+"""Pydantic models for policy decision logs.
+
+IMPORTANT: The 'time' field is Optional[str] = None because:
+- Model instances are created WITHOUT timestamps (time=None)
+- ISO8601Formatter adds the timestamp during log serialization
+- This provides a single source of truth for timestamps
+
+Decision events are logged to audit/decisions.jsonl for every policy evaluation,
+including discovery method bypasses.
+"""
+
 from __future__ import annotations
-from typing import Optional, List, Literal
-from pydantic import BaseModel, Field
+
+from typing import Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class MatchedRuleLog(BaseModel):
@@ -14,17 +27,16 @@ class MatchedRuleLog(BaseModel):
     effect: Literal["allow", "deny", "hitl"]
     description: Optional[str] = None
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class DecisionEvent(BaseModel):
-    """
-    One policy decision log entry (audit/decisions.jsonl).
+    """One policy decision log entry (audit/decisions.jsonl).
 
-    Records the outcome of a single ABAC policy evaluation for one MCP request.
-    Includes rule-level attribution, summarized resource context, timing data,
-    and optional human-in-the-loop (HITL) information.
+    Logged on every policy evaluation for forensics and debugging.
+    Includes discovery bypasses for complete audit trail.
+
+    Note: 'time' is None when created, populated by ISO8601Formatter during logging.
     """
 
     # --- core ---
@@ -41,7 +53,7 @@ class DecisionEvent(BaseModel):
         None,
         description="True if approval was from cache, False if user prompted, None if not HITL",
     )
-    matched_rules: List[MatchedRuleLog] = Field(
+    matched_rules: list[MatchedRuleLog] = Field(
         default_factory=list,
         description="All rules that matched, with effect and optional description for trace",
     )
@@ -57,7 +69,7 @@ class DecisionEvent(BaseModel):
     scheme: Optional[str] = None  # URI scheme (file, https, s3, etc.)
     subject_id: Optional[str] = None  # Optional until auth is fully implemented
     backend_id: str  # Backend server ID (always known from config)
-    side_effects: Optional[List[str]] = None  # Tool side effects (FS_WRITE, CODE_EXEC, etc.)
+    side_effects: Optional[list[str]] = None  # Tool side effects (FS_WRITE, CODE_EXEC, etc.)
 
     # --- policy ---
     policy_version: str  # Policy version for replay/forensics (always loaded)
@@ -71,5 +83,4 @@ class DecisionEvent(BaseModel):
     request_id: str  # JSON-RPC request ID (every decision has a request)
     session_id: Optional[str] = None  # May not exist during initialize
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")

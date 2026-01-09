@@ -1,6 +1,16 @@
+"""Pydantic models for system/operational logs.
+
+IMPORTANT: The 'time' field is Optional[str] = None because:
+- Model instances are created WITHOUT timestamps (time=None)
+- ISO8601Formatter adds the timestamp during log serialization
+- This provides a single source of truth for timestamps
+"""
+
 from __future__ import annotations
-from typing import Optional, Dict, Any
-from pydantic import BaseModel, Field
+
+from typing import Any, Dict, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SystemEvent(BaseModel):
@@ -12,6 +22,8 @@ class SystemEvent(BaseModel):
       - OCSF Process Activity (1007): component identity, operational activity, status
 
     Used for WARNING, ERROR, and CRITICAL events that indicate operational issues.
+
+    Note: 'time' is None when created, populated by ISO8601Formatter during logging.
     """
 
     # --- core ---
@@ -38,5 +50,4 @@ class SystemEvent(BaseModel):
     # --- additional structured details ---
     details: Optional[Dict[str, Any]] = None  # retry_count, timeout_ms, etc.
 
-    class Config:
-        extra = "allow"
+    model_config = ConfigDict(extra="allow")

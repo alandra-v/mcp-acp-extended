@@ -1,7 +1,17 @@
+"""Pydantic models for authentication audit logs.
+
+IMPORTANT: The 'time' field is Optional[str] = None because:
+- Model instances are created WITHOUT timestamps (time=None)
+- ISO8601Formatter adds the timestamp during log serialization
+- This provides a single source of truth for timestamps
+"""
+
 from __future__ import annotations
+
 from datetime import datetime
-from typing import Any, Optional, Dict, List, Literal
-from pydantic import BaseModel, Field
+from typing import Any, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class SubjectIdentity(BaseModel):
@@ -10,7 +20,7 @@ class SubjectIdentity(BaseModel):
     """
 
     subject_id: str  # OIDC 'sub'
-    subject_claims: Optional[Dict[str, str]] = None  # selected safe claims
+    subject_claims: dict[str, str] | None = None  # selected safe claims
 
 
 class OIDCInfo(BaseModel):
@@ -19,21 +29,20 @@ class OIDCInfo(BaseModel):
     """
 
     issuer: str  # OIDC 'iss'
-    provider: Optional[str] = None  # friendly name, e.g. "google", "auth0"
-    client_id: Optional[str] = None  # upstream client_id
+    provider: str | None = None  # friendly name, e.g. "google", "auth0"
+    client_id: str | None = None  # upstream client_id (if you want to log it)
 
-    audience: Optional[List[str]] = None  # normalized 'aud' as list
-    scopes: Optional[List[str]] = None  # token scopes, if available
+    audience: list[str] | None = None  # normalized 'aud' as list
+    scopes: list[str] | None = None  # token scopes, if available
 
-    token_type: Optional[str] = None  # "access", "id", "proxy", etc.
-    token_exp: Optional[datetime] = None  # 'exp' as datetime
-    token_iat: Optional[datetime] = None  # 'iat' as datetime
-    token_expired: Optional[bool] = None  # whether expired at validation time
+    token_type: str | None = None  # "access", "id", "proxy", etc.
+    token_exp: datetime | None = None  # 'exp' as datetime
+    token_iat: datetime | None = None  # 'iat' as datetime
+    token_expired: bool | None = None  # whether it was expired at validation time
 
 
 class DeviceHealthChecks(BaseModel):
-    """
-    Results of individual device health checks.
+    """Results of individual device health checks.
 
     Both checks are hard gates - failure blocks proxy startup.
     - disk_encryption: FileVault (macOS) - reduces impact of device theft/loss
@@ -51,22 +60,17 @@ class DeviceHealthChecks(BaseModel):
 
 class AuthEvent(BaseModel):
     """
-    One authentication log entry (audit/auth.jsonl).
+    One authentication/authorization log entry (logs/audit/auth.jsonl).
 
-    Records authentication events for Zero Trust compliance:
-    - Token validation failures
-    - Token refresh attempts (success/failure)
-    - Session lifecycle (start/end)
-    - Device health check failures
+    Inspired by:
+      - OCSF Authentication (3002): token validation outcome, identity, IdP context
+      - OCSF Authorize Session (3003): session lifecycle (start/stop) tied to identity
 
-    Note: Success events for per-request token validation and periodic device
-    health checks are not logged to reduce noise.
-
-    Uses fail-closed handler - if auth logging fails, proxy shuts down.
+    Note: 'time' is None when created, populated by ISO8601Formatter during logging.
     """
 
     # --- core ---
-    time: Optional[str] = Field(
+    time: str | None = Field(
         None,
         description="ISO 8601 timestamp, added by formatter during serialization",
     )
@@ -74,8 +78,11 @@ class AuthEvent(BaseModel):
     # Two session IDs for different purposes:
     # - bound_session_id: Security format "<user_id>:<session_uuid>" for auth binding
     # - mcp_session_id: Plain UUID for correlation with operations/decisions/wire logs
-    bound_session_id: Optional[str] = None  # May not exist during startup validation
-    mcp_session_id: Optional[str] = None  # For cross-log correlation
+    bound_session_id: str | None = None  # May not exist during startup validation
+    mcp_session_id: str | None = None  # For cross-log correlation
+
+    # For per-request auth checks, this is the MCP JSON-RPC id; may be omitted for pure session events.
+    request_id: str | None = None
 
     event_type: Literal[
         "token_invalid",
@@ -86,34 +93,29 @@ class AuthEvent(BaseModel):
         "device_health_failed",
     ]
     status: Literal["Success", "Failure"]
+    message: str | None = None
 
-    # --- correlation ---
-    request_id: Optional[str] = None  # JSON-RPC request ID (for per-request checks)
+    # Optional MCP method (useful when event_type is per-request token validation).
+    method: str | None = None  # "tools/call", "tools/list", etc.
 
     # --- identity ---
-    subject: Optional[SubjectIdentity] = None  # None if token couldn't be parsed
+    # May be None if token could not be parsed at all (e.g. totally invalid or missing)
+    subject: SubjectIdentity | None = None
 
     # --- OIDC/OAuth details ---
-    oidc: Optional[OIDCInfo] = None
+    oidc: OIDCInfo | None = None
 
     # --- device health (for device_health_failed events) ---
-    device_checks: Optional[DeviceHealthChecks] = None
-
-    # --- context ---
-    method: Optional[str] = None  # MCP method for per-request validation
-    message: Optional[str] = None  # Human-readable status message
-
-    # --- errors (for failure events) ---
-    error_type: Optional[str] = None  # e.g. "TokenExpiredError"
-    error_message: Optional[str] = None  # Detailed error message
+    device_checks: DeviceHealthChecks | None = None
 
     # --- session end details ---
-    end_reason: Optional[
-        Literal["normal", "timeout", "error", "auth_expired", "session_binding_violation"]
-    ] = None
+    end_reason: Literal["normal", "timeout", "error", "auth_expired", "session_binding_violation"] | None = (
+        None
+    )
 
-    # --- extra details ---
-    details: Optional[Dict[str, Any]] = None  # any extra structured data
+    # --- errors / extra details ---
+    error_type: str | None = None  # e.g. "TokenExpiredError"
+    error_message: str | None = None  # human-readable error
+    details: dict[str, Any] | None = None  # any extra structured data
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")

@@ -4,6 +4,10 @@ The authentication log schema records Zero Trust authentication events for the p
 
 Note: Success events for per-request token validation and periodic device health checks are not logged to reduce noise. Only failures and session lifecycle events are logged for security auditing.
 
+**Log file**: `logs/audit/auth.jsonl`
+
+**Model**: `AuthEvent` in `telemetry/models/audit.py`
+
 ## Core
 time — ISO 8601 timestamp (added by formatter during serialization)
 event_type — "token_invalid" | "token_refreshed" | "token_refresh_failed" | "session_started" | "session_ended" | "device_health_failed"
@@ -17,26 +21,26 @@ mcp_session_id — optional, plain MCP session UUID for correlation with operati
 request_id — optional, JSON-RPC request ID (for per-request token validation)
 
 ## Identity
-subject — optional SubjectIdentity object (null if token couldn't be parsed)
-subject.subject_id — OIDC 'sub' claim
-subject.subject_claims — optional dict of selected safe claims (e.g. preferred_username, email)
+subject — optional SubjectIdentity object (null if token couldn't be parsed):
+  - subject_id: OIDC 'sub' claim
+  - subject_claims: optional dict of selected safe claims (e.g. preferred_username, email)
 
 ## OIDC/OAuth details
-oidc — optional OIDCInfo object
-oidc.issuer — OIDC 'iss' claim (e.g. "https://your-tenant.auth0.com")
-oidc.provider — optional friendly name (e.g. "google", "auth0")
-oidc.client_id — optional upstream client_id
-oidc.audience — optional list of audiences
-oidc.scopes — optional list of granted scopes
-oidc.token_type — optional, "access" | "id" | "proxy"
-oidc.token_exp — optional ISO 8601 expiration time
-oidc.token_iat — optional ISO 8601 issued-at time
-oidc.token_expired — optional boolean, whether token was expired at validation
+oidc — optional OIDCInfo object:
+  - issuer: OIDC 'iss' claim (e.g. "https://your-tenant.auth0.com")
+  - provider: optional friendly name (e.g. "google", "auth0")
+  - client_id: optional upstream client_id
+  - audience: optional list of audiences
+  - scopes: optional list of granted scopes
+  - token_type: optional, "access" | "id" | "proxy"
+  - token_exp: optional ISO 8601 expiration time
+  - token_iat: optional ISO 8601 issued-at time
+  - token_expired: optional boolean, whether token was expired at validation
 
 ## Device health (for device_health_failed events)
-device_checks — optional DeviceHealthChecks object
-device_checks.disk_encryption — "pass" | "fail" | "unknown" (FileVault on macOS)
-device_checks.device_integrity — "pass" | "fail" | "unknown" (SIP enabled on macOS)
+device_checks — optional DeviceHealthChecks object:
+  - disk_encryption: "pass" | "fail" | "unknown" (FileVault on macOS)
+  - device_integrity: "pass" | "fail" | "unknown" (SIP enabled on macOS)
 
 Result meanings:
 - pass: Check succeeded, device is compliant

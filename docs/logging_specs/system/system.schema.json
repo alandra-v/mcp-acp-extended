@@ -1,6 +1,6 @@
 {
   "additionalProperties": true,
-  "description": "One system/operational log entry (logs/system/system.jsonl).\n\nInspired by:\n  - OCSF Application Error (6008): error_type, error_message, stacktrace\n  - OCSF Process Activity (1007): component identity, operational activity, status\n\nUsed for WARNING, ERROR, and CRITICAL events that indicate operational issues.",
+  "description": "One system/operational log entry (logs/system/system.jsonl).\n\nInspired by:\n  - OCSF Application Error (6008): error_type, error_message, stacktrace\n  - OCSF Process Activity (1007): component identity, operational activity, status\n\nUsed for WARNING, ERROR, and CRITICAL events that indicate operational issues.\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
   "properties": {
     "time": {
       "anyOf": [

@@ -39,7 +39,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "One policy decision log entry (audit/decisions.jsonl).\n\nRecords the outcome of a single ABAC policy evaluation for one MCP request.\nIncludes rule-level attribution, summarized resource context, timing data,\nand optional human-in-the-loop (HITL) information.",
+  "description": "One policy decision log entry (audit/decisions.jsonl).\n\nLogged on every policy evaluation for forensics and debugging.\nIncludes discovery bypasses for complete audit trail.\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
   "properties": {
     "time": {
       "anyOf": [

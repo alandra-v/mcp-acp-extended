@@ -178,7 +178,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "One authentication log entry (audit/auth.jsonl).\n\nRecords authentication events for Zero Trust compliance:\n- Token validation failures\n- Token refresh attempts (success/failure)\n- Session lifecycle (start/end)\n- Device health check failures\n\nNote: Success events for per-request token validation and periodic device health checks are not logged to reduce noise.\n\nUses fail-closed handler - if auth logging fails, proxy shuts down.",
+  "description": "One authentication/authorization log entry (logs/audit/auth.jsonl).\n\nInspired by:\n  - OCSF Authentication (3002): token validation outcome, identity, IdP context\n  - OCSF Authorize Session (3003): session lifecycle (start/stop) tied to identity\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
   "properties": {
     "time": {
       "anyOf": [
@@ -217,6 +217,18 @@
       "default": null,
       "title": "Mcp Session Id"
     },
+    "request_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Request Id"
+    },
     "event_type": {
       "enum": [
         "token_invalid",
@@ -237,7 +249,7 @@
       "title": "Status",
       "type": "string"
     },
-    "request_id": {
+    "message": {
       "anyOf": [
         {
           "type": "string"
@@ -247,7 +259,19 @@
         }
       ],
       "default": null,
-      "title": "Request Id"
+      "title": "Message"
+    },
+    "method": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Method"
     },
     "subject": {
       "anyOf": [
@@ -282,9 +306,16 @@
       ],
       "default": null
     },
-    "method": {
+    "end_reason": {
       "anyOf": [
         {
+          "enum": [
+            "normal",
+            "timeout",
+            "error",
+            "auth_expired",
+            "session_binding_violation"
+          ],
           "type": "string"
         },
         {
@@ -292,19 +323,7 @@
         }
       ],
       "default": null,
-      "title": "Method"
-    },
-    "message": {
-      "anyOf": [
-        {
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Message"
+      "title": "End Reason"
     },
     "error_type": {
       "anyOf": [
@@ -329,25 +348,6 @@
       ],
       "default": null,
       "title": "Error Message"
-    },
-    "end_reason": {
-      "anyOf": [
-        {
-          "enum": [
-            "normal",
-            "timeout",
-            "error",
-            "auth_expired",
-            "session_binding_violation"
-          ],
-          "type": "string"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "End Reason"
     },
     "details": {
       "anyOf": [

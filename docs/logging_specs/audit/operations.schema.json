@@ -37,7 +37,7 @@
       "type": "object"
     },
     "DurationInfo": {
-      "description": "Duration measurement for this MCP operation.\n\nMeasures total operation time from the proxy's perspective.",
+      "description": "Duration measurement for this MCP operation.\n\nMeasures total operation time from the proxy's perspective:\nfrom when the audit middleware receives the request until the\nresponse (or error) is ready to return to the client.\n\nThis includes:\n- Middleware processing overhead\n- Backend round-trip time (proxy \u2192 backend \u2192 proxy)\n- Response processing\n\nNote: We cannot measure client\u2192proxy network time (no client-side timing)\nor backend internal processing time (no backend instrumentation).",
       "properties": {
         "duration_ms": {
           "description": "Total operation duration in milliseconds",
@@ -52,7 +52,7 @@
       "type": "object"
     },
     "ResponseSummary": {
-      "description": "Summary of MCP response metadata (without logging full payloads).",
+      "description": "Summary of MCP response metadata (without logging full payloads).\n\nCaptures response size and hash for forensic analysis without\nstoring potentially sensitive response content.",
       "properties": {
         "size_bytes": {
           "description": "Response payload size in bytes",
@@ -103,7 +103,7 @@
     }
   },
   "additionalProperties": false,
-  "description": "One MCP operation log entry (audit/operations.jsonl).\n\nCaptures security-relevant information about each MCP operation\n(who did what, when, with what outcome).",
+  "description": "One MCP operation log entry (audit/operations.jsonl).\n\nCaptures security-relevant information about each MCP operation\n(who did what, when, with what outcome).\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
   "properties": {
     "time": {
       "anyOf": [

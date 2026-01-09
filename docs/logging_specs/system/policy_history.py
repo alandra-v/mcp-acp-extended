@@ -1,6 +1,16 @@
+"""Pydantic models for policy history logs.
+
+IMPORTANT: The 'time' field is Optional[str] = None because:
+- Model instances are created WITHOUT timestamps (time=None)
+- ISO8601Formatter adds the timestamp during log serialization
+- This provides a single source of truth for timestamps
+"""
+
 from __future__ import annotations
-from typing import Optional, Literal, Dict, Any
-from pydantic import BaseModel, Field
+
+from typing import Any, Dict, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class PolicyHistoryEvent(BaseModel):
@@ -15,6 +25,8 @@ class PolicyHistoryEvent(BaseModel):
     - policy_validation_failed: Invalid JSON or schema validation error
 
     The design mirrors ConfigHistoryEvent for consistency.
+
+    Note: 'time' is None when created, populated by ISO8601Formatter during logging.
     """
 
     # --- core ---
@@ -63,5 +75,4 @@ class PolicyHistoryEvent(BaseModel):
     error_type: Optional[str] = None  # e.g. "JSONDecodeError", "ValidationError"
     error_message: Optional[str] = None  # human-readable error
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")

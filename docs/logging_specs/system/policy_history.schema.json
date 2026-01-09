@@ -1,6 +1,6 @@
 {
   "additionalProperties": false,
-  "description": "One policy history log entry (logs/system/policy_history.jsonl).\n\nCaptures the full lifecycle of policy configuration:\n- policy_created: Initial policy creation via CLI init\n- policy_loaded: Policy loaded at proxy startup\n- policy_updated: Policy updated (e.g., rule added/removed)\n- manual_change_detected: File modified outside of proxy (checksum mismatch)\n- policy_validation_failed: Invalid JSON or schema validation error\n\nThe design mirrors ConfigHistoryEvent for consistency.",
+  "description": "One policy history log entry (logs/system/policy_history.jsonl).\n\nCaptures the full lifecycle of policy configuration:\n- policy_created: Initial policy creation via CLI init\n- policy_loaded: Policy loaded at proxy startup\n- policy_updated: Policy updated (e.g., rule added/removed)\n- manual_change_detected: File modified outside of proxy (checksum mismatch)\n- policy_validation_failed: Invalid JSON or schema validation error\n\nThe design mirrors ConfigHistoryEvent for consistency.\n\nNote: 'time' is None when created, populated by ISO8601Formatter during logging.",
   "properties": {
     "time": {
       "anyOf": [

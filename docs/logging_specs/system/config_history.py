@@ -1,6 +1,16 @@
+"""Pydantic models for configuration history logs.
+
+IMPORTANT: The 'time' field is Optional[str] = None because:
+- Model instances are created WITHOUT timestamps (time=None)
+- ISO8601Formatter adds the timestamp during log serialization
+- This provides a single source of truth for timestamps
+"""
+
 from __future__ import annotations
-from typing import Optional, Literal, Dict, Any
-from pydantic import BaseModel, Field
+
+from typing import Any, Dict, Literal, Optional
+
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ConfigHistoryEvent(BaseModel):
@@ -21,6 +31,8 @@ class ConfigHistoryEvent(BaseModel):
     by recording when configuration changes occur, which version
     is active, and a snapshot sufficient to reconstruct the effective
     configuration during later analysis.
+
+    Note: 'time' is None when created, populated by ISO8601Formatter during logging.
     """
 
     # --- core ---
@@ -67,5 +79,4 @@ class ConfigHistoryEvent(BaseModel):
     error_type: Optional[str] = None  # e.g. "JSONDecodeError", "ValidationError"
     error_message: Optional[str] = None  # human-readable error
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
