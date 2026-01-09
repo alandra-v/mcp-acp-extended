@@ -35,6 +35,11 @@ from mcp_acp_extended.utils.policy import get_policy_path, load_policy
 router = APIRouter()
 
 
+# =============================================================================
+# Helper Functions
+# =============================================================================
+
+
 def _load_policy_or_raise() -> PolicyConfig:
     """Load policy from disk, raising HTTPException on error."""
     try:
@@ -43,6 +48,38 @@ def _load_policy_or_raise() -> PolicyConfig:
         raise HTTPException(status_code=404, detail="Policy file not found")
     except ValueError as e:
         raise HTTPException(status_code=500, detail=f"Invalid policy: {e}")
+
+
+def _validate_conditions(conditions: dict) -> RuleConditions:
+    """Validate and parse rule conditions, raising HTTPException on error."""
+    try:
+        return RuleConditions.model_validate(conditions)
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid conditions: {e}")
+
+
+def _rebuild_policy(policy: PolicyConfig, new_rules: list[PolicyRule]) -> PolicyConfig:
+    """Rebuild policy with new rules, raising HTTPException on validation error.
+
+    Args:
+        policy: Original policy to copy settings from.
+        new_rules: New list of rules.
+
+    Returns:
+        New PolicyConfig with updated rules.
+
+    Raises:
+        HTTPException: 400 if resulting policy is invalid.
+    """
+    try:
+        return PolicyConfig(
+            version=policy.version,
+            default_action=policy.default_action,
+            rules=new_rules,
+            hitl=policy.hitl,
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
 
 
 @router.get("")
@@ -149,10 +186,7 @@ async def add_policy_rule(
                 )
 
     # Validate conditions
-    try:
-        conditions = RuleConditions.model_validate(rule_data.conditions)
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid conditions: {e}")
+    conditions = _validate_conditions(rule_data.conditions)
 
     # Create new rule
     new_rule = PolicyRule(
@@ -162,19 +196,9 @@ async def add_policy_rule(
         conditions=conditions,
     )
 
-    # Append to rules (PolicyConfig is frozen, so we need to rebuild)
+    # Append to rules and rebuild policy (will auto-generate ID if not provided)
     new_rules = list(policy.rules) + [new_rule]
-
-    # Rebuild policy - this will auto-generate ID if not provided
-    try:
-        updated_policy = PolicyConfig(
-            version=policy.version,
-            default_action=policy.default_action,
-            rules=new_rules,
-            hitl=policy.hitl,
-        )
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
+    updated_policy = _rebuild_policy(policy, new_rules)
 
     # Get the final rule (may have auto-generated ID)
     final_rule = updated_policy.rules[-1]
@@ -202,10 +226,7 @@ async def update_policy_rule(
     policy = _load_policy_or_raise()
 
     # Validate conditions
-    try:
-        conditions = RuleConditions.model_validate(rule_data.conditions)
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid conditions: {e}")
+    conditions = _validate_conditions(rule_data.conditions)
 
     # Find and replace rule
     new_rules = []
@@ -229,15 +250,7 @@ async def update_policy_rule(
         raise HTTPException(status_code=404, detail=f"Rule '{rule_id}' not found")
 
     # Rebuild policy
-    try:
-        updated_policy = PolicyConfig(
-            version=policy.version,
-            default_action=policy.default_action,
-            rules=new_rules,
-            hitl=policy.hitl,
-        )
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
+    updated_policy = _rebuild_policy(policy, new_rules)
 
     # Get the updated rule
     updated_rule = next(r for r in updated_policy.rules if r.id == rule_id)
@@ -266,16 +279,6 @@ async def delete_policy_rule(reloader: PolicyReloaderDep, rule_id: str) -> None:
     if len(new_rules) == len(policy.rules):
         raise HTTPException(status_code=404, detail=f"Rule '{rule_id}' not found")
 
-    # Rebuild policy
-    try:
-        updated_policy = PolicyConfig(
-            version=policy.version,
-            default_action=policy.default_action,
-            rules=new_rules,
-            hitl=policy.hitl,
-        )
-    except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
-
-    # Save and reload
+    # Rebuild policy and save
+    updated_policy = _rebuild_policy(policy, new_rules)
     await _save_and_reload(reloader, updated_policy)

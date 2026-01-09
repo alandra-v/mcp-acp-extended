@@ -27,6 +27,7 @@ from __future__ import annotations
 __all__ = ["router"]
 
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
@@ -46,6 +47,7 @@ from mcp_acp_extended.api.utils.jsonl import (
     parse_comma_separated,
     read_jsonl_filtered,
 )
+from mcp_acp_extended.config import AppConfig
 
 router = APIRouter()
 
@@ -71,6 +73,11 @@ PolicyVersionQuery = Query(default=None, description="Filter by policy version")
 ConfigVersionQuery = Query(default=None, description="Filter by config version")
 
 
+# =============================================================================
+# Shared Helper Functions
+# =============================================================================
+
+
 def _parse_before_cursor(before: str | None) -> datetime | None:
     """Parse ISO timestamp cursor for pagination.
 
@@ -88,6 +95,70 @@ def _parse_before_cursor(before: str | None) -> datetime | None:
         return datetime.fromisoformat(before)
     except (ValueError, TypeError):
         return None
+
+
+def _fetch_logs(
+    config: AppConfig,
+    log_key: str,
+    time_range: str,
+    limit: int,
+    before: str | None,
+    filters_applied: dict[str, Any],
+    *,
+    require_exists: bool = False,
+    **filter_kwargs: Any,
+) -> LogsResponse:
+    """Fetch and filter logs from a JSONL file.
+
+    Consolidates the common pattern used by all log endpoints:
+    1. Resolve log path from key
+    2. Parse time range and cursor
+    3. Read and filter entries
+    4. Build response with metadata
+
+    Args:
+        config: Application configuration.
+        log_key: Key in LOG_PATHS (e.g., "decisions", "system").
+        time_range: Time range filter (5m, 1h, 24h, all).
+        limit: Maximum entries to return.
+        before: Pagination cursor (ISO timestamp).
+        filters_applied: Dict of filter names to values for response metadata.
+        require_exists: If True, raise 404 if log file doesn't exist.
+        **filter_kwargs: Additional filters passed to read_jsonl_filtered.
+
+    Returns:
+        LogsResponse with entries and metadata.
+
+    Raises:
+        HTTPException: 404 if require_exists=True and file doesn't exist.
+    """
+    log_path = get_log_base_path(config) / LOG_PATHS[log_key]
+
+    if require_exists and not log_path.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Debug logs not available. Set log_level to DEBUG in config.",
+        )
+
+    cutoff_time = get_cutoff_time(time_range)
+    before_dt = _parse_before_cursor(before)
+
+    entries, has_more, scanned = read_jsonl_filtered(
+        log_path,
+        limit,
+        cutoff_time=cutoff_time,
+        before=before_dt,
+        **filter_kwargs,
+    )
+
+    return LogsResponse(
+        entries=entries,
+        total_returned=len(entries),
+        total_scanned=scanned,
+        log_file=str(log_path),
+        has_more=has_more,
+        filters_applied=build_filters_applied(time_range=time_range, **filters_applied),
+    )
 
 
 # =============================================================================
@@ -119,41 +190,29 @@ async def get_decision_logs(
     Returns entries from audit/decisions.jsonl including:
     - Timestamp, request details, policy decision, matched rule info
     """
-    log_path = get_log_base_path(config) / LOG_PATHS["decisions"]
-    cutoff_time = get_cutoff_time(time_range)
-    before_dt = _parse_before_cursor(before)
-
     decision_list = parse_comma_separated(decision)
     hitl_list = parse_comma_separated(hitl_outcome)
 
-    entries, has_more, scanned = read_jsonl_filtered(
-        log_path,
+    return _fetch_logs(
+        config,
+        "decisions",
+        time_range,
         limit,
-        cutoff_time=cutoff_time,
-        before=before_dt,
+        before,
+        filters_applied={
+            "session_id": session_id,
+            "bound_session_id": bound_session_id,
+            "request_id": request_id,
+            "decision": decision_list,
+            "hitl_outcome": hitl_list,
+            "policy_version": policy_version,
+        },
         session_id=session_id,
         bound_session_id=bound_session_id,
         request_id=request_id,
         decision=decision_list,
         hitl_outcome=hitl_list,
         policy_version=policy_version,
-    )
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        total_scanned=scanned,
-        log_file=str(log_path),
-        has_more=has_more,
-        filters_applied=build_filters_applied(
-            time_range=time_range,
-            session_id=session_id,
-            bound_session_id=bound_session_id,
-            request_id=request_id,
-            decision=decision_list,
-            hitl_outcome=hitl_list,
-            policy_version=policy_version,
-        ),
     )
 
 
@@ -172,32 +231,20 @@ async def get_operation_logs(
     Returns entries from audit/operations.jsonl including:
     - Timestamp, operation type, subject info, resource accessed, outcome
     """
-    log_path = get_log_base_path(config) / LOG_PATHS["operations"]
-    cutoff_time = get_cutoff_time(time_range)
-    before_dt = _parse_before_cursor(before)
-
-    entries, has_more, scanned = read_jsonl_filtered(
-        log_path,
+    return _fetch_logs(
+        config,
+        "operations",
+        time_range,
         limit,
-        cutoff_time=cutoff_time,
-        before=before_dt,
+        before,
+        filters_applied={
+            "session_id": session_id,
+            "request_id": request_id,
+            "config_version": config_version,
+        },
         session_id=session_id,
         request_id=request_id,
         config_version=config_version,
-    )
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        total_scanned=scanned,
-        log_file=str(log_path),
-        has_more=has_more,
-        filters_applied=build_filters_applied(
-            time_range=time_range,
-            session_id=session_id,
-            request_id=request_id,
-            config_version=config_version,
-        ),
     )
 
 
@@ -220,36 +267,24 @@ async def get_auth_logs(
     Returns entries from audit/auth.jsonl including:
     - Timestamp, event type (login, logout, refresh, validation failure), subject info
     """
-    log_path = get_log_base_path(config) / LOG_PATHS["auth"]
-    cutoff_time = get_cutoff_time(time_range)
-    before_dt = _parse_before_cursor(before)
-
     event_list = parse_comma_separated(event_type)
 
-    entries, has_more, scanned = read_jsonl_filtered(
-        log_path,
+    return _fetch_logs(
+        config,
+        "auth",
+        time_range,
         limit,
-        cutoff_time=cutoff_time,
-        before=before_dt,
+        before,
+        filters_applied={
+            "session_id": session_id,
+            "bound_session_id": bound_session_id,
+            "request_id": request_id,
+            "event_type": event_list,
+        },
         session_id=session_id,
         bound_session_id=bound_session_id,
         request_id=request_id,
         event_type=event_list,
-    )
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        total_scanned=scanned,
-        log_file=str(log_path),
-        has_more=has_more,
-        filters_applied=build_filters_applied(
-            time_range=time_range,
-            session_id=session_id,
-            bound_session_id=bound_session_id,
-            request_id=request_id,
-            event_type=event_list,
-        ),
     )
 
 
@@ -281,39 +316,27 @@ async def get_system_logs(
     Returns entries from system/system.jsonl including:
     - Timestamp, log level, event type, component, message/details
     """
-    log_path = get_log_base_path(config) / LOG_PATHS["system"]
-    cutoff_time = get_cutoff_time(time_range)
-    before_dt = _parse_before_cursor(before)
-
     level_list = parse_comma_separated(level, uppercase=True)
     event_list = parse_comma_separated(event_type)
 
-    entries, has_more, scanned = read_jsonl_filtered(
-        log_path,
+    return _fetch_logs(
+        config,
+        "system",
+        time_range,
         limit,
-        cutoff_time=cutoff_time,
-        before=before_dt,
+        before,
+        filters_applied={
+            "session_id": session_id,
+            "request_id": request_id,
+            "config_version": config_version,
+            "level": level_list,
+            "event_type": event_list,
+        },
         session_id=session_id,
         request_id=request_id,
         config_version=config_version,
         level=level_list,
         event_type=event_list,
-    )
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        total_scanned=scanned,
-        log_file=str(log_path),
-        has_more=has_more,
-        filters_applied=build_filters_applied(
-            time_range=time_range,
-            session_id=session_id,
-            request_id=request_id,
-            config_version=config_version,
-            level=level_list,
-            event_type=event_list,
-        ),
     )
 
 
@@ -334,32 +357,20 @@ async def get_config_history_logs(
     Returns entries from system/config_history.jsonl including:
     - Timestamp, event type, config version, changes, checksums
     """
-    log_path = get_log_base_path(config) / LOG_PATHS["config_history"]
-    cutoff_time = get_cutoff_time(time_range)
-    before_dt = _parse_before_cursor(before)
-
     event_list = parse_comma_separated(event_type)
 
-    entries, has_more, scanned = read_jsonl_filtered(
-        log_path,
+    return _fetch_logs(
+        config,
+        "config_history",
+        time_range,
         limit,
-        cutoff_time=cutoff_time,
-        before=before_dt,
+        before,
+        filters_applied={
+            "config_version": config_version,
+            "event_type": event_list,
+        },
         config_version=config_version,
         event_type=event_list,
-    )
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        total_scanned=scanned,
-        log_file=str(log_path),
-        has_more=has_more,
-        filters_applied=build_filters_applied(
-            time_range=time_range,
-            config_version=config_version,
-            event_type=event_list,
-        ),
     )
 
 
@@ -380,32 +391,20 @@ async def get_policy_history_logs(
     Returns entries from system/policy_history.jsonl including:
     - Timestamp, event type, policy version, rule changes, checksums
     """
-    log_path = get_log_base_path(config) / LOG_PATHS["policy_history"]
-    cutoff_time = get_cutoff_time(time_range)
-    before_dt = _parse_before_cursor(before)
-
     event_list = parse_comma_separated(event_type)
 
-    entries, has_more, scanned = read_jsonl_filtered(
-        log_path,
+    return _fetch_logs(
+        config,
+        "policy_history",
+        time_range,
         limit,
-        cutoff_time=cutoff_time,
-        before=before_dt,
+        before,
+        filters_applied={
+            "policy_version": policy_version,
+            "event_type": event_list,
+        },
         policy_version=policy_version,
         event_type=event_list,
-    )
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        total_scanned=scanned,
-        log_file=str(log_path),
-        has_more=has_more,
-        filters_applied=build_filters_applied(
-            time_range=time_range,
-            policy_version=policy_version,
-            event_type=event_list,
-        ),
     )
 
 
@@ -434,40 +433,23 @@ async def get_client_wire_logs(
     Returns entries from debug/client_wire.jsonl including:
     - Timestamp, direction, method, payload info, timing
     """
-    log_path = get_log_base_path(config) / LOG_PATHS["client_wire"]
-
-    if not log_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="Debug logs not available. Set log_level to DEBUG in config.",
-        )
-
-    cutoff_time = get_cutoff_time(time_range)
-    before_dt = _parse_before_cursor(before)
     event_list = parse_comma_separated(event_type)
 
-    entries, has_more, scanned = read_jsonl_filtered(
-        log_path,
+    return _fetch_logs(
+        config,
+        "client_wire",
+        time_range,
         limit,
-        cutoff_time=cutoff_time,
-        before=before_dt,
+        before,
+        filters_applied={
+            "session_id": session_id,
+            "request_id": request_id,
+            "event_type": event_list,
+        },
+        require_exists=True,
         session_id=session_id,
         request_id=request_id,
         event_type=event_list,
-    )
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        total_scanned=scanned,
-        log_file=str(log_path),
-        has_more=has_more,
-        filters_applied=build_filters_applied(
-            time_range=time_range,
-            session_id=session_id,
-            request_id=request_id,
-            event_type=event_list,
-        ),
     )
 
 
@@ -491,40 +473,23 @@ async def get_backend_wire_logs(
     Returns entries from debug/backend_wire.jsonl including:
     - Timestamp, direction, method, tool info, timing
     """
-    log_path = get_log_base_path(config) / LOG_PATHS["backend_wire"]
-
-    if not log_path.exists():
-        raise HTTPException(
-            status_code=404,
-            detail="Debug logs not available. Set log_level to DEBUG in config.",
-        )
-
-    cutoff_time = get_cutoff_time(time_range)
-    before_dt = _parse_before_cursor(before)
     event_list = parse_comma_separated(event_type)
 
-    entries, has_more, scanned = read_jsonl_filtered(
-        log_path,
+    return _fetch_logs(
+        config,
+        "backend_wire",
+        time_range,
         limit,
-        cutoff_time=cutoff_time,
-        before=before_dt,
+        before,
+        filters_applied={
+            "session_id": session_id,
+            "request_id": request_id,
+            "event_type": event_list,
+        },
+        require_exists=True,
         session_id=session_id,
         request_id=request_id,
         event_type=event_list,
-    )
-
-    return LogsResponse(
-        entries=entries,
-        total_returned=len(entries),
-        total_scanned=scanned,
-        log_file=str(log_path),
-        has_more=has_more,
-        filters_applied=build_filters_applied(
-            time_range=time_range,
-            session_id=session_id,
-            request_id=request_id,
-            event_type=event_list,
-        ),
     )
 
 

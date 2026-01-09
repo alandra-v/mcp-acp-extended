@@ -31,7 +31,7 @@ __all__ = [
     "ProxyStateDep",
 ]
 
-from typing import TYPE_CHECKING, Annotated, cast
+from typing import TYPE_CHECKING, Annotated, Any, Callable, cast
 
 from fastapi import Depends, HTTPException, Request
 
@@ -44,113 +44,75 @@ if TYPE_CHECKING:
 
 
 # =============================================================================
-# Dependency Functions
+# Factory for State Getters
 # =============================================================================
 
 
-def get_proxy_state(request: Request) -> "ProxyState":
-    """Get ProxyState from app.state.
+def _create_state_getter(
+    attr_name: str,
+    type_hint: str,
+    error_detail: str,
+) -> Callable[[Request], Any]:
+    """Create a dependency function that retrieves a value from app.state.
+
+    This factory reduces duplication across state getter functions that all
+    follow the same pattern: get attr from app.state, raise 503 if None.
 
     Args:
-        request: FastAPI request object.
+        attr_name: Attribute name on app.state (e.g., "config", "proxy_state").
+        type_hint: Type name for cast (e.g., "AppConfig").
+        error_detail: Error message for HTTPException.
 
     Returns:
-        ProxyState instance.
-
-    Raises:
-        HTTPException: 503 if proxy state not available.
+        A dependency function compatible with FastAPI's Depends().
+        Type safety is provided by the explicit type annotations at call sites.
     """
-    state = getattr(request.app.state, "proxy_state", None)
-    if state is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Proxy state not available. Proxy may still be starting.",
-        )
-    return cast("ProxyState", state)
+
+    def getter(request: Request) -> Any:
+        value = getattr(request.app.state, attr_name, None)
+        if value is None:
+            raise HTTPException(status_code=503, detail=error_detail)
+        return value
+
+    # Set function metadata for better introspection
+    getter.__name__ = f"get_{attr_name}"
+    getter.__doc__ = f"Get {type_hint} from app.state.\n\nRaises HTTPException 503 if not available."
+    return getter
 
 
-def get_config(request: Request) -> "AppConfig":
-    """Get AppConfig from app.state.
+# =============================================================================
+# Dependency Functions (generated via factory)
+# =============================================================================
 
-    Args:
-        request: FastAPI request object.
+get_proxy_state: Callable[[Request], "ProxyState"] = _create_state_getter(
+    "proxy_state",
+    "ProxyState",
+    "Proxy state not available. Proxy may still be starting.",
+)
 
-    Returns:
-        AppConfig instance.
+get_config: Callable[[Request], "AppConfig"] = _create_state_getter(
+    "config",
+    "AppConfig",
+    "Config not available. Proxy may still be starting.",
+)
 
-    Raises:
-        HTTPException: 503 if config not available.
-    """
-    config = getattr(request.app.state, "config", None)
-    if config is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Config not available. Proxy may still be starting.",
-        )
-    return cast("AppConfig", config)
+get_policy_reloader: Callable[[Request], "PolicyReloader"] = _create_state_getter(
+    "policy_reloader",
+    "PolicyReloader",
+    "Policy reloader not available. Proxy may still be starting.",
+)
 
+get_approval_store: Callable[[Request], "ApprovalStore"] = _create_state_getter(
+    "approval_store",
+    "ApprovalStore",
+    "Approval store not available. Proxy may still be starting.",
+)
 
-def get_policy_reloader(request: Request) -> "PolicyReloader":
-    """Get PolicyReloader from app.state.
-
-    Args:
-        request: FastAPI request object.
-
-    Returns:
-        PolicyReloader instance.
-
-    Raises:
-        HTTPException: 503 if policy reloader not available.
-    """
-    reloader = getattr(request.app.state, "policy_reloader", None)
-    if reloader is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Policy reloader not available. Proxy may still be starting.",
-        )
-    return cast("PolicyReloader", reloader)
-
-
-def get_approval_store(request: Request) -> "ApprovalStore":
-    """Get ApprovalStore from app.state.
-
-    Args:
-        request: FastAPI request object.
-
-    Returns:
-        ApprovalStore instance.
-
-    Raises:
-        HTTPException: 503 if approval store not available.
-    """
-    store = getattr(request.app.state, "approval_store", None)
-    if store is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Approval store not available. Proxy may still be starting.",
-        )
-    return cast("ApprovalStore", store)
-
-
-def get_identity_provider(request: Request) -> "OIDCIdentityProvider":
-    """Get OIDCIdentityProvider from app.state.
-
-    Args:
-        request: FastAPI request object.
-
-    Returns:
-        OIDCIdentityProvider instance.
-
-    Raises:
-        HTTPException: 503 if identity provider not available.
-    """
-    provider = getattr(request.app.state, "identity_provider", None)
-    if provider is None:
-        raise HTTPException(
-            status_code=503,
-            detail="Identity provider not available. Auth may not be configured.",
-        )
-    return cast("OIDCIdentityProvider", provider)
+get_identity_provider: Callable[[Request], "OIDCIdentityProvider"] = _create_state_getter(
+    "identity_provider",
+    "OIDCIdentityProvider",
+    "Identity provider not available. Auth may not be configured.",
+)
 
 
 def get_oidc_config(request: Request) -> "OIDCConfig":
