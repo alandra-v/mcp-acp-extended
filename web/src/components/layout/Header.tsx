@@ -9,7 +9,6 @@ interface HeaderProps {
 
 export function Header({ proxyName }: HeaderProps) {
   const location = useLocation()
-  const isProxiesPage = location.pathname === '/' || location.pathname === '/proxies'
 
   // Page loader state
   const [isLoading, setIsLoading] = useState(false)
@@ -57,28 +56,7 @@ export function Header({ proxyName }: HeaderProps) {
         )}
       </div>
 
-      <nav className="flex items-center gap-2">
-        <Link
-          to="/"
-          className={cn(
-            'px-4 py-2 rounded-lg text-sm font-medium transition-smooth',
-            isProxiesPage
-              ? 'text-foreground bg-base-800'
-              : 'text-muted-foreground hover:text-foreground hover:bg-base-900'
-          )}
-        >
-          Proxies
-        </Link>
-        <span
-          className="px-4 py-2 rounded-lg text-sm font-medium text-base-600 cursor-not-allowed"
-          title="Coming soon - available in multi-proxy mode"
-        >
-          Global Logs
-        </span>
-
-        {/* Auth dropdown */}
-        <AuthDropdown />
-      </nav>
+      <AuthDropdown />
     </header>
   )
 }
