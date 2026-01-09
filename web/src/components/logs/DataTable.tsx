@@ -59,7 +59,7 @@ export function DataTable<TData>({
   }
 
   return (
-    <div className="rounded-lg border border-[var(--border-subtle)] bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] overflow-hidden">
+    <div className="rounded-lg border border-[var(--border-subtle)] card-gradient overflow-hidden">
       <ScrollArea className="h-[600px]">
       <Table>
         <TableHeader>

@@ -2,7 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, useRef, ty
 import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRequest, clearCachedApprovals, deleteCachedApproval } from '@/api/approvals'
 import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
-import { playErrorSound } from '@/hooks/useErrorSound'
+import { playErrorSound, notifyError } from '@/hooks/useErrorSound'
 import type { CachedApproval, PendingApproval, ProxyStats, SSEEvent, SSEEventType, SSESystemEvent } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
@@ -75,8 +75,7 @@ function showSystemToast(event: SSESystemEvent) {
       toast.warning(message)
       break
     case 'error':
-      toast.error(message)
-      playErrorSound()
+      notifyError(message)
       break
     case 'critical':
       // Critical events don't auto-dismiss and play error sound
@@ -262,8 +261,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       // 404 errors emit SSE pending_not_found event, but network errors don't
       // Show fallback toast for non-404 errors (e.g., network failure)
       if (e instanceof Error && !e.message.includes('404')) {
-        toast.error('Failed to approve request')
-        playErrorSound()
+        notifyError('Failed to approve request')
       }
     }
   }, [])
@@ -274,8 +272,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       toast.success('Request approved (once)')
     } catch (e) {
       if (e instanceof Error && !e.message.includes('404')) {
-        toast.error('Failed to approve request')
-        playErrorSound()
+        notifyError('Failed to approve request')
       }
     }
   }, [])
@@ -286,8 +283,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       toast.success('Request denied')
     } catch (e) {
       if (e instanceof Error && !e.message.includes('404')) {
-        toast.error('Failed to deny request')
-        playErrorSound()
+        notifyError('Failed to deny request')
       }
     }
   }, [])
@@ -298,8 +294,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       // Note: State update comes from SSE cached_snapshot event
     } catch (e) {
       console.error('Failed to clear cache:', e)
-      toast.error('Failed to clear cache')
-      playErrorSound()
+      notifyError('Failed to clear cache')
     }
   }, [])
 
@@ -309,8 +304,7 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       // Note: State update comes from SSE cached_snapshot event
     } catch (e) {
       console.error('Failed to delete cached approval:', e)
-      toast.error('Failed to delete cached approval')
-      playErrorSound()
+      notifyError('Failed to delete cached approval')
     }
   }, [])
 

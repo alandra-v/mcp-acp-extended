@@ -1,5 +1,6 @@
 import { Section } from './Section'
 import { ApprovalItem } from '@/components/approvals/ApprovalItem'
+import { DataState } from '@/components/ui/DataState'
 import type { PendingApproval } from '@/types/api'
 
 interface ApprovalsSectionProps {
@@ -20,12 +21,8 @@ export function ApprovalsSection({
   return (
     <Section number="002" title="Pending Approvals" loaded={loaded}>
       <div className="space-y-3">
-        {approvals.length === 0 ? (
-          <div className="text-center py-8 text-muted-foreground text-sm">
-            No pending approvals
-          </div>
-        ) : (
-          approvals.map((approval) => (
+        <DataState hasData={approvals.length > 0} emptyMessage="No pending approvals">
+          {approvals.map((approval) => (
             <ApprovalItem
               key={approval.id}
               approval={approval}
@@ -34,8 +31,8 @@ export function ApprovalsSection({
               onDeny={() => onDeny(approval.id)}
               compact
             />
-          ))
-        )}
+          ))}
+        </DataState>
       </div>
     </Section>
   )

@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { toast } from '@/components/ui/sonner'
 import { startLogin, pollLogin } from '@/api/auth'
-import { playErrorSound } from '@/hooks/useErrorSound'
+import { notifyError } from '@/hooks/useErrorSound'
 
 interface DeviceFlowState {
   userCode?: string
@@ -70,8 +69,7 @@ export function useDeviceFlow(onSuccess: () => void): UseDeviceFlowReturn {
               polling: false,
               error: pollResponse.message || 'Code expired',
             }))
-            toast.error('Code expired, please try again')
-            playErrorSound()
+            notifyError('Code expired, please try again')
           } else if (pollResponse.status === 'denied') {
             clearPolling()
             setState((prev) => ({
@@ -79,8 +77,7 @@ export function useDeviceFlow(onSuccess: () => void): UseDeviceFlowReturn {
               polling: false,
               error: pollResponse.message || 'Authorization denied',
             }))
-            toast.error('Authorization denied')
-            playErrorSound()
+            notifyError('Authorization denied')
           } else if (pollResponse.status === 'error') {
             clearPolling()
             setState((prev) => ({
@@ -88,20 +85,17 @@ export function useDeviceFlow(onSuccess: () => void): UseDeviceFlowReturn {
               polling: false,
               error: pollResponse.message || 'Login failed',
             }))
-            toast.error('Login failed')
-            playErrorSound()
+            notifyError('Login failed')
           }
         } catch {
           clearPolling()
           setState((prev) => ({ ...prev, polling: false, error: 'Polling failed' }))
-          toast.error('Login failed')
-          playErrorSound()
+          notifyError('Login failed')
         }
       }, response.interval * 1000)
     } catch (err) {
       setState({ polling: false, error: err instanceof Error ? err.message : 'Failed to start login' })
-      toast.error('Failed to start login')
-      playErrorSound()
+      notifyError('Failed to start login')
     }
   }, [clearPolling, onSuccess])
 

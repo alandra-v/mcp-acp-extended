@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Section } from './Section'
+import { DataState } from '@/components/ui/DataState'
 import { cn, formatTime } from '@/lib/utils'
 import { useLogs } from '@/hooks/useLogs'
 import { ChevronDown, ChevronRight } from 'lucide-react'
@@ -21,17 +22,14 @@ export function ActivitySection({
       title="Recent Activity"
       loaded={loaded}
     >
-      <div className="border border-[var(--border-subtle)] rounded-lg bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] overflow-hidden">
+      <div className="border border-[var(--border-subtle)] rounded-lg card-gradient overflow-hidden">
         <ScrollArea className="h-[300px]">
-          {loading && logs.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">
-              Loading logs...
-            </div>
-          ) : logs.length === 0 ? (
-            <div className="text-center py-8 text-muted-foreground text-sm">
-              No recent activity
-            </div>
-          ) : (
+          <DataState
+            loading={loading}
+            hasData={logs.length > 0}
+            loadingMessage="Loading logs..."
+            emptyMessage="No recent activity"
+          >
             <div>
               {logs.map((log, i) => (
                 <LogEntryRow
@@ -40,7 +38,7 @@ export function ActivitySection({
                 />
               ))}
             </div>
-          )}
+          </DataState>
         </ScrollArea>
       </div>
       <p className="mt-2 text-xs text-base-600">

@@ -96,7 +96,7 @@ export function ApprovalItem({
 
   if (compact) {
     return (
-      <div className="flex items-center gap-4 p-4 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
+      <div className="flex items-center gap-4 p-4 card-gradient border border-[var(--border-subtle)] rounded-lg">
         <span className="font-mono text-sm text-base-300 bg-base-800 px-2.5 py-1.5 rounded">
           {approval.tool_name}
         </span>
@@ -119,7 +119,7 @@ export function ApprovalItem({
   }
 
   return (
-    <div className="p-4 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
+    <div className="p-4 card-gradient border border-[var(--border-subtle)] rounded-lg">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
           {showProxyId && (

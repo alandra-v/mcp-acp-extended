@@ -44,7 +44,7 @@ export function AuthPage() {
             <h2 className="font-display text-lg font-semibold">Authentication</h2>
           </div>
 
-          <div className="p-6 bg-gradient-to-br from-[oklch(0.20_0.014_228)] to-[oklch(0.16_0.012_228)] border border-[var(--border-subtle)] rounded-lg">
+          <div className="p-6 card-gradient border border-[var(--border-subtle)] rounded-lg">
             {/* Status */}
             <div className="flex items-center justify-between mb-6 pb-6 border-b border-[var(--border-subtle)]">
               <div className="flex items-center gap-3">
