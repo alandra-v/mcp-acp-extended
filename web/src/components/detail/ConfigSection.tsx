@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/select'
 import { toast } from '@/components/ui/sonner'
 import { cn } from '@/lib/utils'
-import type { ConfigResponse, ConfigUpdateRequest, TransportType } from '@/api/config'
+import type { ConfigResponse, ConfigUpdateRequest, TransportType, ConfigChange } from '@/api/config'
 
 interface ConfigSectionProps {
   loaded?: boolean
@@ -195,7 +195,7 @@ function formStateToUpdateRequest(
 }
 
 export function ConfigSection({ loaded = true }: ConfigSectionProps) {
-  const { config, loading, saving, save, refresh } = useConfig()
+  const { config, loading, saving, save, refresh, pendingChanges, hasPendingChanges } = useConfig()
   const { status: authStatus } = useAuth()
   const [form, setForm] = useState<FormState | null>(null)
 
@@ -489,6 +489,13 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
           </FormSection>
         )}
 
+        {/* Pending Changes (saved but not running) */}
+        {hasPendingChanges && (
+          <div className="pt-4 border-t border-[var(--border-subtle)]">
+            <PendingChangesSection changes={pendingChanges} />
+          </div>
+        )}
+
         {/* Config File Path (read-only) */}
         <div className="pt-4 border-t border-[var(--border-subtle)]">
           <div className="text-xs text-muted-foreground">
@@ -554,6 +561,71 @@ function FormRow({ label, hint, children }: FormRowProps) {
         {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
       </div>
       <div className="flex-1">{children}</div>
+    </div>
+  )
+}
+
+interface PendingChangesSectionProps {
+  changes: ConfigChange[]
+}
+
+/**
+ * Format a value for display in the changelog.
+ */
+function formatValue(value: string | number | boolean | string[] | null): string {
+  if (value === null || value === undefined) return '(not set)'
+  if (Array.isArray(value)) return value.join(', ') || '(empty)'
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'string' && value === '') return '(empty)'
+  return String(value)
+}
+
+/**
+ * Display pending changes between running and saved config.
+ * These are changes that will take effect after restart.
+ */
+function PendingChangesSection({ changes }: PendingChangesSectionProps) {
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <div className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
+        <h3 className="text-sm font-semibold text-amber-400">
+          Pending Changes ({changes.length})
+        </h3>
+      </div>
+      <p className="text-xs text-muted-foreground">
+        These changes are saved to the config file but not yet active. Restart the proxy to apply.
+      </p>
+      <div className="bg-base-900/50 rounded-md border border-base-800 overflow-hidden">
+        <table className="w-full text-xs">
+          <thead>
+            <tr className="border-b border-base-800 bg-base-900/50">
+              <th className="text-left px-3 py-2 font-medium text-muted-foreground">Field</th>
+              <th className="text-left px-3 py-2 font-medium text-muted-foreground">Running</th>
+              <th className="text-left px-3 py-2 font-medium text-muted-foreground">Saved</th>
+            </tr>
+          </thead>
+          <tbody>
+            {changes.map((change, idx) => (
+              <tr
+                key={change.field}
+                className={cn(
+                  'border-b border-base-800/50 last:border-0',
+                  idx % 2 === 0 ? 'bg-transparent' : 'bg-base-900/30'
+                )}
+              >
+                <td className="px-3 py-2 font-mono text-base-300">{change.field}</td>
+                <td className="px-3 py-2 text-red-400/80">
+                  <span className="line-through opacity-60">{formatValue(change.running_value)}</span>
+                </td>
+                <td className="px-3 py-2 text-green-400/80">
+                  {formatValue(change.saved_value)}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

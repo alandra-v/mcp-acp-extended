@@ -20,6 +20,8 @@ from mcp_acp_extended.api.deps import ConfigDep
 from mcp_acp_extended.api.schemas import (
     AuthConfigResponse,
     BackendConfigResponse,
+    ConfigChange,
+    ConfigComparisonResponse,
     ConfigResponse,
     ConfigUpdateRequest,
     ConfigUpdateResponse,
@@ -61,6 +63,44 @@ def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]
         else:
             result[key] = value
     return result
+
+
+def _compare_configs(running: dict[str, Any], saved: dict[str, Any], prefix: str = "") -> list[ConfigChange]:
+    """Compare two config dicts and return list of changes.
+
+    Args:
+        running: Running (in-memory) config as dict.
+        saved: Saved (file) config as dict.
+        prefix: Current path prefix for nested keys.
+
+    Returns:
+        List of ConfigChange objects describing differences.
+    """
+    changes: list[ConfigChange] = []
+    all_keys = set(running.keys()) | set(saved.keys())
+
+    for key in all_keys:
+        path = f"{prefix}.{key}" if prefix else key
+        running_val = running.get(key)
+        saved_val = saved.get(key)
+
+        # Skip config_path and requires_restart_for_changes (metadata fields)
+        if key in ("config_path", "requires_restart_for_changes"):
+            continue
+
+        if isinstance(running_val, dict) and isinstance(saved_val, dict):
+            # Recurse into nested dicts
+            changes.extend(_compare_configs(running_val, saved_val, path))
+        elif running_val != saved_val:
+            changes.append(
+                ConfigChange(
+                    field=path,
+                    running_value=running_val,
+                    saved_value=saved_val,
+                )
+            )
+
+    return changes
 
 
 def _build_config_response(config: AppConfig) -> ConfigResponse:
@@ -212,4 +252,45 @@ async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
     return ConfigUpdateResponse(
         config=_build_config_response(new_config),
         message="Configuration saved. Restart the client to apply changes.",
+    )
+
+
+@router.get("/compare")
+async def compare_config(config: ConfigDep) -> ConfigComparisonResponse:
+    """Compare running (in-memory) config with saved (file) config.
+
+    Returns both configs and a list of differences. Useful for seeing
+    what will change on restart, or if the file was manually edited.
+    """
+    config_path = get_config_path()
+
+    # Build running config response
+    running_response = _build_config_response(config)
+
+    # Load saved config from file
+    try:
+        saved_config = AppConfig.load_from_files(config_path)
+        saved_response = _build_config_response(saved_config)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Config file not found")
+    except ValueError as e:
+        raise HTTPException(status_code=500, detail=f"Invalid config file: {e}")
+
+    # Compare the two configs
+    running_dict = running_response.model_dump()
+    saved_dict = saved_response.model_dump()
+    changes = _compare_configs(running_dict, saved_dict)
+
+    has_changes = len(changes) > 0
+    if has_changes:
+        message = f"{len(changes)} change(s) between running and saved config. Restart to apply."
+    else:
+        message = "Running config matches saved config file."
+
+    return ConfigComparisonResponse(
+        running_config=running_response,
+        saved_config=saved_response,
+        has_changes=has_changes,
+        changes=changes,
+        message=message,
     )

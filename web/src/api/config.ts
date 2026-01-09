@@ -66,6 +66,24 @@ export interface ConfigUpdateResponse {
 }
 
 // =============================================================================
+// Comparison Types
+// =============================================================================
+
+export interface ConfigChange {
+  field: string
+  running_value: string | number | boolean | string[] | null
+  saved_value: string | number | boolean | string[] | null
+}
+
+export interface ConfigComparisonResponse {
+  running_config: ConfigResponse
+  saved_config: ConfigResponse
+  has_changes: boolean
+  changes: ConfigChange[]
+  message: string
+}
+
+// =============================================================================
 // Update Request Types
 // =============================================================================
 
@@ -141,4 +159,12 @@ export async function updateConfig(
   updates: ConfigUpdateRequest
 ): Promise<ConfigUpdateResponse> {
   return apiPut<ConfigUpdateResponse>('/config', updates)
+}
+
+/**
+ * Compare running (in-memory) config with saved (file) config.
+ * Returns both configs and a list of differences.
+ */
+export async function compareConfig(): Promise<ConfigComparisonResponse> {
+  return apiGet<ConfigComparisonResponse>('/config/compare')
 }

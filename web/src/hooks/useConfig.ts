@@ -1,5 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { getConfig, updateConfig, ConfigResponse, ConfigUpdateRequest } from '@/api/config'
+import {
+  getConfig,
+  updateConfig,
+  compareConfig,
+  ConfigResponse,
+  ConfigUpdateRequest,
+  ConfigChange,
+} from '@/api/config'
 import { toast } from '@/components/ui/sonner'
 
 export interface UseConfigResult {
@@ -7,6 +14,10 @@ export interface UseConfigResult {
   loading: boolean
   saving: boolean
   error: string | null
+  /** Changes between running and saved config (from file) */
+  pendingChanges: ConfigChange[]
+  /** True if saved config differs from running config */
+  hasPendingChanges: boolean
   save: (updates: ConfigUpdateRequest) => Promise<boolean>
   refresh: () => Promise<void>
 }
@@ -19,6 +30,8 @@ export interface UseConfigResult {
  * - loading: True while fetching config
  * - saving: True while saving updates
  * - error: Error message if fetch failed
+ * - pendingChanges: List of changes between running and saved config
+ * - hasPendingChanges: True if saved config differs from running
  * - save: Function to save updates (returns true on success)
  * - refresh: Function to re-fetch config
  */
@@ -27,15 +40,34 @@ export function useConfig(): UseConfigResult {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [pendingChanges, setPendingChanges] = useState<ConfigChange[]>([])
+  const [hasPendingChanges, setHasPendingChanges] = useState(false)
   const mountedRef = useRef(true)
 
   const fetchConfig = useCallback(async () => {
     try {
       setLoading(true)
       setError(null)
-      const data = await getConfig()
+
+      // Fetch config first (required)
+      const configData = await getConfig()
       if (mountedRef.current) {
-        setConfig(data)
+        setConfig(configData)
+      }
+
+      // Then try to fetch comparison (optional - don't fail if this errors)
+      try {
+        const comparison = await compareConfig()
+        if (mountedRef.current) {
+          setPendingChanges(comparison.changes)
+          setHasPendingChanges(comparison.has_changes)
+        }
+      } catch {
+        // Comparison failed - that's OK, just don't show pending changes
+        if (mountedRef.current) {
+          setPendingChanges([])
+          setHasPendingChanges(false)
+        }
       }
     } catch (e) {
       if (mountedRef.current) {
@@ -90,6 +122,8 @@ export function useConfig(): UseConfigResult {
     loading,
     saving,
     error,
+    pendingChanges,
+    hasPendingChanges,
     save,
     refresh: fetchConfig,
   }
