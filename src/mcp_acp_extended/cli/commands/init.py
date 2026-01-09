@@ -123,6 +123,7 @@ def _create_and_save_config(
     config_path: Path,
     log_dir: str,
     log_level: str,
+    include_payloads: bool,
     server_name: str,
     connection_type: str,
     stdio_config: StdioTransportConfig | None,
@@ -135,6 +136,7 @@ def _create_and_save_config(
         config_path: Path to save config file.
         log_dir: Log directory path.
         log_level: Logging level.
+        include_payloads: Whether to include payloads in debug logs.
         server_name: Backend server name.
         connection_type: Connection type (stdio, http, or both).
         stdio_config: STDIO transport config (if applicable).
@@ -150,14 +152,14 @@ def _create_and_save_config(
     )
 
     # Determine transport setting based on connection type
-    # CLI uses "both" -> config uses None (auto-detect)
-    transport: Literal["stdio", "streamablehttp"] | None
+    # CLI uses "both" -> config uses "auto" (auto-detect)
+    transport: Literal["stdio", "streamablehttp", "auto"]
     if connection_type == "stdio":
         transport = "stdio"
     elif connection_type == "http":
         transport = "streamablehttp"
     elif connection_type == "both":
-        transport = None  # auto-detect at runtime
+        transport = "auto"  # auto-detect at runtime
     else:
         raise ValueError(f"Invalid connection_type: {connection_type}")
 
@@ -166,6 +168,7 @@ def _create_and_save_config(
         logging=LoggingConfig(
             log_dir=log_dir,
             log_level=log_level_literal,
+            include_payloads=include_payloads,
         ),
         backend=BackendConfig(
             server_name=server_name,
@@ -194,7 +197,7 @@ def _create_and_save_config(
     # Display result
     click.echo(f"\nConfiguration saved to {config_path}")
     click.echo(f"Policy saved to {policy_path}")
-    if transport is None:
+    if transport == "auto":
         click.echo("Transport: auto-detect (prefers HTTP when reachable)")
     else:
         click.echo(f"Transport: {transport}")
@@ -205,7 +208,7 @@ def _run_interactive_init(
     log_dir: str | None,
     log_level: str,
     server_name: str | None,
-) -> tuple[str, str, str, str, StdioTransportConfig | None, HttpTransportConfig | None, AuthConfig]:
+) -> tuple[str, str, bool, str, str, StdioTransportConfig | None, HttpTransportConfig | None, AuthConfig]:
     """Run interactive configuration wizard.
 
     Args:
@@ -214,7 +217,8 @@ def _run_interactive_init(
         server_name: Pre-provided server name or None.
 
     Returns:
-        Tuple of (log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config).
+        Tuple of (log_dir, log_level, include_payloads, server_name, connection_type,
+        stdio_config, http_config, auth_config).
 
     Raises:
         click.Abort: If user aborts during HTTP configuration.
@@ -230,6 +234,14 @@ def _run_interactive_init(
         type=click.Choice(["DEBUG", "INFO"], case_sensitive=False),
         default=log_level,
     )
+
+    # Payload logging (only relevant for DEBUG)
+    include_payloads = True  # default
+    if log_level.upper() == "DEBUG":
+        click.echo("\n  Include full message payloads in debug logs?")
+        click.echo("    Yes = more verbose, shows actual content")
+        click.echo("    No  = only method names and metadata")
+        include_payloads = click.confirm("  Include payloads", default=True)
 
     # Backend settings
     server_name = server_name or prompt_with_retry("\nBackend server name")
@@ -260,12 +272,22 @@ def _run_interactive_init(
     # Authentication settings
     auth_config = prompt_auth_config(http_config)
 
-    return log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config
+    return (
+        log_dir,
+        log_level,
+        include_payloads,
+        server_name,
+        connection_type,
+        stdio_config,
+        http_config,
+        auth_config,
+    )
 
 
 def _run_non_interactive_init(
     log_dir: str | None,
     log_level: str,
+    include_payloads: bool | None,
     server_name: str | None,
     connection_type: str | None,
     command: str | None,
@@ -279,12 +301,13 @@ def _run_non_interactive_init(
     mtls_cert: str | None,
     mtls_key: str | None,
     mtls_ca: str | None,
-) -> tuple[str, str, str, str, StdioTransportConfig | None, HttpTransportConfig | None, AuthConfig]:
+) -> tuple[str, str, bool, str, str, StdioTransportConfig | None, HttpTransportConfig | None, AuthConfig]:
     """Run non-interactive configuration setup.
 
     Args:
         log_dir: Log directory path.
         log_level: Logging level.
+        include_payloads: Whether to include payloads in debug logs (None = default True).
         server_name: Backend server name.
         connection_type: Transport type (stdio, http, both).
         command: STDIO command.
@@ -299,7 +322,8 @@ def _run_non_interactive_init(
         mtls_ca: mTLS CA bundle path.
 
     Returns:
-        Tuple of (log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config).
+        Tuple of (log_dir, log_level, include_payloads, server_name, connection_type,
+        stdio_config, http_config, auth_config).
 
     Raises:
         SystemExit: If required flags are missing.
@@ -376,7 +400,19 @@ def _run_non_interactive_init(
         mtls=mtls_config,
     )
 
-    return log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config
+    # Default include_payloads to True if not specified
+    resolved_include_payloads = include_payloads if include_payloads is not None else True
+
+    return (
+        log_dir,
+        log_level,
+        resolved_include_payloads,
+        server_name,
+        connection_type,
+        stdio_config,
+        http_config,
+        auth_config,
+    )
 
 
 @click.command()
@@ -394,6 +430,11 @@ def _run_non_interactive_init(
     type=click.Choice(["DEBUG", "INFO"], case_sensitive=False),
     default="INFO",
     help="Logging verbosity (default: INFO). DEBUG enables debug wire logs.",
+)
+@click.option(
+    "--include-payloads/--no-include-payloads",
+    default=None,
+    help="Include message payloads in debug logs (default: True, only relevant with DEBUG).",
 )
 @click.option("--server-name", help="Backend server name")
 @click.option(
@@ -431,6 +472,7 @@ def init(
     non_interactive: bool,
     log_dir: str | None,
     log_level: str,
+    include_payloads: bool | None,
     server_name: str | None,
     connection_type: str | None,
     command: str | None,
@@ -513,28 +555,43 @@ def init(
     # Gather configuration values
     try:
         if non_interactive:
-            log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config = (
-                _run_non_interactive_init(
-                    log_dir,
-                    log_level,
-                    server_name,
-                    connection_type,
-                    command,
-                    args,
-                    url,
-                    timeout,
-                    oidc_issuer,
-                    oidc_client_id,
-                    oidc_audience,
-                    mtls_cert,
-                    mtls_key,
-                    mtls_ca,
-                )
+            (
+                log_dir,
+                log_level,
+                include_payloads,
+                server_name,
+                connection_type,
+                stdio_config,
+                http_config,
+                auth_config,
+            ) = _run_non_interactive_init(
+                log_dir,
+                log_level,
+                include_payloads,
+                server_name,
+                connection_type,
+                command,
+                args,
+                url,
+                timeout,
+                oidc_issuer,
+                oidc_client_id,
+                oidc_audience,
+                mtls_cert,
+                mtls_key,
+                mtls_ca,
             )
         else:
-            log_dir, log_level, server_name, connection_type, stdio_config, http_config, auth_config = (
-                _run_interactive_init(log_dir, log_level, server_name)
-            )
+            (
+                log_dir,
+                log_level,
+                include_payloads,
+                server_name,
+                connection_type,
+                stdio_config,
+                http_config,
+                auth_config,
+            ) = _run_interactive_init(log_dir, log_level, server_name)
     except click.Abort:
         click.echo("Aborted.")
         sys.exit(0)
@@ -553,6 +610,7 @@ def init(
             config_path,
             log_dir,
             log_level,
+            include_payloads,
             server_name,
             connection_type,
             stdio_config,

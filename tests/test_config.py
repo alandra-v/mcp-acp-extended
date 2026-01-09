@@ -181,18 +181,28 @@ class TestBackendConfig:
         assert config.transport == "streamablehttp"
 
     def test_accepts_auto_detect_transport(self):
-        # Act - transport=None means auto-detect at runtime
+        # Act - transport="auto" means auto-detect at runtime
         config = BackendConfig(
             server_name="test",
-            transport=None,
+            transport="auto",
             stdio=StdioTransportConfig(command="echo"),
             http=HttpTransportConfig(url="http://localhost:3000/mcp"),
         )
 
         # Assert
-        assert config.transport is None
+        assert config.transport == "auto"
         assert config.stdio is not None
         assert config.http is not None
+
+    def test_defaults_to_auto_transport(self):
+        # Act - transport defaults to "auto" if not specified
+        config = BackendConfig(
+            server_name="test",
+            stdio=StdioTransportConfig(command="echo"),
+        )
+
+        # Assert
+        assert config.transport == "auto"
 
     @pytest.mark.parametrize("invalid_transport", ["http", "sse", "grpc", ""])
     def test_rejects_invalid_transport(self, invalid_transport: str):

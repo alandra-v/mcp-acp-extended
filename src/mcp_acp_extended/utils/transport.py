@@ -244,8 +244,9 @@ def create_backend_transport(
     """Create backend transport with auto-detection and health checks.
 
     Transport selection logic:
-    1. If transport explicitly set: use it (validate config exists, check HTTP health)
-    2. If transport is None (auto-detect):
+    1. If transport explicitly set ("stdio" or "streamablehttp"): use it
+       (validate config exists, check HTTP health)
+    2. If transport is "auto":
        - Both configured: try HTTP first, fall back to STDIO if unreachable
        - HTTP only: use HTTP (fail if unreachable)
        - STDIO only: use STDIO
@@ -269,24 +270,27 @@ def create_backend_transport(
     explicit_transport = backend_config.transport
 
     # Determine transport type
-    if explicit_transport is not None:
-        # Explicit selection - validate config exists
-        if explicit_transport == "streamablehttp":
-            if http_config is None:
-                raise ValueError(
-                    "Streamable HTTP transport selected but http configuration is missing. "
-                    "Run 'mcp-acp-extended init' to configure the backend URL."
-                )
-            # Use retry loop - wait for backend to become available
-            check_http_health_with_retry(
-                http_config.url, min(http_config.timeout, HEALTH_CHECK_TIMEOUT_SECONDS), mtls_config
+    transport_type: Literal["streamablehttp", "stdio"]
+    if explicit_transport == "streamablehttp":
+        # Explicit HTTP selection - validate config exists
+        if http_config is None:
+            raise ValueError(
+                "Streamable HTTP transport selected but http configuration is missing. "
+                "Run 'mcp-acp-extended init' to configure the backend URL."
             )
-        elif explicit_transport == "stdio" and stdio_config is None:
+        # Use retry loop - wait for backend to become available
+        check_http_health_with_retry(
+            http_config.url, min(http_config.timeout, HEALTH_CHECK_TIMEOUT_SECONDS), mtls_config
+        )
+        transport_type = "streamablehttp"
+    elif explicit_transport == "stdio":
+        # Explicit STDIO selection - validate config exists
+        if stdio_config is None:
             raise ValueError(
                 "STDIO transport selected but stdio configuration is missing. "
                 "Run 'mcp-acp-extended init' to configure the backend command."
             )
-        transport_type = explicit_transport
+        transport_type = "stdio"
     else:
         # Auto-detect
         transport_type = _auto_detect(http_config, stdio_config, mtls_config)

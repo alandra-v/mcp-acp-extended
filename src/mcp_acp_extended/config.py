@@ -167,20 +167,19 @@ class BackendConfig(BaseModel):
     Supports STDIO and Streamable HTTP transports. User configures via `init`.
 
     Transport selection:
-    - If transport is explicitly set ("stdio" or "streamablehttp"), that transport
-      is used and its corresponding config (stdio or http) must be present.
-    - If transport is None (auto-detect), the proxy will prefer HTTP if configured
-      and reachable, otherwise fall back to STDIO.
+    - "stdio": Use STDIO transport exclusively (stdio config must be present).
+    - "streamablehttp": Use HTTP transport exclusively (http config must be present).
+    - "auto": Auto-detect - prefer HTTP if configured and reachable, else STDIO.
 
     Attributes:
         server_name: Name of the server (for display/reference).
-        transport: Transport type, or None for auto-detect.
+        transport: Transport type ("stdio", "streamablehttp", or "auto").
         stdio: STDIO transport configuration (command, args).
         http: Streamable HTTP transport configuration (url, timeout).
     """
 
     server_name: str
-    transport: Literal["stdio", "streamablehttp"] | None = None
+    transport: Literal["stdio", "streamablehttp", "auto"] = "auto"
     stdio: StdioTransportConfig | None = None
     http: HttpTransportConfig | None = None
 

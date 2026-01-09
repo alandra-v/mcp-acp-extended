@@ -19,6 +19,8 @@ from mcp_acp_extended.api.schemas import (
     ConfigUpdateRequest,
     LoggingConfigResponse,
     LoggingConfigUpdate,
+    MTLSConfigResponse,
+    OIDCConfigResponse,
     ProxyConfigResponse,
 )
 
@@ -30,10 +32,19 @@ from mcp_acp_extended.api.schemas import (
 
 @pytest.fixture
 def mock_config():
-    """Create a mock AppConfig with auth."""
+    """Create a mock AppConfig with auth and transport configs."""
     config = MagicMock()
     config.backend.server_name = "test-server"
     config.backend.transport = "stdio"
+
+    # STDIO transport config
+    config.backend.stdio = MagicMock()
+    config.backend.stdio.command = "npx"
+    config.backend.stdio.args = ["-y", "@modelcontextprotocol/server"]
+
+    # HTTP transport config (None for STDIO-only)
+    config.backend.http = None
+
     config.logging.log_dir = "/tmp/logs"
     config.logging.log_level = "INFO"
     config.logging.include_payloads = False
@@ -43,6 +54,9 @@ def mock_config():
     config.auth = MagicMock()
     config.auth.oidc = MagicMock()
     config.auth.oidc.issuer = "https://auth.example.com"
+    config.auth.oidc.client_id = "test-client-id"
+    config.auth.oidc.audience = "test-audience"
+    config.auth.oidc.scopes = ["openid", "profile"]
     config.auth.mtls = None
 
     return config
@@ -54,6 +68,10 @@ def mock_config_no_auth():
     config = MagicMock()
     config.backend.server_name = "test-server"
     config.backend.transport = "stdio"
+    config.backend.stdio = MagicMock()
+    config.backend.stdio.command = "npx"
+    config.backend.stdio.args = []
+    config.backend.http = None
     config.logging.log_dir = "/tmp/logs"
     config.logging.log_level = "INFO"
     config.logging.include_payloads = False
@@ -87,7 +105,7 @@ class TestGetConfig:
     """Tests for GET /api/config endpoint."""
 
     def test_returns_config_with_auth(self, client, mock_config):
-        """Given config with auth, returns redacted config."""
+        """Given config with auth, returns full config details."""
         # Arrange
         with patch(
             "mcp_acp_extended.api.routes.config.get_config_path",
@@ -100,9 +118,12 @@ class TestGetConfig:
         assert response.status_code == 200
         data = response.json()
         assert data["backend"]["server_name"] == "test-server"
+        assert data["backend"]["transport"] == "stdio"
+        assert data["backend"]["stdio"]["command"] == "npx"
         assert data["logging"]["log_dir"] == "/tmp/logs"
-        assert data["auth"]["oidc_issuer"] == "https://auth.example.com"
-        assert data["auth"]["has_mtls"] is False
+        assert data["auth"]["oidc"]["issuer"] == "https://auth.example.com"
+        assert data["auth"]["oidc"]["client_id"] == "test-client-id"
+        assert data["auth"]["mtls"] is None
         assert data["requires_restart_for_changes"] is True
 
     def test_returns_config_without_auth(self, mock_config_no_auth):
@@ -125,8 +146,8 @@ class TestGetConfig:
         data = response.json()
         assert data["auth"] is None
 
-    def test_redacts_sensitive_fields(self, client, mock_config):
-        """Config response does not include client_id, secrets, etc."""
+    def test_returns_full_transport_details(self, client, mock_config):
+        """Config response includes full transport configuration."""
         # Arrange
         with patch(
             "mcp_acp_extended.api.routes.config.get_config_path",
@@ -137,9 +158,9 @@ class TestGetConfig:
 
         # Assert
         data = response.json()
-        # Auth should only have oidc_issuer and has_mtls, not secrets
-        assert "client_id" not in data.get("auth", {})
-        assert "client_secret" not in data.get("auth", {})
+        assert data["backend"]["stdio"]["command"] == "npx"
+        assert data["backend"]["stdio"]["args"] == ["-y", "@modelcontextprotocol/server"]
+        assert data["backend"]["http"] is None
 
 
 # =============================================================================
@@ -155,7 +176,12 @@ class TestUpdateConfig:
         # Arrange
         mock_config = MagicMock()
         mock_config.model_dump.return_value = {
-            "backend": {"server_name": "test", "transport": "stdio"},
+            "backend": {
+                "server_name": "test",
+                "transport": "stdio",
+                "stdio": {"command": "npx", "args": []},
+                "http": None,
+            },
             "logging": {"log_dir": "/tmp/logs", "log_level": "INFO", "include_payloads": False},
             "proxy": {"name": "test"},
             "auth": None,
@@ -166,6 +192,10 @@ class TestUpdateConfig:
         new_config = MagicMock()
         new_config.backend.server_name = "test"
         new_config.backend.transport = "stdio"
+        new_config.backend.stdio = MagicMock()
+        new_config.backend.stdio.command = "npx"
+        new_config.backend.stdio.args = []
+        new_config.backend.http = None
         new_config.logging.log_dir = "/tmp/logs"
         new_config.logging.log_level = "DEBUG"
         new_config.logging.include_payloads = True
@@ -190,7 +220,7 @@ class TestUpdateConfig:
         # Assert
         assert response.status_code == 200
         data = response.json()
-        assert "Restart proxy" in data["message"]
+        assert "Restart the client" in data["message"]
 
     def test_returns_404_when_config_missing(self, client, tmp_path):
         """Given missing config file, returns 404."""
@@ -214,13 +244,23 @@ class TestUpdateConfig:
         # Arrange
         mock_config = MagicMock()
         mock_config.model_dump.return_value = {
-            "backend": {"server_name": "test", "transport": "stdio"},
+            "backend": {
+                "server_name": "test",
+                "transport": "stdio",
+                "stdio": {"command": "npx", "args": []},
+                "http": None,
+            },
             "logging": {"log_dir": "/tmp", "log_level": "INFO", "include_payloads": False},
             "proxy": {"name": "test"},
+            "auth": None,
         }
         mock_config.save_to_file = MagicMock()
         mock_config.backend.server_name = "test"
         mock_config.backend.transport = "stdio"
+        mock_config.backend.stdio = MagicMock()
+        mock_config.backend.stdio.command = "npx"
+        mock_config.backend.stdio.args = []
+        mock_config.backend.http = None
         mock_config.logging.log_dir = "/tmp"
         mock_config.logging.log_level = "INFO"
         mock_config.logging.include_payloads = False
@@ -263,7 +303,8 @@ class TestBuildConfigResponse:
         assert response.backend.server_name == "test-server"
         assert response.logging.log_level == "INFO"
         assert response.auth is not None
-        assert response.auth.oidc_issuer == "https://auth.example.com"
+        assert response.auth.oidc is not None
+        assert response.auth.oidc.issuer == "https://auth.example.com"
         assert response.config_path == "/test/config.json"
 
     def test_builds_response_without_auth(self, mock_config_no_auth):
@@ -279,10 +320,13 @@ class TestBuildConfigResponse:
         # Assert
         assert response.auth is None
 
-    def test_detects_mtls_presence(self, mock_config):
-        """Given config with mTLS, sets has_mtls to True."""
+    def test_includes_mtls_when_present(self, mock_config):
+        """Given config with mTLS, includes full mTLS details."""
         # Arrange
-        mock_config.auth.mtls = MagicMock()  # mTLS present
+        mock_config.auth.mtls = MagicMock()
+        mock_config.auth.mtls.client_cert_path = "/path/to/cert.pem"
+        mock_config.auth.mtls.client_key_path = "/path/to/key.pem"
+        mock_config.auth.mtls.ca_bundle_path = "/path/to/ca.pem"
 
         with patch(
             "mcp_acp_extended.api.routes.config.get_config_path",
@@ -292,7 +336,28 @@ class TestBuildConfigResponse:
             response = _build_config_response(mock_config)
 
         # Assert
-        assert response.auth.has_mtls is True
+        assert response.auth is not None
+        assert response.auth.mtls is not None
+        assert response.auth.mtls.client_cert_path == "/path/to/cert.pem"
+
+    def test_includes_http_transport_when_present(self, mock_config):
+        """Given config with HTTP transport, includes full HTTP details."""
+        # Arrange
+        mock_config.backend.http = MagicMock()
+        mock_config.backend.http.url = "http://localhost:3010/mcp"
+        mock_config.backend.http.timeout = 60
+
+        with patch(
+            "mcp_acp_extended.api.routes.config.get_config_path",
+            return_value=Path("/test/config.json"),
+        ):
+            # Act
+            response = _build_config_response(mock_config)
+
+        # Assert
+        assert response.backend.http is not None
+        assert response.backend.http.url == "http://localhost:3010/mcp"
+        assert response.backend.http.timeout == 60
 
 
 # =============================================================================
@@ -330,18 +395,37 @@ class TestResponseModels:
         assert data["log_dir"] == "/var/log"
         assert data["include_payloads"] is True
 
-    def test_auth_config_response(self):
-        """AuthConfigResponse serializes correctly."""
+    def test_auth_config_response_with_oidc(self):
+        """AuthConfigResponse serializes correctly with OIDC."""
         # Act
-        response = AuthConfigResponse(
-            oidc_issuer="https://auth.example.com",
-            has_mtls=False,
+        oidc = OIDCConfigResponse(
+            issuer="https://auth.example.com",
+            client_id="test-client",
+            audience="test-api",
+            scopes=["openid", "profile"],
         )
+        response = AuthConfigResponse(oidc=oidc, mtls=None)
         data = response.model_dump()
 
         # Assert
-        assert data["oidc_issuer"] == "https://auth.example.com"
-        assert data["has_mtls"] is False
+        assert data["oidc"]["issuer"] == "https://auth.example.com"
+        assert data["oidc"]["scopes"] == ["openid", "profile"]
+        assert data["mtls"] is None
+
+    def test_auth_config_response_with_mtls(self):
+        """AuthConfigResponse serializes correctly with mTLS."""
+        # Act
+        mtls = MTLSConfigResponse(
+            client_cert_path="/path/to/cert.pem",
+            client_key_path="/path/to/key.pem",
+            ca_bundle_path="/path/to/ca.pem",
+        )
+        response = AuthConfigResponse(oidc=None, mtls=mtls)
+        data = response.model_dump()
+
+        # Assert
+        assert data["oidc"] is None
+        assert data["mtls"]["client_cert_path"] == "/path/to/cert.pem"
 
     def test_proxy_config_response(self):
         """ProxyConfigResponse serializes correctly."""

@@ -11,6 +11,7 @@ import { CachedSection } from '@/components/detail/CachedSection'
 import { ActivitySection } from '@/components/detail/ActivitySection'
 import { LogViewer } from '@/components/logs'
 import { Section } from '@/components/detail/Section'
+import { ConfigSection } from '@/components/detail/ConfigSection'
 import { useProxies } from '@/hooks/useProxies'
 import { useAppState } from '@/context/AppStateContext'
 import { useCachedApprovals } from '@/hooks/useCachedApprovals'
@@ -155,9 +156,7 @@ export function ProxyDetailPage() {
           )}
 
           {activeSection === 'config' && (
-            <div className="text-center py-16 text-muted-foreground">
-              Config section coming soon
-            </div>
+            <ConfigSection loaded={loaded} />
           )}
         </div>
       </div>

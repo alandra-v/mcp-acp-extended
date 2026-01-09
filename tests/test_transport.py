@@ -46,17 +46,17 @@ def https_config() -> HttpTransportConfig:
 
 @pytest.fixture
 def backend_stdio_only(stdio_config: StdioTransportConfig) -> BackendConfig:
-    return BackendConfig(server_name="test", transport=None, stdio=stdio_config)
+    return BackendConfig(server_name="test", transport="auto", stdio=stdio_config)
 
 
 @pytest.fixture
 def backend_http_only(http_config: HttpTransportConfig) -> BackendConfig:
-    return BackendConfig(server_name="test", transport=None, http=http_config)
+    return BackendConfig(server_name="test", transport="auto", http=http_config)
 
 
 @pytest.fixture
 def backend_both(stdio_config: StdioTransportConfig, http_config: HttpTransportConfig) -> BackendConfig:
-    return BackendConfig(server_name="test", transport=None, stdio=stdio_config, http=http_config)
+    return BackendConfig(server_name="test", transport="auto", stdio=stdio_config, http=http_config)
 
 
 # ============================================================================
@@ -240,8 +240,8 @@ class TestAutoDetect:
         assert transport_type == "stdio"
 
     def test_neither_configured_raises(self):
-        # Arrange
-        config = BackendConfig(server_name="test", transport=None)
+        # Arrange - transport="auto" but no stdio or http config
+        config = BackendConfig(server_name="test", transport="auto")
 
         # Act & Assert
         with pytest.raises(ValueError, match="No transport configured"):

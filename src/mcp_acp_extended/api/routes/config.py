@@ -1,7 +1,7 @@
 """Configuration API endpoints.
 
 Provides configuration management:
-- GET /api/config - Read current config (sensitive fields redacted)
+- GET /api/config - Read current config (full details)
 - PUT /api/config - Update config (validated, requires restart)
 
 Routes mounted at: /api/config
@@ -10,6 +10,8 @@ Routes mounted at: /api/config
 from __future__ import annotations
 
 __all__ = ["router"]
+
+from typing import Any
 
 from fastapi import APIRouter, HTTPException
 from pydantic import ValidationError
@@ -21,8 +23,12 @@ from mcp_acp_extended.api.schemas import (
     ConfigResponse,
     ConfigUpdateRequest,
     ConfigUpdateResponse,
+    HttpTransportResponse,
     LoggingConfigResponse,
+    MTLSConfigResponse,
+    OIDCConfigResponse,
     ProxyConfigResponse,
+    StdioTransportResponse,
 )
 from mcp_acp_extended.config import AppConfig
 from mcp_acp_extended.utils.config import get_config_path
@@ -35,20 +41,86 @@ router = APIRouter()
 # =============================================================================
 
 
+def _deep_merge(base: dict[str, Any], updates: dict[str, Any]) -> dict[str, Any]:
+    """Deep merge updates into base dict, handling nested dicts.
+
+    Recursively merges nested dictionaries while overwriting scalar values.
+    None values in updates should be filtered before calling (use exclude_none=True).
+
+    Args:
+        base: Base dictionary to merge into.
+        updates: Dictionary of updates to apply.
+
+    Returns:
+        New dictionary with updates merged into base.
+    """
+    result = base.copy()
+    for key, value in updates.items():
+        if key in result and isinstance(result[key], dict) and isinstance(value, dict):
+            result[key] = _deep_merge(result[key], value)
+        else:
+            result[key] = value
+    return result
+
+
 def _build_config_response(config: AppConfig) -> ConfigResponse:
-    """Build API response from AppConfig (redacting sensitive fields)."""
+    """Build API response from AppConfig with full details.
+
+    Args:
+        config: Application configuration to convert.
+
+    Returns:
+        ConfigResponse with all configuration details including transport and auth.
+    """
+    # Build backend response with transport details
+    stdio_response = None
+    if config.backend.stdio:
+        stdio_response = StdioTransportResponse(
+            command=config.backend.stdio.command,
+            args=config.backend.stdio.args,
+        )
+
+    http_response = None
+    if config.backend.http:
+        http_response = HttpTransportResponse(
+            url=config.backend.http.url,
+            timeout=config.backend.http.timeout,
+        )
+
+    backend_response = BackendConfigResponse(
+        server_name=config.backend.server_name,
+        transport=config.backend.transport,
+        stdio=stdio_response,
+        http=http_response,
+    )
+
+    # Build auth response with full OIDC and mTLS details
     auth_response = None
     if config.auth:
+        oidc_response = None
+        if config.auth.oidc:
+            oidc_response = OIDCConfigResponse(
+                issuer=config.auth.oidc.issuer,
+                client_id=config.auth.oidc.client_id,
+                audience=config.auth.oidc.audience,
+                scopes=config.auth.oidc.scopes,
+            )
+
+        mtls_response = None
+        if config.auth.mtls:
+            mtls_response = MTLSConfigResponse(
+                client_cert_path=config.auth.mtls.client_cert_path,
+                client_key_path=config.auth.mtls.client_key_path,
+                ca_bundle_path=config.auth.mtls.ca_bundle_path,
+            )
+
         auth_response = AuthConfigResponse(
-            oidc_issuer=config.auth.oidc.issuer if config.auth.oidc else None,
-            has_mtls=config.auth.mtls is not None,
+            oidc=oidc_response,
+            mtls=mtls_response,
         )
 
     return ConfigResponse(
-        backend=BackendConfigResponse(
-            server_name=config.backend.server_name,
-            transport=config.backend.transport,
-        ),
+        backend=backend_response,
         logging=LoggingConfigResponse(
             log_dir=config.logging.log_dir,
             log_level=config.logging.log_level,
@@ -70,8 +142,7 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
 async def get_config(config: ConfigDep) -> ConfigResponse:
     """Get current configuration.
 
-    Returns configuration with sensitive fields (client_id, secrets,
-    full paths) redacted for security.
+    Returns full configuration including transport and auth details.
 
     Note: This returns the config from memory (as loaded at startup).
     To see file changes, restart the proxy.
@@ -85,8 +156,8 @@ async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
 
     Validates changes before saving. Changes take effect on restart.
 
-    Note: Auth configuration is NOT updatable via this API for security.
-    Use CLI `mcp-acp-extended init` or edit the config file directly.
+    All fields are optional - only specified fields will be updated.
+    Nested objects (stdio, http, oidc, mtls) are deep-merged.
 
     Returns the updated configuration (from file, not memory).
     """
@@ -106,17 +177,25 @@ async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
     if updates.logging:
         logging_updates = updates.logging.model_dump(exclude_none=True)
         if logging_updates:
-            update_dict["logging"].update(logging_updates)
+            update_dict["logging"] = _deep_merge(update_dict["logging"], logging_updates)
 
     if updates.backend:
         backend_updates = updates.backend.model_dump(exclude_none=True)
         if backend_updates:
-            update_dict["backend"].update(backend_updates)
+            update_dict["backend"] = _deep_merge(update_dict["backend"], backend_updates)
 
     if updates.proxy:
         proxy_updates = updates.proxy.model_dump(exclude_none=True)
         if proxy_updates:
-            update_dict["proxy"].update(proxy_updates)
+            update_dict["proxy"] = _deep_merge(update_dict["proxy"], proxy_updates)
+
+    if updates.auth:
+        auth_updates = updates.auth.model_dump(exclude_none=True)
+        if auth_updates:
+            # Ensure auth dict exists
+            if update_dict.get("auth") is None:
+                update_dict["auth"] = {}
+            update_dict["auth"] = _deep_merge(update_dict["auth"], auth_updates)
 
     # Validate by constructing new AppConfig
     try:
@@ -132,5 +211,5 @@ async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
 
     return ConfigUpdateResponse(
         config=_build_config_response(new_config),
-        message="Configuration saved. Restart proxy to apply changes.",
+        message="Configuration saved. Restart the client to apply changes.",
     )
