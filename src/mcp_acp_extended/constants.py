@@ -189,13 +189,15 @@ def _build_transport_errors() -> tuple[type[Exception], ...]:
     try:
         import httpx
 
+        # Use base classes to catch all subclasses:
+        # - NetworkError: ConnectError, CloseError, ReadError, WriteError
+        # - TimeoutException: ConnectTimeout, ReadTimeout, WriteTimeout, PoolTimeout
+        # - ProtocolError: RemoteProtocolError, LocalProtocolError
         errors.extend(
             [
-                httpx.ConnectError,
-                httpx.RemoteProtocolError,
-                httpx.ReadTimeout,
-                httpx.ConnectTimeout,
-                httpx.CloseError,
+                httpx.NetworkError,
+                httpx.TimeoutException,
+                httpx.ProtocolError,
             ]
         )
     except ImportError:

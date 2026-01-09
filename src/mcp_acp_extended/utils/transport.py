@@ -431,6 +431,11 @@ async def _check_async(
         error_str = str(e).lower()
         if "ssl" in error_str or "certificate" in error_str:
             raise SSLHandshakeError(f"SSL error connecting to {url}: {e}") from e
+        # Empty ReadError on HTTPS with mTLS configured = likely client cert rejected
+        if url.lower().startswith("https://") and mtls_config is not None and not error_str:
+            raise SSLHandshakeError(
+                f"SSL handshake failed for {url}. " "The server may have rejected your client certificate."
+            ) from e
         raise ConnectionError(f"Backend unreachable: {url} ({type(e).__name__}: {e})") from e
     except RuntimeError as e:
         # fastmcp wraps transport errors in RuntimeError
@@ -446,9 +451,10 @@ async def _check_async(
                     "Configure mTLS in your config or run 'mcp-acp-extended init'."
                 ) from e
             else:
-                raise ConnectionError(
-                    f"Backend connection failed: {url}. "
-                    "Check that your mTLS certificates are valid and accepted by the server."
+                # mTLS configured but connection failed with empty error = cert rejected
+                raise SSLHandshakeError(
+                    f"SSL handshake failed for {url}. "
+                    "The server may have rejected your client certificate."
                 ) from e
         raise ConnectionError(f"Backend connection failed: {url} ({e})") from e
     except OSError as e:
