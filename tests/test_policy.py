@@ -645,6 +645,214 @@ class TestPolicyFileHelpers:
 
 
 # ============================================================================
+# Tests: Policy Auto-Normalization
+# ============================================================================
+
+
+class TestPolicyAutoNormalization:
+    """Tests for auto-normalization of policy files on load.
+
+    When a policy file has rules without IDs, load_policy() should:
+    1. Generate IDs in memory (via ensure_rule_ids validator)
+    2. Save the normalized policy back to disk (auto-normalization)
+    """
+
+    def test_load_generates_missing_ids_in_memory(self, temp_policy_dir):
+        """Given policy without rule IDs, loading generates IDs in memory."""
+        # Arrange - write policy file without IDs
+        path = temp_policy_dir / "policy.json"
+        path.write_text(
+            """{
+            "version": "1",
+            "default_action": "deny",
+            "rules": [
+                {"effect": "allow", "conditions": {"tool_name": "read_file"}}
+            ]
+        }"""
+        )
+
+        # Act
+        policy = load_policy(path, normalize=False)
+
+        # Assert - ID was generated in memory
+        assert policy.rules[0].id is not None
+        assert policy.rules[0].id.startswith("rule_")
+
+    def test_load_auto_saves_when_ids_generated(self, temp_policy_dir):
+        """Given policy without rule IDs, loading auto-saves with generated IDs."""
+        # Arrange - write policy file without IDs
+        path = temp_policy_dir / "policy.json"
+        path.write_text(
+            """{
+            "version": "1",
+            "default_action": "deny",
+            "rules": [
+                {"effect": "allow", "conditions": {"tool_name": "read_file"}}
+            ]
+        }"""
+        )
+
+        # Act - load with normalize=True (default)
+        policy = load_policy(path)
+        generated_id = policy.rules[0].id
+
+        # Assert - file was updated with generated ID
+        import json
+
+        with open(path) as f:
+            saved_data = json.load(f)
+
+        assert saved_data["rules"][0]["id"] == generated_id
+
+    def test_load_does_not_save_when_ids_present(self, temp_policy_dir):
+        """Given policy with all rule IDs, loading does not modify file."""
+        # Arrange - write policy file with IDs
+        path = temp_policy_dir / "policy.json"
+        original_content = """{
+            "version": "1",
+            "default_action": "deny",
+            "rules": [
+                {"id": "my-rule", "effect": "allow", "conditions": {"tool_name": "read_file"}}
+            ]
+        }"""
+        path.write_text(original_content)
+        original_mtime = path.stat().st_mtime
+
+        # Act - small delay to ensure mtime would change if file was modified
+        import time
+
+        time.sleep(0.01)
+        load_policy(path)
+
+        # Assert - file was not modified
+        assert path.stat().st_mtime == original_mtime
+
+    def test_load_normalize_false_skips_save(self, temp_policy_dir):
+        """Given normalize=False, loading does not save even if IDs generated."""
+        # Arrange - write policy file without IDs
+        path = temp_policy_dir / "policy.json"
+        path.write_text(
+            """{
+            "version": "1",
+            "default_action": "deny",
+            "rules": [
+                {"effect": "allow", "conditions": {"tool_name": "read_file"}}
+            ]
+        }"""
+        )
+        original_mtime = path.stat().st_mtime
+
+        # Act
+        import time
+
+        time.sleep(0.01)
+        policy = load_policy(path, normalize=False)
+
+        # Assert - IDs generated in memory but file unchanged
+        assert policy.rules[0].id is not None
+        assert path.stat().st_mtime == original_mtime
+
+    def test_load_normalizes_multiple_rules(self, temp_policy_dir):
+        """Given multiple rules without IDs, all get IDs and file is saved."""
+        # Arrange
+        path = temp_policy_dir / "policy.json"
+        path.write_text(
+            """{
+            "version": "1",
+            "default_action": "deny",
+            "rules": [
+                {"effect": "allow", "conditions": {"tool_name": "read_file"}},
+                {"effect": "deny", "conditions": {"tool_name": "bash"}},
+                {"id": "existing-id", "effect": "hitl", "conditions": {"path_pattern": "/tmp/**"}}
+            ]
+        }"""
+        )
+
+        # Act
+        policy = load_policy(path)
+
+        # Assert - first two rules got generated IDs, third preserved
+        assert policy.rules[0].id is not None
+        assert policy.rules[0].id.startswith("rule_")
+        assert policy.rules[1].id is not None
+        assert policy.rules[1].id.startswith("rule_")
+        assert policy.rules[2].id == "existing-id"
+
+        # Verify file was saved with all IDs
+        import json
+
+        with open(path) as f:
+            saved_data = json.load(f)
+
+        assert saved_data["rules"][0]["id"] == policy.rules[0].id
+        assert saved_data["rules"][1]["id"] == policy.rules[1].id
+        assert saved_data["rules"][2]["id"] == "existing-id"
+
+    def test_load_normalization_is_idempotent(self, temp_policy_dir):
+        """Given normalized file, subsequent loads don't modify it."""
+        # Arrange - create file without IDs
+        path = temp_policy_dir / "policy.json"
+        path.write_text(
+            """{
+            "version": "1",
+            "default_action": "deny",
+            "rules": [
+                {"effect": "allow", "conditions": {"tool_name": "read_file"}}
+            ]
+        }"""
+        )
+
+        # Act - first load normalizes
+        policy1 = load_policy(path)
+        mtime_after_first = path.stat().st_mtime
+
+        # Second load should not modify
+        import time
+
+        time.sleep(0.01)
+        policy2 = load_policy(path)
+
+        # Assert - same ID, file unchanged on second load
+        assert policy1.rules[0].id == policy2.rules[0].id
+        assert path.stat().st_mtime == mtime_after_first
+
+    def test_load_normalization_failure_logs_warning(self, temp_policy_dir, caplog, monkeypatch):
+        """Given save failure during normalization, logs warning and returns policy."""
+        import logging
+
+        from mcp_acp_extended.utils.policy import policy_helpers
+
+        # Arrange - write policy file without IDs
+        path = temp_policy_dir / "policy.json"
+        path.write_text(
+            """{
+            "version": "1",
+            "default_action": "deny",
+            "rules": [
+                {"effect": "allow", "conditions": {"tool_name": "read_file"}}
+            ]
+        }"""
+        )
+
+        # Mock save_policy to raise OSError
+        def mock_save_policy(*args, **kwargs):
+            raise OSError("Mocked permission denied")
+
+        monkeypatch.setattr(policy_helpers, "save_policy", mock_save_policy)
+
+        # Act - load should succeed despite save failure
+        with caplog.at_level(logging.WARNING):
+            policy = load_policy(path)
+
+        # Assert - policy is valid
+        assert policy.rules[0].id is not None
+        assert policy.rules[0].id.startswith("rule_")
+
+        # Assert - warning was logged
+        assert any("Failed to save normalized policy" in r.message for r in caplog.records)
+
+
+# ============================================================================
 # Tests: Pattern Matcher - Path Patterns
 # ============================================================================
 

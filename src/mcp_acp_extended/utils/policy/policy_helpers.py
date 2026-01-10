@@ -12,15 +12,17 @@ Features:
 from __future__ import annotations
 
 import json
+import logging
 import os
 import tempfile
 from pathlib import Path
 
-from mcp_acp_extended.pdp.policy import PolicyConfig, create_default_policy
+from pydantic import ValidationError
+
+from mcp_acp_extended.pdp.policy import PolicyConfig, PolicyRule, create_default_policy
 from mcp_acp_extended.utils.file_helpers import (
     compute_file_checksum,
     get_app_dir,
-    load_validated_json,
     require_file_exists,
     set_secure_permissions,
 )
@@ -78,11 +80,40 @@ def compute_policy_checksum(policy_path: Path) -> str:
     return compute_file_checksum(policy_path)
 
 
-def load_policy(path: Path | None = None) -> PolicyConfig:
+def _needs_normalization(raw_rules: list[dict[str, object]], validated_rules: list[PolicyRule]) -> bool:
+    """Check if any rule IDs were auto-generated during validation.
+
+    Compares raw JSON rules against validated PolicyRule objects to detect
+    if the ensure_rule_ids validator generated any new IDs.
+
+    Args:
+        raw_rules: Original rules from JSON file (may have None/missing IDs).
+        validated_rules: Validated PolicyRule objects (always have IDs).
+
+    Returns:
+        True if any IDs were generated and file should be updated.
+    """
+    if len(raw_rules) != len(validated_rules):
+        return False  # Length mismatch shouldn't happen, be defensive
+
+    for i, raw_rule in enumerate(raw_rules):
+        # If raw rule had no ID but validated rule has one, it was generated
+        if raw_rule.get("id") is None and validated_rules[i].id is not None:
+            return True
+
+    return False
+
+
+def load_policy(path: Path | None = None, *, normalize: bool = True) -> PolicyConfig:
     """Load policy configuration from file.
+
+    Automatically normalizes the policy file by generating missing rule IDs.
+    This keeps the file in sync with the runtime representation.
 
     Args:
         path: Path to policy.json. If None, uses default location.
+        normalize: If True (default), save back to file if IDs were generated.
+                   Set to False to skip normalization (e.g., for read-only checks).
 
     Returns:
         PolicyConfig loaded from file.
@@ -90,15 +121,53 @@ def load_policy(path: Path | None = None) -> PolicyConfig:
     Raises:
         FileNotFoundError: If policy file does not exist.
         ValueError: If policy file contains invalid JSON or schema.
+
+    Note:
+        If normalization save fails (e.g., permission error), a warning is logged
+        but the valid policy is still returned. The file will be normalized on
+        the next successful save.
     """
     policy_path = path or get_policy_path()
     require_file_exists(policy_path, file_type="policy")
-    return load_validated_json(
-        policy_path,
-        PolicyConfig,
-        file_type="policy",
-        recovery_hint="Edit the policy file or run 'mcp-acp-extended init' to recreate.",
-    )
+
+    # Load raw JSON (single read)
+    try:
+        with open(policy_path, encoding="utf-8") as f:
+            raw_data = json.load(f)
+    except json.JSONDecodeError as e:
+        raise ValueError(f"Invalid JSON in policy file {policy_path}: {e}") from e
+
+    # Validate (triggers ensure_rule_ids which generates missing IDs)
+    try:
+        policy = PolicyConfig.model_validate(raw_data)
+    except ValidationError as e:
+        errors = []
+        for error in e.errors():
+            loc = ".".join(str(x) for x in error["loc"])
+            errors.append(f"  - {loc}: {error['msg']}")
+        raise ValueError(
+            f"Invalid policy configuration in {policy_path}:\n"
+            + "\n".join(errors)
+            + "\n\nEdit the policy file or run 'mcp-acp-extended init' to recreate."
+        ) from e
+
+    # Auto-normalize: save back if IDs were generated
+    if normalize:
+        raw_rules = raw_data.get("rules", [])
+        if _needs_normalization(raw_rules, policy.rules):
+            try:
+                save_policy(policy, policy_path)
+            except OSError as e:
+                # Log warning but don't fail - policy is valid, just not persisted
+                logger = logging.getLogger(__name__)
+                logger.warning(
+                    "Failed to save normalized policy to %s: %s. "
+                    "Generated rule IDs will not be persisted until next successful save.",
+                    policy_path,
+                    e,
+                )
+
+    return policy
 
 
 def save_policy(policy: PolicyConfig, path: Path | None = None) -> None:
