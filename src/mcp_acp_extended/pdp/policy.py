@@ -202,7 +202,7 @@ class HITLConfig(BaseModel):
     """Configuration for Human-in-the-Loop approval.
 
     Attributes:
-        timeout_seconds: How long to wait for user response (default: 30s).
+        timeout_seconds: How long to wait for user response (default: 60s).
             Must be between 5-300 seconds.
         default_on_timeout: What to do if user doesn't respond (always "deny").
         approval_ttl_seconds: How long cached approvals remain valid (default: 600s).

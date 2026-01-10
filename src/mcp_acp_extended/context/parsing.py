@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from mcp_acp_extended.constants import PATH_ARGUMENT_NAMES
+from mcp_acp_extended.constants import DEST_PATH_ARGS, PATH_ARGUMENT_NAMES, SOURCE_PATH_ARGS
 from mcp_acp_extended.context.provenance import Provenance
 from mcp_acp_extended.context.resource import ResourceInfo
 
@@ -22,29 +22,6 @@ __all__ = [
     "parse_uri_resource",
     "extract_resource_info",
 ]
-
-# Source path argument names (for move/copy operations)
-# Matched by tools like move_file(source, destination), copy_path(source, destination)
-_SOURCE_PATH_ARGS: tuple[str, ...] = (
-    "source",
-    "src",
-    "from",
-    "from_path",
-    "source_path",
-    "origin",
-)
-
-# Destination path argument names (for move/copy operations)
-_DEST_PATH_ARGS: tuple[str, ...] = (
-    "destination",
-    "destination_path",
-    "dest",
-    "to",
-    "to_path",
-    "dest_path",
-    "target",
-    "target_path",
-)
 
 
 def parse_path_resource(raw_path: str) -> ResourceInfo:
@@ -142,14 +119,14 @@ def extract_resource_info(arguments: dict[str, Any] | None) -> ResourceInfo | No
 
     # Extract source path
     source_path: str | None = None
-    for key in _SOURCE_PATH_ARGS:
+    for key in SOURCE_PATH_ARGS:
         if key in arguments and arguments[key]:
             source_path = str(arguments[key])
             break
 
     # Extract destination path
     dest_path: str | None = None
-    for key in _DEST_PATH_ARGS:
+    for key in DEST_PATH_ARGS:
         if key in arguments and arguments[key]:
             dest_path = str(arguments[key])
             break

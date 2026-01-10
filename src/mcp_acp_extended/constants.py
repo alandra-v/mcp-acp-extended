@@ -25,6 +25,7 @@ __all__ = [
     "AUDIT_HEALTH_CHECK_INTERVAL_SECONDS",
     "DEVICE_HEALTH_CHECK_INTERVAL_SECONDS",
     "DEFAULT_DEVICE_FAILURE_THRESHOLD",
+    "SKIP_DEVICE_HEALTH_CHECK",
     # OAuth device flow
     "OAUTH_CLIENT_TIMEOUT_SECONDS",
     "DEVICE_FLOW_POLL_INTERVAL_SECONDS",
@@ -44,6 +45,8 @@ __all__ = [
     "MAX_APPROVAL_TTL_SECONDS",
     # File metadata extraction
     "PATH_ARGUMENT_NAMES",
+    "SOURCE_PATH_ARGS",
+    "DEST_PATH_ARGS",
     # MCP method classification
     "DISCOVERY_METHODS",
     # Management API server
@@ -131,6 +134,11 @@ DEVICE_HEALTH_CHECK_INTERVAL_SECONDS: float = 300.0
 # Fail immediately on first health check failure (Zero Trust - fail fast)
 # Transient issues are rare for device posture (FileVault/SIP don't flap)
 DEFAULT_DEVICE_FAILURE_THRESHOLD: int = 1
+
+# Skip device health checks (FileVault/SIP verification)
+# Set to True on Linux/Windows where these macOS-specific checks are unavailable.
+# WARNING: Disabling this reduces Zero Trust compliance - use only on non-macOS.
+SKIP_DEVICE_HEALTH_CHECK: bool = False
 
 # ============================================================================
 # OAuth Device Flow (RFC 8628)
@@ -263,6 +271,29 @@ PATH_ARGUMENT_NAMES: tuple[str, ...] = (
     "filepath",
     "file",
     "filename",
+)
+
+# Source path argument names (for move/copy operations)
+# Matched by tools like move_file(source, destination), copy_path(source, destination)
+SOURCE_PATH_ARGS: tuple[str, ...] = (
+    "source",
+    "src",
+    "from",
+    "from_path",
+    "source_path",
+    "origin",
+)
+
+# Destination path argument names (for move/copy operations)
+DEST_PATH_ARGS: tuple[str, ...] = (
+    "destination",
+    "destination_path",
+    "dest",
+    "to",
+    "to_path",
+    "dest_path",
+    "target",
+    "target_path",
 )
 
 # ============================================================================

@@ -1,5 +1,10 @@
 """Device health checks for Zero Trust compliance.
 
+NOTE: This is a basic POC-level implementation, not a comprehensive device
+posture solution. Only checks FileVault on/off and SIP on/off on macOS.
+A production implementation would include MDM integration, endpoint agents,
+certificate-based attestation, etc.
+
 Checks device security posture:
 - Disk encryption: FileVault enabled (macOS)
 - Device integrity: SIP enabled (macOS)
@@ -7,7 +12,7 @@ Checks device security posture:
 Both checks are hard gates - proxy won't start if unhealthy.
 
 Design decisions:
-- Simple implementation over configurability (MVP)
+- Simple implementation over configurability (MVP/POC)
 - No retry logic on individual checks - if command fails, check fails
 - Periodic monitoring handles transient failures better than retry
 - Only macOS supported; other platforms fail (Zero Trust)
