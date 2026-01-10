@@ -1,10 +1,17 @@
 """Emergency audit logging for critical failures.
 
 This module provides a fallback logging mechanism when primary audit logs
-(operations.jsonl, decisions.jsonl) are compromised.
+are compromised.
+
+Files using this fallback chain:
+- operations.jsonl (operation audit)
+- decisions.jsonl (decision audit)
+- auth.jsonl (auth events)
+- config_history.jsonl (config changes)
+- policy_history.jsonl (policy changes)
 
 Fallback chain:
-1. Primary audit log (operations.jsonl or decisions.jsonl)
+1. Primary audit log (the file being written to)
 2. system.jsonl (same log_dir)
 3. emergency_audit.jsonl (config directory - survives log_dir deletion)
 

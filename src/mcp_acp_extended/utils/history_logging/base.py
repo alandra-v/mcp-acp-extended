@@ -42,6 +42,8 @@ from typing import Any, Callable
 from pydantic import BaseModel
 
 from mcp_acp_extended.constants import INITIAL_VERSION
+from mcp_acp_extended.security.integrity.emergency_audit import log_with_fallback
+from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 from mcp_acp_extended.utils.file_helpers import (
     VersionInfo,
     get_history_logger,
@@ -106,17 +108,33 @@ def log_history_event(
     history_path: Path,
     event: BaseModel,
     config: HistoryLoggerConfig,
-) -> None:
-    """Log a history event to the JSONL file.
+) -> bool:
+    """Log a history event to the JSONL file with fallback.
+
+    Uses the same fallback chain as audit logs:
+    - Primary: history_path (config_history.jsonl or policy_history.jsonl)
+    - Fallback: system.jsonl
+    - Last resort: emergency_audit.jsonl
 
     Args:
         history_path: Path to the history JSONL file.
         event: Pydantic event model instance.
         config: History logger configuration.
+
+    Returns:
+        True if logged to primary, False if fallback was used.
     """
     logger = get_history_logger(history_path, config.logger_name)
     log_data = serialize_audit_event(event)
-    logger.info(log_data)
+
+    success, _ = log_with_fallback(
+        primary_logger=logger,
+        system_logger=get_system_logger(),
+        event_data=log_data,
+        event_type=config.entity_name_lower,
+        source_file=history_path.name,
+    )
+    return success
 
 
 def log_entity_created(
