@@ -16,6 +16,7 @@ __all__ = [
 ]
 
 import asyncio
+import json
 import os
 import platform
 import subprocess
@@ -29,6 +30,82 @@ if TYPE_CHECKING:
 
     from mcp_acp_extended.manager.state import ProxyState
     from mcp_acp_extended.telemetry.audit.auth_logger import AuthLogger
+
+# Secure file permissions (defined inline to avoid circular imports)
+_DIR_PERMISSIONS = 0o700  # Owner rwx only
+_FILE_PERMISSIONS = 0o600  # Owner rw only
+
+
+def _set_secure_permissions(path: Path, *, is_directory: bool = False) -> None:
+    """Set secure permissions on file or directory.
+
+    Inline version to avoid circular imports with file_helpers.
+    Does nothing on Windows. Silently ignores permission errors.
+
+    Args:
+        path: Path to file or directory.
+        is_directory: If True, use directory permissions (0o700).
+    """
+    if sys.platform == "win32":
+        return
+    try:
+        mode = _DIR_PERMISSIONS if is_directory else _FILE_PERMISSIONS
+        path.chmod(mode)
+    except OSError:
+        pass  # Permission changes might fail on some systems
+
+
+def _write_shutdown_log(
+    log_dir: Path,
+    failure_type: str,
+    reason: str,
+    exit_code: int,
+    context: dict[str, Any] | None = None,
+) -> bool:
+    """Write shutdown event to shutdowns.jsonl.
+
+    Uses direct file I/O (not logging module) because:
+    1. Shutdown happens when logging might be compromised
+    2. Minimal dependencies for reliability
+    3. One-time write, not continuous logging
+
+    Note: Uses broad exception handling intentionally - this is best-effort
+    logging during shutdown where we must not raise exceptions.
+
+    Args:
+        log_dir: Log directory containing shutdowns.jsonl.
+        failure_type: Category of failure (e.g., "audit_failure").
+        reason: Human-readable description of the failure.
+        exit_code: Process exit code (10=audit, 11=policy, 12=identity).
+        context: Additional context for the failure.
+
+    Returns:
+        True if write succeeded, False otherwise.
+    """
+    try:
+        shutdowns_path = log_dir / "shutdowns.jsonl"
+        shutdowns_path.parent.mkdir(parents=True, exist_ok=True)
+        _set_secure_permissions(shutdowns_path.parent, is_directory=True)
+
+        entry = {
+            "time": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+            "event": "security_shutdown",
+            "failure_type": failure_type,
+            "reason": reason,
+            "exit_code": exit_code,
+            "context": context or {},
+        }
+
+        with shutdowns_path.open("a", encoding="utf-8") as f:
+            f.write(json.dumps(entry, default=str) + "\n")
+            f.flush()
+            os.fsync(f.fileno())
+
+        _set_secure_permissions(shutdowns_path)
+        return True
+    except Exception:
+        # Best-effort logging during shutdown - must not raise
+        return False
 
 
 def _show_shutdown_popup(failure_type: str, log_dir: Path) -> None:
@@ -124,14 +201,16 @@ class ShutdownCoordinator:
 
     Shutdown sequence:
     1. Set _shutdown_in_progress = True (reject new requests)
-    2. Log to system.jsonl (best effort)
-    3. Write breadcrumb file (best effort)
-    4. Log session_ended to auth.jsonl (best effort, if auth_logger set)
-    5. Print to stderr (best effort)
-    6. Show popup to user (best effort, macOS only)
-    7. Schedule delayed exit (100ms for response to flush)
-    8. Return control (caller raises MCP error to client)
-    9. Background task calls os._exit() after delay
+    2. Log to shutdowns.jsonl (best effort, for incidents page)
+    3. Log to system.jsonl (best effort)
+    4. Write breadcrumb file (best effort)
+    5. Log session_ended to auth.jsonl (best effort, if auth_logger set)
+    6. Print to stderr (best effort)
+    7. Show popup to user (best effort, macOS only)
+    8. Emit SSE event to UI (best effort)
+    9. Schedule delayed exit (100ms for response to flush)
+    10. Return control (caller raises MCP error to client)
+    11. Background task calls os._exit() after delay
     """
 
     def __init__(self, log_dir: Path, system_logger: "logging.Logger") -> None:
@@ -228,7 +307,13 @@ class ShutdownCoordinator:
         self._shutdown_exit_code = exit_code
         print(f"[SHUTDOWN] Initiating shutdown: {reason}", file=sys.stderr, flush=True)
 
-        # 1. Log to system.jsonl (best effort - may fail for same reason as audit)
+        # 1. Log to shutdowns.jsonl (best effort - dedicated shutdown log for incidents page)
+        try:
+            _write_shutdown_log(self.log_dir, failure_type, reason, exit_code, context)
+        except Exception:
+            pass  # Best effort
+
+        # 2. Log to system.jsonl (best effort - may fail for same reason as audit)
         try:
             self.system_logger.critical(
                 {
@@ -244,13 +329,13 @@ class ShutdownCoordinator:
         except Exception:
             pass  # Best effort - continue with other fallbacks
 
-        # 2. Write breadcrumb file (best effort - simple text, likely to succeed)
+        # 3. Write breadcrumb file (best effort - simple text, likely to succeed)
         try:
             _write_crash_breadcrumb(self.log_dir, failure_type, reason, exit_code, context)
         except Exception:
             pass  # Best effort
 
-        # 3. Log session_ended to auth.jsonl (best effort)
+        # 4. Log session_ended to auth.jsonl (best effort)
         # This ensures the session end is logged even when os._exit() bypasses finally blocks
         if self._auth_logger and self._bound_session_id:
             try:
@@ -272,7 +357,7 @@ class ShutdownCoordinator:
             except Exception:
                 pass  # Best effort - don't let this block shutdown
 
-        # 4. Print to stderr (best effort - may not be visible to operator)
+        # 5. Print to stderr (best effort - may not be visible to operator)
         try:
             print(
                 f"CRITICAL: Proxy shutting down - {failure_type}\n"
@@ -283,13 +368,13 @@ class ShutdownCoordinator:
         except Exception:
             pass  # Best effort
 
-        # 5. Show popup to user (best effort - macOS only)
+        # 6. Show popup to user (best effort - macOS only)
         try:
             _show_shutdown_popup(failure_type, self.log_dir)
         except Exception:
             pass  # Best effort
 
-        # 6. Emit SSE event to UI (best effort - may not arrive before exit)
+        # 7. Emit SSE event to UI (best effort - may not arrive before exit)
         if self._proxy_state is not None:
             try:
                 from mcp_acp_extended.manager.state import SSEEventType
@@ -305,7 +390,7 @@ class ShutdownCoordinator:
             except Exception:
                 pass  # Best effort
 
-        # 7. Schedule delayed exit (allows MCP error response to flush)
+        # 8. Schedule delayed exit (allows MCP error response to flush)
         asyncio.create_task(self._delayed_exit())
 
     async def _delayed_exit(self) -> None:
@@ -339,13 +424,19 @@ def sync_emergency_shutdown(
     """
     print(f"[SHUTDOWN-SYNC] Emergency shutdown: {reason}", file=sys.stderr, flush=True)
 
-    # 1. Write breadcrumb file
+    # 1. Write to shutdowns.jsonl (for incidents page)
+    try:
+        _write_shutdown_log(log_dir, failure_type, reason, exit_code)
+    except Exception:
+        pass
+
+    # 2. Write breadcrumb file
     try:
         _write_crash_breadcrumb(log_dir, failure_type, reason, exit_code)
     except Exception:
         pass
 
-    # 2. Print to stderr
+    # 3. Print to stderr
     try:
         print(
             f"CRITICAL: Proxy shutting down - {failure_type}\n"
@@ -357,6 +448,6 @@ def sync_emergency_shutdown(
     except Exception:
         pass
 
-    # 3. Exit immediately (no delay since we can't wait for response flush)
+    # 4. Exit immediately (no delay since we can't wait for response flush)
     print(f"[SHUTDOWN-SYNC] Calling os._exit({exit_code})", file=sys.stderr, flush=True)
     os._exit(exit_code)
