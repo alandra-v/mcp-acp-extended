@@ -46,7 +46,19 @@ from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
 
-from .routes import approvals, auth, config, control, logs, pending, policy, proxies, sessions
+from .routes import (
+    approvals,
+    auth,
+    config,
+    control,
+    debug,
+    incidents,
+    logs,
+    pending,
+    policy,
+    proxies,
+    sessions,
+)
 from .security import VITE_DEV_PORT, SecurityMiddleware, is_valid_token_format
 
 # Static files directory (built React app)
@@ -126,6 +138,8 @@ def create_api_app(token: str | None = None, is_uds: bool = False) -> FastAPI:
     app.include_router(auth.router, prefix="/api/auth", tags=["auth"])
     app.include_router(config.router, prefix="/api/config", tags=["config"])
     app.include_router(logs.router, prefix="/api/logs", tags=["logs"])
+    app.include_router(incidents.router, prefix="/api/incidents", tags=["incidents"])
+    app.include_router(debug.router, prefix="/api/debug", tags=["debug"])
 
     # Serve static files (built React app)
     # Note: We use dynamic file serving instead of StaticFiles mount so that

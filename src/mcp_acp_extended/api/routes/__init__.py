@@ -10,15 +10,19 @@ Route organization:
 - auth: Authentication management (login, logout, status)
 - config: Configuration management (read, update)
 - logs: Log viewer (decisions, operations, auth, system)
+- incidents: Security shutdowns, bootstrap errors, emergency audit logs
+- debug: Debug endpoints for testing
 """
 
-from . import approvals, auth, config, control, logs, pending, policy, proxies, sessions
+from . import approvals, auth, config, control, debug, incidents, logs, pending, policy, proxies, sessions
 
 __all__ = [
     "approvals",
     "auth",
     "config",
     "control",
+    "debug",
+    "incidents",
     "logs",
     "pending",
     "policy",

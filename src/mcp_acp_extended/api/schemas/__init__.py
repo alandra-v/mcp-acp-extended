@@ -87,6 +87,11 @@ from mcp_acp_extended.api.schemas.logs import (
     LogsResponse,
 )
 
+# Incidents schemas
+from mcp_acp_extended.api.schemas.incidents import (
+    IncidentsSummary,
+)
+
 __all__ = [
     # Auth
     "AuthStatusResponse",
@@ -143,4 +148,6 @@ __all__ = [
     "LogFolderInfo",
     "LogsMetadataResponse",
     "LogsResponse",
+    # Incidents
+    "IncidentsSummary",
 ]
