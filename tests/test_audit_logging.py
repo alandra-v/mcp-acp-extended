@@ -39,6 +39,7 @@ from mcp_acp_extended.utils.logging.logging_context import (
     set_session_id,
     set_tool_context,
 )
+from mcp_acp_extended.utils.logging.logging_helpers import hash_sensitive_id
 
 
 # ============================================================================
@@ -1304,3 +1305,85 @@ class TestAuditHealthMonitorLoop:
             assert shutdown_coord.is_shutting_down is True
 
             await monitor.stop()
+
+
+# ============================================================================
+# Tests: hash_sensitive_id()
+# ============================================================================
+
+
+class TestHashSensitiveId:
+    """Tests for hash_sensitive_id() function."""
+
+    def test_returns_correct_format(self):
+        """Given a value, returns sha256:<prefix> format."""
+        # Act
+        result = hash_sensitive_id("test_value")
+
+        # Assert
+        assert result.startswith("sha256:")
+        assert len(result) == len("sha256:") + 8  # Default prefix_length is 8
+
+    def test_prefix_length_parameter(self):
+        """Given custom prefix_length, returns hash with that length."""
+        # Act
+        result = hash_sensitive_id("test_value", prefix_length=4)
+
+        # Assert
+        prefix = result.split(":")[1]
+        assert len(prefix) == 4
+
+    def test_consistent_hashing(self):
+        """Given same input, always returns same output."""
+        # Arrange
+        value = "auth0|user123"
+
+        # Act
+        result1 = hash_sensitive_id(value)
+        result2 = hash_sensitive_id(value)
+
+        # Assert
+        assert result1 == result2
+
+    def test_different_inputs_different_hashes(self):
+        """Given different inputs, returns different hashes."""
+        # Act
+        result1 = hash_sensitive_id("user1")
+        result2 = hash_sensitive_id("user2")
+
+        # Assert
+        assert result1 != result2
+
+    def test_empty_value_returns_empty_marker(self):
+        """Given empty string, returns sha256:empty."""
+        # Act
+        result = hash_sensitive_id("")
+
+        # Assert
+        assert result == "sha256:empty"
+
+    def test_none_value_returns_empty_marker(self):
+        """Given None (falsy), returns sha256:empty."""
+        # Act
+        result = hash_sensitive_id(None)
+
+        # Assert
+        assert result == "sha256:empty"
+
+    def test_prefix_is_valid_hex(self):
+        """Given any input, prefix is valid hexadecimal."""
+        # Act
+        result = hash_sensitive_id("test@example.com")
+        prefix = result.split(":")[1]
+
+        # Assert - should not raise
+        int(prefix, 16)
+
+    def test_long_prefix_length(self):
+        """Given prefix_length of 64, returns full SHA256 hash."""
+        # Act
+        result = hash_sensitive_id("test_value", prefix_length=64)
+        prefix = result.split(":")[1]
+
+        # Assert
+        assert len(prefix) == 64  # Full SHA256 hex length
