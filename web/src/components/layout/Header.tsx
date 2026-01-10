@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
+import { AlertTriangle } from 'lucide-react'
 import { AuthDropdown } from '@/components/auth/AuthDropdown'
+import { useIncidentsContext } from '@/context/IncidentsContext'
 import { cn } from '@/lib/utils'
 
 interface HeaderProps {
@@ -9,6 +11,7 @@ interface HeaderProps {
 
 export function Header({ proxyName }: HeaderProps) {
   const location = useLocation()
+  const { hasUnread } = useIncidentsContext()
 
   // Page loader state
   const [isLoading, setIsLoading] = useState(false)
@@ -56,7 +59,26 @@ export function Header({ proxyName }: HeaderProps) {
         )}
       </div>
 
-      <AuthDropdown />
+      <div className="flex items-center gap-4">
+        {/* Incidents Link with Badge */}
+        <Link
+          to="/incidents"
+          className={cn(
+            'relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium transition-smooth',
+            location.pathname === '/incidents'
+              ? 'bg-base-800 text-foreground'
+              : 'text-muted-foreground hover:text-foreground hover:bg-base-900'
+          )}
+        >
+          <AlertTriangle className="w-4 h-4" />
+          Incidents
+          {hasUnread && (
+            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
+          )}
+        </Link>
+
+        <AuthDropdown />
+      </div>
     </header>
   )
 }
