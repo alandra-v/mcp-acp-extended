@@ -307,11 +307,13 @@ Conditions (all use AND logic - all specified must match):
   - operations: ["read" | "write" | "delete"]  - Operation types
   - extension: string | string[]  - File extension (e.g., ".key", ".env")
   - scheme: string | string[]  - URI scheme (e.g., "file", "db", "s3")
-  - backend_id: string | string[]  - Backend server ID pattern (glob: *, ?)
   - resource_type: "tool" | "resource" | "prompt" | "server"
   - mcp_method: string | string[]  - MCP method pattern (e.g., "resources/*")
   - subject_id: string | string[]  - User/subject ID
-  - side_effects: ["filesystem" | "network" | "database" | "system" | "external_api"]
+
+Note: side_effects condition is not yet exposed in CLI/UI. Tool side effects
+are currently hardcoded; see roadmap.md section 1.1 for planned external
+tool registry that will enable dynamic side effect selection.
 
 When a field accepts string[], any value matches (OR logic within field).
 
