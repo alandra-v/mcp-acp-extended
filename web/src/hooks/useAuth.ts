@@ -14,12 +14,15 @@ interface UseAuthReturn {
   logout: () => Promise<void>
   logoutFederated: () => Promise<void>
   refresh: () => Promise<void>
+  popupBlockedUrl: string | null
+  clearPopupBlockedUrl: () => void
 }
 
 export function useAuth(): UseAuthReturn {
   const [status, setStatus] = useState<AuthStatus | null>(null)
   const [loading, setLoading] = useState(true)
   const [loggingOut, setLoggingOut] = useState(false)
+  const [popupBlockedUrl, setPopupBlockedUrl] = useState<string | null>(null)
 
   const fetchStatus = useCallback(async () => {
     try {
@@ -74,9 +77,13 @@ export function useAuth(): UseAuthReturn {
   const logoutFederated = useCallback(async () => {
     try {
       setLoggingOut(true)
+      setPopupBlockedUrl(null)
       const response = await apiLogoutFederated()
       // Open logout URL in new window/tab
-      window.open(response.logout_url, '_blank')
+      const popup = window.open(response.logout_url, '_blank')
+      if (!popup) {
+        setPopupBlockedUrl(response.logout_url)
+      }
       await fetchStatus()
       // Success toast handled by SSE auth_logout event
     } catch {
@@ -86,6 +93,10 @@ export function useAuth(): UseAuthReturn {
     }
   }, [fetchStatus])
 
+  const clearPopupBlockedUrl = useCallback(() => {
+    setPopupBlockedUrl(null)
+  }, [])
+
   return {
     status,
     loading,
@@ -93,5 +104,7 @@ export function useAuth(): UseAuthReturn {
     logout,
     logoutFederated,
     refresh: fetchStatus,
+    popupBlockedUrl,
+    clearPopupBlockedUrl,
   }
 }

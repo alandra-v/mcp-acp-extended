@@ -1,26 +1,39 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ArrowLeft, User, Shield, Key, RefreshCw } from 'lucide-react'
+import { ArrowLeft, User, Shield, Key, RefreshCw, X } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
 import { Button } from '@/components/ui/button'
 import { LoginDialog } from '@/components/auth/LoginDialog'
+import { LogoutConfirmDialog, type LogoutType } from '@/components/auth/LogoutConfirmDialog'
 import { useAuth } from '@/hooks/useAuth'
 import { cn } from '@/lib/utils'
 
 export function AuthPage() {
   const navigate = useNavigate()
-  const { status, loading, logout, logoutFederated, refresh } = useAuth()
+  const { status, loading, logout, logoutFederated, refresh, popupBlockedUrl, clearPopupBlockedUrl } = useAuth()
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
+  const [logoutType, setLogoutType] = useState<LogoutType>('local')
 
   const isAuthenticated = status?.authenticated ?? false
 
-  const handleLogout = async () => {
-    await logout()
-  }
+  const handleLogoutClick = useCallback(() => {
+    setLogoutType('local')
+    setLogoutDialogOpen(true)
+  }, [])
 
-  const handleLogoutFederated = async () => {
-    await logoutFederated()
-  }
+  const handleLogoutFederatedClick = useCallback(() => {
+    setLogoutType('federated')
+    setLogoutDialogOpen(true)
+  }, [])
+
+  const handleLogoutConfirm = useCallback(async () => {
+    if (logoutType === 'local') {
+      await logout()
+    } else {
+      await logoutFederated()
+    }
+  }, [logoutType, logout, logoutFederated])
 
   return (
     <Layout showFooter={false}>
@@ -141,14 +154,14 @@ export function AuthPage() {
                 <>
                   <Button
                     variant="outline"
-                    onClick={handleLogout}
+                    onClick={handleLogoutClick}
                     className="text-base-300"
                   >
                     Logout
                   </Button>
                   <Button
                     variant="outline"
-                    onClick={handleLogoutFederated}
+                    onClick={handleLogoutFederatedClick}
                     className="text-base-300"
                   >
                     Logout (federated)
@@ -171,6 +184,38 @@ export function AuthPage() {
         onOpenChange={setLoginDialogOpen}
         onSuccess={refresh}
       />
+
+      <LogoutConfirmDialog
+        open={logoutDialogOpen}
+        onOpenChange={setLogoutDialogOpen}
+        type={logoutType}
+        onConfirm={handleLogoutConfirm}
+      />
+
+      {popupBlockedUrl && (
+        <div className="fixed top-16 right-4 z-50 max-w-sm bg-base-800 border border-base-700 rounded-lg p-3 shadow-lg">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 text-sm">
+              <div className="text-muted-foreground mb-1">Popup blocked. Open this URL manually:</div>
+              <a
+                href={popupBlockedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent-blue hover:underline break-all text-xs"
+              >
+                {popupBlockedUrl}
+              </a>
+            </div>
+            <button
+              onClick={clearPopupBlockedUrl}
+              className="text-base-500 hover:text-base-300 p-1"
+              aria-label="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </Layout>
   )
 }

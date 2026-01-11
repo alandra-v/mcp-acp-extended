@@ -31,6 +31,7 @@ __all__ = [
 import asyncio
 import os
 import signal
+import subprocess
 import webbrowser
 from contextlib import asynccontextmanager
 from typing import AsyncIterator, Literal
@@ -561,11 +562,24 @@ def create_proxy(
 
                 # Auto-open management UI in browser (only if not already running)
                 # Must be after state wiring to ensure SSE endpoint works
+                ui_url = f"http://127.0.0.1:{DEFAULT_API_PORT}"
                 if not ui_already_running:
                     try:
-                        webbrowser.open(f"http://127.0.0.1:{DEFAULT_API_PORT}")
+                        webbrowser.open(ui_url)
                     except Exception:
-                        pass  # Non-fatal - UI can be opened manually
+                        # Browser didn't open - show macOS notification with URL
+                        try:
+                            subprocess.run(
+                                [
+                                    "osascript",
+                                    "-e",
+                                    f'display notification "{ui_url}" with title "MCP-ACP Extended" subtitle "Management UI ready"',
+                                ],
+                                check=False,
+                                capture_output=True,
+                            )
+                        except Exception:
+                            pass  # Non-fatal - UI can be opened manually
 
             # Setup SIGHUP handler for policy hot reload (Unix only)
             def handle_sighup() -> None:

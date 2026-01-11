@@ -1,6 +1,6 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronDown } from 'lucide-react'
+import { ChevronDown, X } from 'lucide-react'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -9,29 +9,42 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { LoginDialog } from '@/components/auth/LoginDialog'
+import { LogoutConfirmDialog, type LogoutType } from '@/components/auth/LogoutConfirmDialog'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/hooks/useAuth'
 
 export function AuthDropdown() {
   const navigate = useNavigate()
-  const { status, loading, logout, logoutFederated, refresh } = useAuth()
+  const { status, loading, logout, logoutFederated, refresh, popupBlockedUrl, clearPopupBlockedUrl } = useAuth()
   const [loginDialogOpen, setLoginDialogOpen] = useState(false)
+  const [logoutDialogOpen, setLogoutDialogOpen] = useState(false)
+  const [logoutType, setLogoutType] = useState<LogoutType>('local')
 
   const isAuthenticated = status?.authenticated ?? false
   const hasProvider = !!status?.provider
   const displayName = status?.email || status?.name || (isAuthenticated ? 'Authenticated' : 'Not logged in')
 
-  const handleLogout = async () => {
-    await logout()
-  }
+  const handleLogoutClick = useCallback(() => {
+    setLogoutType('local')
+    setLogoutDialogOpen(true)
+  }, [])
 
-  const handleLogoutFederated = async () => {
-    await logoutFederated()
-  }
+  const handleLogoutFederatedClick = useCallback(() => {
+    setLogoutType('federated')
+    setLogoutDialogOpen(true)
+  }, [])
 
-  const handleSettings = () => {
+  const handleLogoutConfirm = useCallback(async () => {
+    if (logoutType === 'local') {
+      await logout()
+    } else {
+      await logoutFederated()
+    }
+  }, [logoutType, logout, logoutFederated])
+
+  const handleSettings = useCallback(() => {
     navigate('/auth')
-  }
+  }, [navigate])
 
   return (
     <>
@@ -59,14 +72,14 @@ export function AuthDropdown() {
             Login
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => isAuthenticated && handleLogout()}
+            onClick={() => isAuthenticated && handleLogoutClick()}
             disabled={!isAuthenticated}
             className={cn(!isAuthenticated && 'opacity-40 cursor-not-allowed')}
           >
             Logout
           </DropdownMenuItem>
           <DropdownMenuItem
-            onClick={() => hasProvider && handleLogoutFederated()}
+            onClick={() => hasProvider && handleLogoutFederatedClick()}
             disabled={!hasProvider}
             className={cn(!hasProvider && 'opacity-40 cursor-not-allowed')}
           >
@@ -84,6 +97,38 @@ export function AuthDropdown() {
         onOpenChange={setLoginDialogOpen}
         onSuccess={refresh}
       />
+
+      <LogoutConfirmDialog
+        open={logoutDialogOpen}
+        onOpenChange={setLogoutDialogOpen}
+        type={logoutType}
+        onConfirm={handleLogoutConfirm}
+      />
+
+      {popupBlockedUrl && (
+        <div className="fixed top-16 right-4 z-50 max-w-sm bg-base-800 border border-base-700 rounded-lg p-3 shadow-lg">
+          <div className="flex items-start gap-2">
+            <div className="flex-1 text-sm">
+              <div className="text-muted-foreground mb-1">Popup blocked. Open this URL manually:</div>
+              <a
+                href={popupBlockedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-accent-blue hover:underline break-all text-xs"
+              >
+                {popupBlockedUrl}
+              </a>
+            </div>
+            <button
+              onClick={clearPopupBlockedUrl}
+              className="text-base-500 hover:text-base-300 p-1"
+              aria-label="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
     </>
   )
 }
