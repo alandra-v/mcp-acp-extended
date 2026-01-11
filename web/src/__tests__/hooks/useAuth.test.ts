@@ -27,6 +27,7 @@ vi.mock('@/components/ui/sonner', () => ({
 // Mock error sound
 vi.mock('@/hooks/useErrorSound', () => ({
   playErrorSound: vi.fn(),
+  notifyError: vi.fn(),
 }))
 
 describe('useAuth', () => {
@@ -136,8 +137,7 @@ describe('useAuth', () => {
     })
 
     it('shows toast on logout failure', async () => {
-      const { toast } = await import('@/components/ui/sonner')
-      const { playErrorSound } = await import('@/hooks/useErrorSound')
+      const { notifyError } = await import('@/hooks/useErrorSound')
 
       vi.mocked(authApi.getAuthStatus).mockResolvedValue(mockAuthStatus)
       vi.mocked(authApi.logout).mockRejectedValue(new Error('Logout failed'))
@@ -152,8 +152,7 @@ describe('useAuth', () => {
         await result.current.logout()
       })
 
-      expect(toast.error).toHaveBeenCalledWith('Logout failed')
-      expect(playErrorSound).toHaveBeenCalled()
+      expect(notifyError).toHaveBeenCalledWith('Logout failed')
     })
   })
 
@@ -181,7 +180,7 @@ describe('useAuth', () => {
     })
 
     it('shows toast on federated logout failure', async () => {
-      const { toast } = await import('@/components/ui/sonner')
+      const { notifyError } = await import('@/hooks/useErrorSound')
 
       vi.mocked(authApi.getAuthStatus).mockResolvedValue(mockAuthStatus)
       vi.mocked(authApi.logoutFederated).mockRejectedValue(new Error('Provider error'))
@@ -196,7 +195,58 @@ describe('useAuth', () => {
         await result.current.logoutFederated()
       })
 
-      expect(toast.error).toHaveBeenCalledWith('Logout failed')
+      expect(notifyError).toHaveBeenCalledWith('Logout failed')
+    })
+
+    it('sets popupBlockedUrl when popup is blocked', async () => {
+      vi.mocked(authApi.getAuthStatus).mockResolvedValue(mockAuthStatus)
+      vi.mocked(authApi.logoutFederated).mockResolvedValue({
+        status: 'ok',
+        logout_url: 'https://auth.example.com/logout',
+        message: 'Redirecting...',
+      })
+      // Simulate popup blocker
+      vi.mocked(window.open).mockReturnValue(null)
+
+      const { result } = renderHook(() => useAuth())
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false)
+      })
+
+      await act(async () => {
+        await result.current.logoutFederated()
+      })
+
+      expect(result.current.popupBlockedUrl).toBe('https://auth.example.com/logout')
+    })
+
+    it('clears popupBlockedUrl when clearPopupBlockedUrl is called', async () => {
+      vi.mocked(authApi.getAuthStatus).mockResolvedValue(mockAuthStatus)
+      vi.mocked(authApi.logoutFederated).mockResolvedValue({
+        status: 'ok',
+        logout_url: 'https://auth.example.com/logout',
+        message: 'Redirecting...',
+      })
+      vi.mocked(window.open).mockReturnValue(null)
+
+      const { result } = renderHook(() => useAuth())
+
+      await waitFor(() => {
+        expect(result.current.loading).toBe(false)
+      })
+
+      await act(async () => {
+        await result.current.logoutFederated()
+      })
+
+      expect(result.current.popupBlockedUrl).toBe('https://auth.example.com/logout')
+
+      act(() => {
+        result.current.clearPopupBlockedUrl()
+      })
+
+      expect(result.current.popupBlockedUrl).toBeNull()
     })
   })
 
@@ -291,6 +341,8 @@ describe('useAuth', () => {
       expect(result.current).toHaveProperty('logout')
       expect(result.current).toHaveProperty('logoutFederated')
       expect(result.current).toHaveProperty('refresh')
+      expect(result.current).toHaveProperty('popupBlockedUrl')
+      expect(result.current).toHaveProperty('clearPopupBlockedUrl')
     })
   })
 })

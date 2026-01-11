@@ -26,6 +26,7 @@ vi.mock('@/components/ui/sonner', () => ({
 // Mock error sound
 vi.mock('@/hooks/useErrorSound', () => ({
   playErrorSound: vi.fn(),
+  notifyError: vi.fn(),
 }))
 
 describe('useDeviceFlow', () => {
@@ -83,8 +84,7 @@ describe('useDeviceFlow', () => {
     })
 
     it('sets error when start fails', async () => {
-      const { toast } = await import('@/components/ui/sonner')
-      const { playErrorSound } = await import('@/hooks/useErrorSound')
+      const { notifyError } = await import('@/hooks/useErrorSound')
 
       vi.mocked(authApi.startLogin).mockRejectedValue(new Error('Network error'))
 
@@ -96,8 +96,7 @@ describe('useDeviceFlow', () => {
 
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.error).toBe('Network error')
-      expect(toast.error).toHaveBeenCalledWith('Failed to start login')
-      expect(playErrorSound).toHaveBeenCalled()
+      expect(notifyError).toHaveBeenCalledWith('Failed to start login')
     })
 
     it('handles non-Error rejection', async () => {
@@ -176,8 +175,7 @@ describe('useDeviceFlow', () => {
     })
 
     it('handles expired status', async () => {
-      const { toast } = await import('@/components/ui/sonner')
-      const { playErrorSound } = await import('@/hooks/useErrorSound')
+      const { notifyError } = await import('@/hooks/useErrorSound')
 
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
       vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'expired', message: 'Code expired' })
@@ -194,12 +192,11 @@ describe('useDeviceFlow', () => {
 
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.error).toBe('Code expired')
-      expect(toast.error).toHaveBeenCalledWith('Code expired, please try again')
-      expect(playErrorSound).toHaveBeenCalled()
+      expect(notifyError).toHaveBeenCalledWith('Code expired, please try again')
     })
 
     it('handles denied status', async () => {
-      const { toast } = await import('@/components/ui/sonner')
+      const { notifyError } = await import('@/hooks/useErrorSound')
 
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
       vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'denied', message: 'User denied' })
@@ -216,11 +213,11 @@ describe('useDeviceFlow', () => {
 
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.error).toBe('User denied')
-      expect(toast.error).toHaveBeenCalledWith('Authorization denied')
+      expect(notifyError).toHaveBeenCalledWith('Authorization denied')
     })
 
     it('handles error status', async () => {
-      const { toast } = await import('@/components/ui/sonner')
+      const { notifyError } = await import('@/hooks/useErrorSound')
 
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
       vi.mocked(authApi.pollLogin).mockResolvedValue({ status: 'error', message: 'Server error' })
@@ -237,12 +234,11 @@ describe('useDeviceFlow', () => {
 
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.error).toBe('Server error')
-      expect(toast.error).toHaveBeenCalledWith('Login failed')
+      expect(notifyError).toHaveBeenCalledWith('Login failed')
     })
 
     it('handles poll network error', async () => {
-      const { toast } = await import('@/components/ui/sonner')
-      const { playErrorSound } = await import('@/hooks/useErrorSound')
+      const { notifyError } = await import('@/hooks/useErrorSound')
 
       vi.mocked(authApi.startLogin).mockResolvedValue(mockDeviceFlowStart)
       vi.mocked(authApi.pollLogin).mockRejectedValue(new Error('Network error'))
@@ -259,8 +255,7 @@ describe('useDeviceFlow', () => {
 
       expect(result.current.state.polling).toBe(false)
       expect(result.current.state.error).toBe('Polling failed')
-      expect(toast.error).toHaveBeenCalledWith('Login failed')
-      expect(playErrorSound).toHaveBeenCalled()
+      expect(notifyError).toHaveBeenCalledWith('Login failed')
     })
   })
 
