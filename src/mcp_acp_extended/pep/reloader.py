@@ -281,10 +281,10 @@ class PolicyReloader:
 
         if error_type == "file_not_found":
             event_type = SSEEventType.POLICY_FILE_NOT_FOUND
-            message = "Policy file not found"
+            message = "Policy file not found - using last known good"
         else:
             event_type = SSEEventType.POLICY_RELOAD_FAILED
-            message = "Policy reload failed"
+            message = "Policy reload failed - using last known good"
 
         self._proxy_state.emit_system_event(
             event_type,

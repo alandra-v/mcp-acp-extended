@@ -3,7 +3,7 @@ import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRe
 import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
 import { playErrorSound, notifyError } from '@/hooks/useErrorSound'
-import type { CachedApproval, PendingApproval, ProxyStats, SSEEvent, SSEEventType, SSESystemEvent } from '@/types/api'
+import { ApiError, type CachedApproval, type PendingApproval, type ProxyStats, type SSEEvent, type SSEEventType, type SSESystemEvent } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
 
@@ -28,8 +28,8 @@ const DEFAULT_MESSAGES: Partial<Record<SSEEventType, string>> = {
   auth_failure: 'Authentication failed',
   // Policy
   policy_reloaded: 'Policy reloaded',
-  policy_reload_failed: 'Policy reload failed',
-  policy_file_not_found: 'Policy file not found',
+  policy_reload_failed: 'Policy reload failed - using last known good',
+  policy_file_not_found: 'Policy file not found - using last known good',
   policy_rollback: 'Policy rolled back',
   config_change_detected: 'Config change detected',
   // Rate limiting
@@ -258,9 +258,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       await approveRequest(id)
       toast.success('Request approved')
     } catch (e) {
-      // 404 errors emit SSE pending_not_found event, but network errors don't
-      // Show fallback toast for non-404 errors (e.g., network failure)
-      if (e instanceof Error && !e.message.includes('404')) {
+      // 404 errors emit SSE pending_not_found event with toast
+      // 401/403 show specific authentication/authorization messages
+      if (e instanceof ApiError) {
+        if (e.status === 401) {
+          notifyError('Login required to approve requests')
+        } else if (e.status === 403) {
+          notifyError(e.message || 'Not authorized to approve this request')
+        } else if (e.status !== 404) {
+          notifyError('Failed to approve request')
+        }
+      } else if (e instanceof Error) {
         notifyError('Failed to approve request')
       }
     }
@@ -271,7 +279,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       await approveOnceRequest(id)
       toast.success('Request approved (once)')
     } catch (e) {
-      if (e instanceof Error && !e.message.includes('404')) {
+      // 404 errors emit SSE pending_not_found event with toast
+      // 401/403 show specific authentication/authorization messages
+      if (e instanceof ApiError) {
+        if (e.status === 401) {
+          notifyError('Login required to approve requests')
+        } else if (e.status === 403) {
+          notifyError(e.message || 'Not authorized to approve this request')
+        } else if (e.status !== 404) {
+          notifyError('Failed to approve request')
+        }
+      } else if (e instanceof Error) {
         notifyError('Failed to approve request')
       }
     }
@@ -282,7 +300,17 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
       await denyRequest(id)
       toast.success('Request denied')
     } catch (e) {
-      if (e instanceof Error && !e.message.includes('404')) {
+      // 404 errors emit SSE pending_not_found event with toast
+      // 401/403 show specific authentication/authorization messages
+      if (e instanceof ApiError) {
+        if (e.status === 401) {
+          notifyError('Login required to deny requests')
+        } else if (e.status === 403) {
+          notifyError(e.message || 'Not authorized to deny this request')
+        } else if (e.status !== 404) {
+          notifyError('Failed to deny request')
+        }
+      } else if (e instanceof Error) {
         notifyError('Failed to deny request')
       }
     }
