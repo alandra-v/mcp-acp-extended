@@ -246,3 +246,83 @@ export class ApiError extends Error {
     this.name = 'ApiError'
   }
 }
+
+// Policy types
+
+/** Effect type for policy rules */
+export type PolicyEffect = 'allow' | 'deny' | 'hitl'
+
+/** Resource type for matching */
+export type PolicyResourceType = 'tool' | 'resource' | 'prompt' | 'server'
+
+/** Operations that can be matched */
+export type PolicyOperation = 'read' | 'write' | 'delete' | 'execute' | 'create' | 'update' | 'list' | 'invoke'
+
+/** Side effects that can trigger HITL */
+export type PolicySideEffect = 'network' | 'filesystem' | 'subprocess' | 'database' | 'credential' | 'memory'
+
+/** Conditions for matching a policy rule */
+export interface PolicyRuleConditions {
+  tool_name?: string | string[]
+  path_pattern?: string | string[]
+  source_path?: string | string[]
+  dest_path?: string | string[]
+  extension?: string | string[]
+  scheme?: string | string[]
+  backend_id?: string | string[]
+  resource_type?: PolicyResourceType
+  mcp_method?: string | string[]
+  subject_id?: string | string[]
+  operations?: PolicyOperation[]
+  side_effects?: PolicySideEffect[]
+}
+
+/** HITL configuration */
+export interface HITLConfig {
+  timeout_seconds: number
+  default_on_timeout: 'deny'
+  approval_ttl_seconds: number
+  cache_side_effects?: PolicySideEffect[] | null
+}
+
+/** Policy rule from API response */
+export interface PolicyRuleResponse {
+  id: string | null
+  effect: PolicyEffect
+  conditions: PolicyRuleConditions
+  description: string | null
+}
+
+/** Policy rule for create/update requests */
+export interface PolicyRuleCreate {
+  id?: string
+  description?: string
+  effect: PolicyEffect
+  conditions: PolicyRuleConditions
+}
+
+/** Full policy response from GET /api/policy */
+export interface PolicyResponse {
+  version: string
+  default_action: 'deny'
+  rules_count: number
+  rules: PolicyRuleResponse[]
+  hitl: HITLConfig
+  policy_version: string | null
+  policy_path: string
+}
+
+/** Response after creating/updating a rule */
+export interface PolicyRuleMutationResponse {
+  rule: PolicyRuleResponse
+  policy_version: string | null
+  rules_count: number
+}
+
+/** Full policy update request for PUT /api/policy */
+export interface PolicyFullUpdate {
+  version?: string
+  default_action?: 'deny'
+  rules: PolicyRuleCreate[]
+  hitl?: Partial<HITLConfig>
+}

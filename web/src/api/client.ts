@@ -88,6 +88,28 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
+ * Parse error message from response body.
+ * FastAPI returns JSON with {"detail": "..."}, extract that.
+ */
+async function parseErrorMessage(res: Response): Promise<string> {
+  const text = await res.text()
+  try {
+    const json = JSON.parse(text)
+    // Pydantic validation error format: {"detail": [{msg: "..."}]}
+    if (Array.isArray(json.detail)) {
+      return json.detail.map((e: { msg?: string }) => e.msg || JSON.stringify(e)).join(', ')
+    }
+    // FastAPI HTTPException format: {"detail": "message"}
+    if (typeof json.detail === 'string') {
+      return json.detail
+    }
+    return text
+  } catch {
+    return text
+  }
+}
+
+/**
  * Check if an error is retryable (network error or 5xx server error).
  */
 function isRetryable(error: unknown): boolean {
@@ -133,7 +155,7 @@ async function fetchWithRetry(
       }
 
       // Server error (5xx) - will retry
-      const error = new ApiError(res.status, res.statusText, await res.text())
+      const error = new ApiError(res.status, res.statusText, await parseErrorMessage(res))
       lastError = error
 
       if (attempt < retries - 1 && isRetryable(error)) {
@@ -194,7 +216,12 @@ async function apiRequest<T>(
   })
 
   if (!res.ok) {
-    throw new ApiError(res.status, res.statusText, await res.text())
+    throw new ApiError(res.status, res.statusText, await parseErrorMessage(res))
+  }
+
+  // Handle 204 No Content (e.g., DELETE responses)
+  if (res.status === 204 || res.headers.get('content-length') === '0') {
+    return undefined as T
   }
 
   try {

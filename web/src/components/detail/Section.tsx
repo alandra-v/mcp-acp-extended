@@ -1,7 +1,8 @@
 import { cn } from '@/lib/utils'
 
 interface SectionProps {
-  number: string
+  /** Optional section index for staggered animations (defaults to 0) */
+  index?: number
   title: string
   titleExtra?: React.ReactNode
   children: React.ReactNode
@@ -10,15 +11,13 @@ interface SectionProps {
 }
 
 export function Section({
-  number,
+  index = 0,
   title,
   titleExtra,
   children,
   className,
   loaded = true,
-}: SectionProps) {
-  const sectionIndex = parseInt(number) - 1
-
+}: SectionProps): JSX.Element {
   return (
     <div
       className={cn(
@@ -29,14 +28,13 @@ export function Section({
       style={
         loaded
           ? {
-              animationDelay: `${sectionIndex * 100 + 100}ms`,
+              animationDelay: `${index * 100 + 100}ms`,
               animationFillMode: 'forwards',
             }
           : undefined
       }
     >
       <div className="flex items-center gap-4 mb-5">
-        <span className="font-mono text-xs text-base-600">{number}</span>
         <span className="font-display text-sm font-semibold uppercase tracking-wide text-base-400">
           {title}
         </span>
@@ -49,7 +47,7 @@ export function Section({
           style={
             loaded
               ? {
-                  animationDelay: `${sectionIndex * 100 + 50}ms`,
+                  animationDelay: `${index * 100 + 50}ms`,
                   animationFillMode: 'forwards',
                 }
               : undefined
