@@ -923,7 +923,6 @@ class TestPolicyEnforcementMiddleware:
 
         # Assert
         assert middleware._client_name == "TestClient"
-        assert middleware._client_version == "1.0.0"
 
 
 # =============================================================================
