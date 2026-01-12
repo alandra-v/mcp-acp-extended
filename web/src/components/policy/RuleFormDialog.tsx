@@ -203,14 +203,14 @@ export function RuleFormDialog({
         <div className="space-y-4 py-4">
           {/* Effect - Required */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">
+            <label htmlFor="rule-effect" className="text-sm font-medium">
               Effect <span className="text-destructive">*</span>
             </label>
             <Select
               value={formState.effect}
               onValueChange={(value) => updateField('effect', value as PolicyEffect)}
             >
-              <SelectTrigger>
+              <SelectTrigger id="rule-effect">
                 <SelectValue placeholder="Select effect" />
               </SelectTrigger>
               <SelectContent>
@@ -226,8 +226,9 @@ export function RuleFormDialog({
 
           {/* Description */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">Description</label>
+            <label htmlFor="rule-description" className="text-sm font-medium">Description</label>
             <Input
+              id="rule-description"
               placeholder="Human-readable description of this rule"
               value={formState.description || ''}
               onChange={(e) => updateField('description', e.target.value || undefined)}
@@ -236,7 +237,7 @@ export function RuleFormDialog({
 
           {/* ID - Editable for new rules */}
           <div className="space-y-2">
-            <label className="text-sm font-medium">
+            <label htmlFor="rule-id" className="text-sm font-medium">
               Rule ID
               {!isEditing && (
                 <span className="text-muted-foreground font-normal ml-2">
@@ -245,6 +246,7 @@ export function RuleFormDialog({
               )}
             </label>
             <Input
+              id="rule-id"
               placeholder={isEditing ? '' : 'e.g., allow-read-api'}
               value={formState.id || ''}
               onChange={(e) => updateField('id', e.target.value || undefined)}
@@ -268,13 +270,14 @@ export function RuleFormDialog({
 
             {/* Tool Name */}
             <div className="grid grid-cols-[140px_1fr] gap-2 items-center">
-              <label className="text-sm">
+              <label htmlFor="rule-tool-name" className="text-sm">
                 tool_name
                 {!formState.conditions.path_pattern && (
                   <span className="text-destructive ml-0.5">*</span>
                 )}
               </label>
               <Input
+                id="rule-tool-name"
                 placeholder="e.g., read*, bash, * (comma-separated)"
                 value={formatArrayField(formState.conditions.tool_name)}
                 onChange={(e) => updateCondition('tool_name', parseArrayField(e.target.value) || e.target.value || undefined)}
@@ -283,13 +286,14 @@ export function RuleFormDialog({
 
             {/* Path Pattern */}
             <div className="grid grid-cols-[140px_1fr] gap-2 items-center">
-              <label className="text-sm">
+              <label htmlFor="rule-path-pattern" className="text-sm">
                 path_pattern
                 {!formState.conditions.tool_name && (
                   <span className="text-destructive ml-0.5">*</span>
                 )}
               </label>
               <Input
+                id="rule-path-pattern"
                 placeholder="e.g., **/*.env, /home/** (comma-separated)"
                 value={formatArrayField(formState.conditions.path_pattern)}
                 onChange={(e) => updateCondition('path_pattern', parseArrayField(e.target.value) || e.target.value || undefined)}
@@ -299,13 +303,15 @@ export function RuleFormDialog({
             {/* Move/Copy Paths Toggle */}
             <button
               type="button"
+              aria-expanded={showMoveCopy}
+              aria-controls="move-copy-fields"
               onClick={() => setShowMoveCopy(!showMoveCopy)}
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors pt-2"
             >
               {showMoveCopy ? (
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className="w-4 h-4" aria-hidden="true" />
               ) : (
-                <ChevronRight className="w-4 h-4" />
+                <ChevronRight className="w-4 h-4" aria-hidden="true" />
               )}
               Move/Copy Paths
               {hasMoveCopyFields(formState.conditions) && (
@@ -315,15 +321,16 @@ export function RuleFormDialog({
 
             {/* Move/Copy Fields */}
             {showMoveCopy && (
-              <div className="space-y-3 pl-4 border-l-2 border-base-800 ml-2">
+              <div id="move-copy-fields" className="space-y-3 pl-4 border-l-2 border-base-800 ml-2">
                 <p className="text-xs text-muted-foreground">
                   For move/copy operations, specify source and destination patterns separately.
                 </p>
 
                 {/* Source Path */}
                 <div className="grid grid-cols-[140px_1fr] gap-2 items-center">
-                  <label className="text-sm">source_path</label>
+                  <label htmlFor="rule-source-path" className="text-sm">source_path</label>
                   <Input
+                    id="rule-source-path"
                     placeholder="e.g., **/src/**, /tmp/**"
                     value={formatArrayField(formState.conditions.source_path)}
                     onChange={(e) => updateCondition('source_path', parseArrayField(e.target.value) || e.target.value || undefined)}
@@ -332,8 +339,9 @@ export function RuleFormDialog({
 
                 {/* Dest Path */}
                 <div className="grid grid-cols-[140px_1fr] gap-2 items-center">
-                  <label className="text-sm">dest_path</label>
+                  <label htmlFor="rule-dest-path" className="text-sm">dest_path</label>
                   <Input
+                    id="rule-dest-path"
                     placeholder="e.g., **/backup/**, /archive/**"
                     value={formatArrayField(formState.conditions.dest_path)}
                     onChange={(e) => updateCondition('dest_path', parseArrayField(e.target.value) || e.target.value || undefined)}
@@ -345,13 +353,15 @@ export function RuleFormDialog({
             {/* Advanced Toggle */}
             <button
               type="button"
+              aria-expanded={showAdvanced}
+              aria-controls="advanced-fields"
               onClick={() => setShowAdvanced(!showAdvanced)}
               className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors pt-2"
             >
               {showAdvanced ? (
-                <ChevronDown className="w-4 h-4" />
+                <ChevronDown className="w-4 h-4" aria-hidden="true" />
               ) : (
-                <ChevronRight className="w-4 h-4" />
+                <ChevronRight className="w-4 h-4" aria-hidden="true" />
               )}
               Advanced
               {hasAdvancedFields(formState.conditions) && (
@@ -361,17 +371,18 @@ export function RuleFormDialog({
 
             {/* Advanced Fields */}
             {showAdvanced && (
-              <div className="space-y-3 pl-4 border-l-2 border-base-800 ml-2">
+              <div id="advanced-fields" className="space-y-3 pl-4 border-l-2 border-base-800 ml-2">
                 {/* Operations */}
                 <div className="grid grid-cols-[140px_1fr] gap-2 items-start">
-                  <label className="text-sm pt-2">operations</label>
-                  <div className="flex flex-wrap gap-2">
+                  <span className="text-sm pt-2" id="operations-label">operations</span>
+                  <div className="flex flex-wrap gap-2" role="group" aria-labelledby="operations-label">
                     {OPERATION_OPTIONS.map((op) => {
                       const isSelected = formState.conditions.operations?.includes(op)
                       return (
                         <button
                           key={op}
                           type="button"
+                          aria-pressed={isSelected}
                           data-operation={op}
                           onClick={handleOperationToggle}
                           className={cn(
@@ -390,8 +401,9 @@ export function RuleFormDialog({
 
                 {/* Extension */}
                 <div className="grid grid-cols-[140px_1fr] gap-2 items-center">
-                  <label className="text-sm">extension</label>
+                  <label htmlFor="rule-extension" className="text-sm">extension</label>
                   <Input
+                    id="rule-extension"
                     placeholder="e.g., .env, .key, .pem"
                     value={formatArrayField(formState.conditions.extension)}
                     onChange={(e) => updateCondition('extension', parseArrayField(e.target.value) || e.target.value || undefined)}
@@ -400,8 +412,9 @@ export function RuleFormDialog({
 
                 {/* Scheme */}
                 <div className="grid grid-cols-[140px_1fr] gap-2 items-center">
-                  <label className="text-sm">scheme</label>
+                  <label htmlFor="rule-scheme" className="text-sm">scheme</label>
                   <Input
+                    id="rule-scheme"
                     placeholder="e.g., file, s3, db"
                     value={formatArrayField(formState.conditions.scheme)}
                     onChange={(e) => updateCondition('scheme', parseArrayField(e.target.value) || e.target.value || undefined)}
@@ -410,8 +423,9 @@ export function RuleFormDialog({
 
                 {/* Subject ID */}
                 <div className="grid grid-cols-[140px_1fr] gap-2 items-center">
-                  <label className="text-sm">subject_id</label>
+                  <label htmlFor="rule-subject-id" className="text-sm">subject_id</label>
                   <Input
+                    id="rule-subject-id"
                     placeholder="e.g., username, OIDC sub claim"
                     value={formatArrayField(formState.conditions.subject_id)}
                     onChange={(e) => updateCondition('subject_id', parseArrayField(e.target.value) || e.target.value || undefined)}
@@ -420,8 +434,9 @@ export function RuleFormDialog({
 
                 {/* MCP Method */}
                 <div className="grid grid-cols-[140px_1fr] gap-2 items-center">
-                  <label className="text-sm">mcp_method</label>
+                  <label htmlFor="rule-mcp-method" className="text-sm">mcp_method</label>
                   <Input
+                    id="rule-mcp-method"
                     placeholder="e.g., tools/call, resources/*"
                     value={formatArrayField(formState.conditions.mcp_method)}
                     onChange={(e) => updateCondition('mcp_method', parseArrayField(e.target.value) || e.target.value || undefined)}
@@ -430,12 +445,12 @@ export function RuleFormDialog({
 
                 {/* Resource Type */}
                 <div className="grid grid-cols-[140px_1fr] gap-2 items-center">
-                  <label className="text-sm">resource_type</label>
+                  <label htmlFor="rule-resource-type" className="text-sm">resource_type</label>
                   <Select
                     value={formState.conditions.resource_type || '_any'}
                     onValueChange={(value) => updateCondition('resource_type', value === '_any' ? undefined : value as PolicyRuleConditions['resource_type'])}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="rule-resource-type">
                       <SelectValue placeholder="Any" />
                     </SelectTrigger>
                     <SelectContent>

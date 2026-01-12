@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useCallback } from 'react'
+import { useState, useEffect, useMemo, useCallback, useId, cloneElement, isValidElement, Children } from 'react'
 import { Section } from './Section'
 import { useConfig } from '@/hooks/useConfig'
 import { useAuth } from '@/hooks/useAuth'
@@ -599,13 +599,21 @@ interface FormRowProps {
 }
 
 function FormRow({ label, hint, children }: FormRowProps) {
+  const id = useId()
+
+  // Clone child element to inject id for label association
+  const childWithId = Children.only(children)
+  const enhancedChild = isValidElement(childWithId)
+    ? cloneElement(childWithId as React.ReactElement<{ id?: string }>, { id })
+    : children
+
   return (
     <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:gap-4">
       <div className="sm:w-40 shrink-0">
-        <label className="text-sm font-medium">{label}</label>
-        {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
+        <label htmlFor={id} className="text-sm font-medium">{label}</label>
+        {hint && <p id={`${id}-hint`} className="text-xs text-muted-foreground">{hint}</p>}
       </div>
-      <div className="flex-1">{children}</div>
+      <div className="flex-1">{enhancedChild}</div>
     </div>
   )
 }

@@ -74,8 +74,8 @@ function CachedItem({ item, onDelete }: CachedItemProps) {
       </span>
       <button
         onClick={() => onDelete(item.subject_id, item.tool_name, item.path)}
-        className="opacity-0 group-hover:opacity-100 transition-opacity p-1 hover:bg-base-700 rounded text-base-500 hover:text-base-300"
-        title="Delete this cached approval"
+        className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity p-1 hover:bg-base-700 rounded text-base-500 hover:text-base-300"
+        aria-label="Delete cached approval"
       >
         <Trash2 className="w-3.5 h-3.5" />
       </button>

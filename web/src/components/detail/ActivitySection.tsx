@@ -92,13 +92,22 @@ function LogEntryRow({ log }: LogEntryRowProps) {
   return (
     <div className="border-b border-[var(--border-subtle)] last:border-b-0">
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
         className={cn(
           "flex items-center gap-3 px-4 py-3 hover:bg-base-900 transition-smooth text-sm cursor-pointer",
           expanded && "bg-base-900/50"
         )}
         onClick={() => setExpanded(!expanded)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setExpanded(!expanded)
+          }
+        }}
       >
-        <span className="text-base-500">
+        <span className="text-base-500" aria-hidden="true">
           {expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
         </span>
         <span className="font-mono text-xs text-base-600 min-w-[60px]">

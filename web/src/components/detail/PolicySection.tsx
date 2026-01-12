@@ -90,9 +90,12 @@ export function PolicySection({ loaded }: PolicySectionProps): JSX.Element {
       {/* Folder-style Tabs */}
       <div className="relative">
         {/* Tab row */}
-        <div className="flex items-end">
+        <div className="flex items-end" role="tablist" aria-label="Policy view">
           {/* Visual Editor Tab */}
           <button
+            role="tab"
+            aria-selected={activeTab === 'visual'}
+            aria-controls="policy-tabpanel"
             onClick={handleVisualTab}
             className={cn(
               'px-5 py-2.5 text-sm font-medium transition-colors rounded-t-lg border-t border-l border-r',
@@ -106,6 +109,9 @@ export function PolicySection({ loaded }: PolicySectionProps): JSX.Element {
 
           {/* JSON Tab */}
           <button
+            role="tab"
+            aria-selected={activeTab === 'json'}
+            aria-controls="policy-tabpanel"
             onClick={handleJsonTab}
             className={cn(
               'px-5 py-2.5 text-sm font-medium transition-colors rounded-t-lg border-t border-l border-r -ml-px',
@@ -136,7 +142,12 @@ export function PolicySection({ loaded }: PolicySectionProps): JSX.Element {
         </div>
 
         {/* Content area with connected border */}
-        <div className="bg-base-900 border border-t-0 border-base-700 rounded-b-lg p-4 min-h-[400px]">
+        <div
+          id="policy-tabpanel"
+          role="tabpanel"
+          aria-label={activeTab === 'visual' ? 'Visual Editor' : 'JSON'}
+          className="bg-base-900 border border-t-0 border-base-700 rounded-b-lg p-4 min-h-[400px]"
+        >
           {/* Auto-reload note at top */}
           <div className="flex items-center gap-2 mb-4 pb-3 border-b border-base-800 text-xs text-muted-foreground">
             <Info className="w-3.5 h-3.5 flex-shrink-0" />

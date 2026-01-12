@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, Fragment } from 'react'
 import {
   flexRender,
   getCoreRowModel,
@@ -87,23 +87,34 @@ export function DataTable<TData>({
         <TableBody>
           {table.getRowModel().rows?.length ? (
             table.getRowModel().rows.map((row) => (
-              <>
+              <Fragment key={row.id}>
                 <TableRow
-                  key={row.id}
                   data-state={row.getIsSelected() && 'selected'}
                   className={cn(
-                    'border-b border-[var(--border-subtle)] hover:bg-base-900/50 transition-smooth cursor-pointer',
+                    'border-b border-[var(--border-subtle)] hover:bg-base-900/50 transition-smooth',
+                    renderExpandedRow && 'cursor-pointer',
                     expandedRows[row.id] && 'bg-base-900/30'
                   )}
                   onClick={() => renderExpandedRow && toggleRowExpanded(row.id)}
+                  onKeyDown={(e) => {
+                    if (renderExpandedRow && (e.key === 'Enter' || e.key === ' ')) {
+                      e.preventDefault()
+                      toggleRowExpanded(row.id)
+                    }
+                  }}
+                  tabIndex={renderExpandedRow ? 0 : undefined}
+                  aria-expanded={renderExpandedRow ? expandedRows[row.id] : undefined}
                 >
                   {renderExpandedRow && (
                     <TableCell className="w-8 px-2 text-base-500">
                       {expandedRows[row.id] ? (
-                        <ChevronDown className="w-4 h-4" />
+                        <ChevronDown className="w-4 h-4" aria-hidden="true" />
                       ) : (
-                        <ChevronRight className="w-4 h-4" />
+                        <ChevronRight className="w-4 h-4" aria-hidden="true" />
                       )}
+                      <span className="sr-only">
+                        {expandedRows[row.id] ? 'Collapse row' : 'Expand row'}
+                      </span>
                     </TableCell>
                   )}
                   {row.getVisibleCells().map((cell) => (
@@ -122,7 +133,7 @@ export function DataTable<TData>({
                     </TableCell>
                   </TableRow>
                 )}
-              </>
+              </Fragment>
             ))
           ) : (
             <TableRow>

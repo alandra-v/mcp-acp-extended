@@ -63,10 +63,16 @@ export function IncidentsPage() {
             </p>
 
             {/* Filter chips */}
-            <div className="flex items-center gap-1 bg-base-900 rounded-lg p-1">
+            <div
+              role="tablist"
+              aria-label="Filter incidents"
+              className="flex items-center gap-1 bg-base-900 rounded-lg p-1"
+            >
               {FILTER_OPTIONS.map((option) => (
                 <button
                   key={option.value}
+                  role="tab"
+                  aria-selected={filter === option.value}
                   onClick={() => setFilter(option.value)}
                   className={cn(
                     'px-3 py-1 text-xs font-medium rounded-md transition-colors',

@@ -83,8 +83,7 @@ export function PolicyRulesList({
   const [ruleToDelete, setRuleToDelete] = useState<PolicyRuleResponse | null>(null)
   const [deleting, setDeleting] = useState(false)
 
-  const handleToggle = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const ruleId = e.currentTarget.dataset.ruleId ?? null
+  const handleToggle = useCallback((ruleId: string) => {
     setExpandedId((prev) => (prev === ruleId ? null : ruleId))
   }, [])
 
@@ -140,15 +139,24 @@ export function PolicyRulesList({
             <div key={ruleKey} className={cn(!isLast && 'border-b border-base-800')}>
               {/* Header Row */}
               <div
+                role="button"
+                tabIndex={0}
+                aria-expanded={isExpanded}
                 className={cn(
                   'flex items-center gap-3 px-4 py-3 cursor-pointer hover:bg-base-900/50 transition-colors',
                   isExpanded && 'bg-base-900/30'
                 )}
-                data-rule-id={ruleKey}
-                onClick={handleToggle}
+                onClick={() => handleToggle(ruleKey)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    handleToggle(ruleKey)
+                  }
+                }}
               >
                 {/* Expand Arrow */}
                 <ChevronRight
+                  aria-hidden="true"
                   className={cn(
                     'w-4 h-4 text-muted-foreground transition-transform flex-shrink-0',
                     isExpanded && 'rotate-90'

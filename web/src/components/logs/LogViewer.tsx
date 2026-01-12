@@ -360,6 +360,7 @@ export function LogViewer({
           onClick={refresh}
           disabled={loading}
           className="h-8 px-2"
+          aria-label="Refresh logs"
         >
           <RefreshCw className={cn('w-4 h-4', loading && 'animate-spin')} />
         </Button>
