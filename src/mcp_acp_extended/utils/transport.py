@@ -23,6 +23,12 @@ from mcp_acp_extended.constants import (
     HEALTH_CHECK_TIMEOUT_SECONDS,
     TRANSPORT_ERRORS,
 )
+from mcp_acp_extended.security.binary_attestation import (
+    BinaryAttestationConfig,
+    BinaryAttestationResult,
+    ProcessVerificationError,
+    verify_backend_binary,
+)
 from mcp_acp_extended.security.mtls import (
     SSLCertificateError,
     SSLHandshakeError,
@@ -43,8 +49,11 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
-# Re-export mTLS functions for backwards compatibility
+# Re-export mTLS and attestation functions
 __all__ = [
+    "BinaryAttestationConfig",
+    "BinaryAttestationResult",
+    "ProcessVerificationError",
     "SSLCertificateError",
     "SSLHandshakeError",
     "USER_AGENT",
@@ -57,6 +66,7 @@ __all__ = [
     "create_mtls_client_factory",
     "get_certificate_expiry_info",
     "validate_mtls_config",
+    "verify_backend_binary",
 ]
 
 
@@ -315,6 +325,27 @@ def create_backend_transport(
                 "Internal error: STDIO transport selected but stdio_config is None. "
                 "This indicates a bug in transport selection logic."
             )
+
+        # Binary attestation verification (if configured)
+        # This is a hard gate - proxy won't start if verification fails
+        if stdio_config.attestation is not None:
+            attestation_config = BinaryAttestationConfig(
+                slsa_owner=stdio_config.attestation.slsa_owner,
+                expected_sha256=stdio_config.attestation.expected_sha256,
+                require_signature=stdio_config.attestation.require_signature,
+            )
+            attestation_result = verify_backend_binary(
+                stdio_config.command,
+                attestation_config,
+            )
+            if not attestation_result.verified:
+                raise ValueError(f"Backend binary attestation failed: {attestation_result.error}")
+            # sha256 is always set when verified=True, but guard for safety
+            sha256_preview = attestation_result.sha256[:16] if attestation_result.sha256 else "unknown"
+            logger.info(
+                f"Backend binary verified: {attestation_result.binary_path} " f"(sha256={sha256_preview}...)"
+            )
+
         transport = StdioTransport(
             command=stdio_config.command,
             args=stdio_config.args,

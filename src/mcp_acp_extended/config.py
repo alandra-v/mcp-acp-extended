@@ -24,6 +24,7 @@ __all__ = [
     "MTLSConfig",
     "OIDCConfig",
     "ProxyConfig",
+    "StdioAttestationConfig",
     "StdioTransportConfig",
 ]
 
@@ -141,16 +142,47 @@ class LoggingConfig(BaseModel):
     include_payloads: bool = True
 
 
+class StdioAttestationConfig(BaseModel):
+    """Binary attestation configuration for STDIO backends.
+
+    Two verification modes (can use both):
+
+    1. SLSA Provenance (build-time):
+       - slsa_owner: GitHub owner (user/org) for attestation verification
+       - Proves binary was built from trusted CI/CD pipeline
+
+    2. Runtime checks:
+       - expected_sha256: Verify binary hash matches expected
+       - require_signature: Require valid code signature (macOS)
+
+    Attributes:
+        slsa_owner: GitHub owner for SLSA attestation verification.
+            If set, runs `gh attestation verify --owner <owner> <binary>`.
+            Requires `gh` CLI to be installed and authenticated.
+        expected_sha256: Expected SHA-256 hash of the binary (hex string).
+            If set, binary hash is verified before spawn.
+        require_signature: Whether to require valid code signature (macOS only).
+            Default False (opt-in). Ignored on non-macOS platforms.
+    """
+
+    slsa_owner: str | None = None
+    expected_sha256: str | None = None
+    require_signature: bool = False  # Opt-in for macOS codesign
+
+
 class StdioTransportConfig(BaseModel):
     """STDIO transport configuration.
 
     Attributes:
         command: Command to launch backend server.
         args: Arguments to pass to backend command.
+        attestation: Optional binary attestation configuration.
+            If set, binary is verified before spawning.
     """
 
     command: str = Field(min_length=1)
     args: list[str] = Field(default_factory=list)
+    attestation: StdioAttestationConfig | None = None
 
 
 class HttpTransportConfig(BaseModel):

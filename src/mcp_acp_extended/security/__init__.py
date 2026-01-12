@@ -4,6 +4,7 @@ This module provides:
 - Authentication: token storage, JWT validation (security/auth/)
 - Identity providers (local, OIDC in Stage 2+)
 - Device health checks (disk encryption, SIP)
+- Binary attestation for STDIO backends (hash, codesign, SLSA)
 - Audit log integrity: fail-closed handlers and health monitoring
 - Shutdown coordination for critical security failures
 
@@ -68,6 +69,14 @@ from mcp_acp_extended.security.sanitizer import (
     sanitize_description,
 )
 from mcp_acp_extended.security.tool_sanitizer import ToolListSanitizer
+from mcp_acp_extended.security.binary_attestation import (
+    BinaryAttestationConfig,
+    BinaryAttestationResult,
+    ProcessVerificationError,
+    verify_backend_binary,
+    verify_spawned_process,
+    verify_spawned_process_async,
+)
 
 __all__ = [
     # Authentication (security/auth/)
@@ -116,6 +125,13 @@ __all__ = [
     "SanitizationResult",
     "sanitize_description",
     "ToolListSanitizer",
+    # Binary attestation
+    "BinaryAttestationConfig",
+    "BinaryAttestationResult",
+    "ProcessVerificationError",
+    "verify_backend_binary",
+    "verify_spawned_process",
+    "verify_spawned_process_async",
     # Exceptions (re-exported from mcp_acp_extended.exceptions)
     "CriticalSecurityFailure",
     "AuditFailure",
