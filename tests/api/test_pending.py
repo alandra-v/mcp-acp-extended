@@ -5,12 +5,13 @@ Uses AAA pattern (Arrange-Act-Assert) for clarity.
 """
 
 from datetime import datetime, timezone
-from unittest.mock import MagicMock
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from mcp_acp_extended.api.deps import get_identity_provider, get_proxy_state
 from mcp_acp_extended.api.routes.pending import _resolve_approval, router
 from mcp_acp_extended.api.schemas import ApprovalActionResponse, PendingApprovalResponse
 
@@ -50,17 +51,29 @@ def mock_state(mock_pending_approval):
     """Create a mock proxy state."""
     state = MagicMock()
     state.get_pending_approvals.return_value = [mock_pending_approval]
+    state.get_pending_approval.return_value = mock_pending_approval
     state.resolve_pending.return_value = True
     return state
 
 
 @pytest.fixture
-def app(mock_state):
-    """Create a test FastAPI app with pending router and mocked state."""
+def mock_identity_provider():
+    """Create a mock identity provider that returns authenticated user."""
+    provider = MagicMock()
+    identity = MagicMock()
+    identity.subject_id = "user@example.com"
+    provider.get_identity = AsyncMock(return_value=identity)
+    return provider
+
+
+@pytest.fixture
+def app(mock_state, mock_identity_provider):
+    """Create a test FastAPI app with pending router and mocked dependencies."""
     app = FastAPI()
     app.include_router(router, prefix="/api/approvals/pending")
-    # Set app.state.proxy_state for dependency injection
-    app.state.proxy_state = mock_state
+    # Override dependencies for testing
+    app.dependency_overrides[get_proxy_state] = lambda: mock_state
+    app.dependency_overrides[get_identity_provider] = lambda: mock_identity_provider
     return app
 
 
@@ -146,7 +159,7 @@ class TestApproveEndpoint:
     """Tests for POST /api/approvals/pending/{id}/approve endpoint."""
 
     def test_approve_success(self, client, mock_state):
-        """Given valid approval ID, approves and returns success."""
+        """Given valid approval ID and authenticated user, approves and returns success."""
         # Act
         response = client.post("/api/approvals/pending/approval-123/approve")
 
@@ -155,18 +168,24 @@ class TestApproveEndpoint:
         data = response.json()
         assert data["status"] == "approved"
         assert data["approval_id"] == "approval-123"
-        mock_state.resolve_pending.assert_called_once_with("approval-123", "allow")
+        # Now includes approver_id
+        mock_state.resolve_pending.assert_called_once_with("approval-123", "allow", "user@example.com")
 
-    def test_approve_not_found(self):
+    def test_approve_not_found(self, mock_identity_provider):
         """Given invalid approval ID, returns 404."""
         # Arrange
         mock_state = MagicMock()
         mock_state.resolve_pending.return_value = False
         mock_state.emit_system_event = MagicMock()
+        # get_pending_approval returns the approval (so verification passes)
+        mock_pending = MagicMock()
+        mock_pending.subject_id = "user@example.com"
+        mock_state.get_pending_approval.return_value = mock_pending
 
         app = FastAPI()
         app.include_router(router, prefix="/api/approvals/pending")
-        app.state.proxy_state = mock_state
+        app.dependency_overrides[get_proxy_state] = lambda: mock_state
+        app.dependency_overrides[get_identity_provider] = lambda: mock_identity_provider
         client = TestClient(app)
 
         # Act
@@ -175,6 +194,50 @@ class TestApproveEndpoint:
         # Assert
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
+
+    def test_approve_requires_auth(self):
+        """Given unauthenticated user, returns 401."""
+        from mcp_acp_extended.exceptions import AuthenticationError
+
+        # Arrange
+        mock_state = MagicMock()
+        mock_identity_provider = MagicMock()
+        mock_identity_provider.get_identity = AsyncMock(side_effect=AuthenticationError("Not logged in"))
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/approvals/pending")
+        app.dependency_overrides[get_proxy_state] = lambda: mock_state
+        app.dependency_overrides[get_identity_provider] = lambda: mock_identity_provider
+        client = TestClient(app)
+
+        # Act
+        response = client.post("/api/approvals/pending/approval-123/approve")
+
+        # Assert
+        assert response.status_code == 401
+        assert "authentication required" in response.json()["detail"].lower()
+
+    def test_approve_requires_matching_identity(self, mock_identity_provider):
+        """Given approver != requester, returns 403."""
+        # Arrange
+        mock_pending = MagicMock()
+        mock_pending.subject_id = "other-user@example.com"  # Different from approver
+
+        mock_state = MagicMock()
+        mock_state.get_pending_approval.return_value = mock_pending
+
+        app = FastAPI()
+        app.include_router(router, prefix="/api/approvals/pending")
+        app.dependency_overrides[get_proxy_state] = lambda: mock_state
+        app.dependency_overrides[get_identity_provider] = lambda: mock_identity_provider
+        client = TestClient(app)
+
+        # Act
+        response = client.post("/api/approvals/pending/approval-123/approve")
+
+        # Assert
+        assert response.status_code == 403
+        assert "only approve your own" in response.json()["detail"].lower()
 
 
 # =============================================================================
@@ -186,7 +249,7 @@ class TestAllowOnceEndpoint:
     """Tests for POST /api/approvals/pending/{id}/allow-once endpoint."""
 
     def test_allow_once_success(self, client, mock_state):
-        """Given valid approval ID, allows once without caching."""
+        """Given valid approval ID and authenticated user, allows once without caching."""
         # Act
         response = client.post("/api/approvals/pending/approval-123/allow-once")
 
@@ -194,18 +257,24 @@ class TestAllowOnceEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "allowed_once"
-        mock_state.resolve_pending.assert_called_once_with("approval-123", "allow_once")
+        # Now includes approver_id
+        mock_state.resolve_pending.assert_called_once_with("approval-123", "allow_once", "user@example.com")
 
-    def test_allow_once_not_found(self):
+    def test_allow_once_not_found(self, mock_identity_provider):
         """Given invalid approval ID, returns 404."""
         # Arrange
         mock_state = MagicMock()
         mock_state.resolve_pending.return_value = False
         mock_state.emit_system_event = MagicMock()
+        # get_pending_approval returns the approval (so verification passes)
+        mock_pending = MagicMock()
+        mock_pending.subject_id = "user@example.com"
+        mock_state.get_pending_approval.return_value = mock_pending
 
         app = FastAPI()
         app.include_router(router, prefix="/api/approvals/pending")
-        app.state.proxy_state = mock_state
+        app.dependency_overrides[get_proxy_state] = lambda: mock_state
+        app.dependency_overrides[get_identity_provider] = lambda: mock_identity_provider
         client = TestClient(app)
 
         # Act
@@ -224,7 +293,7 @@ class TestDenyEndpoint:
     """Tests for POST /api/approvals/pending/{id}/deny endpoint."""
 
     def test_deny_success(self, client, mock_state):
-        """Given valid approval ID, denies and returns success."""
+        """Given valid approval ID and authenticated user, denies and returns success."""
         # Act
         response = client.post("/api/approvals/pending/approval-123/deny")
 
@@ -232,18 +301,24 @@ class TestDenyEndpoint:
         assert response.status_code == 200
         data = response.json()
         assert data["status"] == "denied"
-        mock_state.resolve_pending.assert_called_once_with("approval-123", "deny")
+        # Now includes approver_id
+        mock_state.resolve_pending.assert_called_once_with("approval-123", "deny", "user@example.com")
 
-    def test_deny_not_found(self):
+    def test_deny_not_found(self, mock_identity_provider):
         """Given invalid approval ID, returns 404."""
         # Arrange
         mock_state = MagicMock()
         mock_state.resolve_pending.return_value = False
         mock_state.emit_system_event = MagicMock()
+        # get_pending_approval returns the approval (so verification passes)
+        mock_pending = MagicMock()
+        mock_pending.subject_id = "user@example.com"
+        mock_state.get_pending_approval.return_value = mock_pending
 
         app = FastAPI()
         app.include_router(router, prefix="/api/approvals/pending")
-        app.state.proxy_state = mock_state
+        app.dependency_overrides[get_proxy_state] = lambda: mock_state
+        app.dependency_overrides[get_identity_provider] = lambda: mock_identity_provider
         client = TestClient(app)
 
         # Act
@@ -268,12 +343,13 @@ class TestResolveApprovalHelper:
         mock_state.resolve_pending.return_value = True
 
         # Act
-        result = _resolve_approval("test-id", "allow", "approved", mock_state)
+        result = _resolve_approval("test-id", "allow", "approved", mock_state, "user@example.com")
 
         # Assert
         assert isinstance(result, ApprovalActionResponse)
         assert result.status == "approved"
         assert result.approval_id == "test-id"
+        mock_state.resolve_pending.assert_called_once_with("test-id", "allow", "user@example.com")
 
     def test_resolve_failure_raises_404(self):
         """Given failed resolution, raises HTTPException 404."""
@@ -284,7 +360,7 @@ class TestResolveApprovalHelper:
 
         # Act & Assert
         with pytest.raises(HTTPException) as exc_info:
-            _resolve_approval("test-id", "deny", "denied", mock_state)
+            _resolve_approval("test-id", "deny", "denied", mock_state, "user@example.com")
 
         assert exc_info.value.status_code == 404
         assert "test-id" in exc_info.value.detail
@@ -298,7 +374,7 @@ class TestResolveApprovalHelper:
 
         # Act
         with pytest.raises(HTTPException):
-            _resolve_approval("test-id", "deny", "denied", mock_state)
+            _resolve_approval("test-id", "deny", "denied", mock_state, "user@example.com")
 
         # Assert
         mock_state.emit_system_event.assert_called_once()
