@@ -4,7 +4,7 @@
 
 Web UI for mcp-acp-extended proxy management. Single-proxy first, multi-proxy ready.
 
-**Architecture**: Proxy is source of truth for all state. Manager (Phase 2) is optional UI gateway that queries proxy and routes commands.
+**Architecture**: Proxy is source of truth for all state. Manager (Phase 2) is optional UI gateway.
 
 ---
 
@@ -12,30 +12,12 @@ Web UI for mcp-acp-extended proxy management. Single-proxy first, multi-proxy re
 
 **Status: COMPLETE**
 
-State classes live in proxy process. Proxy owns all state (approvals, sessions, pending).
+State management classes for proxy, sessions, and approvals.
 
-- [x] **State classes** (`manager/state.py`)
-  - [x] `ProxyInfo` - frozen dataclass (id, backend_id, status, started_at, pid, api_port, uptime_seconds)
-  - [x] `ProxyState` - aggregates all proxy state for API exposure
-    - Wraps `ApprovalStore` for cached approvals
-    - Wraps `SessionManager` via `get_all_sessions()` public accessor
-    - Manages pending approvals with SSE broadcast
-  - [x] `PendingApprovalInfo` - frozen dataclass for API responses (immutable, serializable)
-  - [x] `PendingApprovalRequest` - internal async waiter (wraps info + asyncio.Event)
-  - [x] `CachedApprovalSummary` - NamedTuple for structured cache data
-
-- [x] **API routes** (all in `api/routes/`)
-  - [x] `proxies.py` - `/api/proxies`, `/api/proxies/{id}`
-  - [x] `sessions.py` - `/api/auth-sessions`
-  - [x] `approvals.py` - `/api/approvals/cached` (GET/DELETE)
-  - [x] `pending.py` - `/api/approvals/pending` (SSE + list + approve/deny)
-  - [x] `control.py` - `/api/control/status`, `/api/control/reload-policy`
-
-- [x] **Wire up in proxy** (`proxy.py`)
-  - [x] Create `ProxyState` in lifespan with approval_store + session_manager
-  - [x] Attach to `api_app.state`: proxy_state, config, policy_reloader, approval_store, identity_provider
-
-**Deliverable**: `curl http://127.0.0.1:8765/api/proxies` returns real proxy data. ✓
+- [x] Proxy info and state aggregation
+- [x] Pending approval tracking with SSE broadcast
+- [x] Cached approval summaries
+- [x] API routes for proxies, sessions, approvals, pending, and control
 
 ---
 
@@ -43,43 +25,17 @@ State classes live in proxy process. Proxy owns all state (approvals, sessions, 
 
 **Status: COMPLETE**
 
-Implement security from ui-security.md.
+Full security implementation per security spec.
 
-- [x] **Token generation** (`api/security.py`)
-  - [x] Generate random bearer token on startup (32 bytes, hex encoded)
-  - [x] Write to `~/.mcp-acp-extended/manager.json` with port
-  - [x] Delete file on shutdown
-
-- [x] **Token validation middleware**
-  - [x] Extract `Authorization: Bearer <token>` header
-  - [x] Constant-time comparison (`hmac.compare_digest`)
-  - [x] Return 401 if missing/invalid
-
-- [x] **Host header validation**
-  - [x] Allow only: `localhost`, `127.0.0.1`, `[::1]`
-  - [x] Return 403 if invalid
-
-- [x] **Origin header validation**
-  - [x] Allow only localhost origins
-  - [x] Reject if present and not allowed
-  - [x] Require Origin for mutation requests (POST/PUT/DELETE)
-
-- [x] **SSE authentication**
-  - [x] Same-origin requests (no Origin header) → allow SSE without token
-  - [x] Cross-origin (dev mode) → accept token in query param for SSE only
-
-- [x] **Response security headers**
-  - [x] `X-Content-Type-Options: nosniff`
-  - [x] `X-Frame-Options: DENY`
-  - [x] `Content-Security-Policy: default-src 'self'`
-  - [x] `Cache-Control: no-store`
-  - [x] `Referrer-Policy: same-origin`
-  - [x] `Permissions-Policy: camera=(), microphone=(), geolocation=()`
-
-- [x] **Request limits**
-  - [x] Max request size: 1MB
-
-**Deliverable**: API rejects unauthorized requests, prevents DNS rebinding. ✓
+- [x] Random bearer token generation on startup
+- [x] Browser auth via HttpOnly cookie (XSS-safe)
+- [x] CLI auth via Unix Domain Socket (OS permissions)
+- [x] Token validation middleware with constant-time comparison
+- [x] Host header validation (localhost only)
+- [x] Origin header validation for CSRF protection
+- [x] SSE authentication (same-origin or query param for dev)
+- [x] Security response headers (CSP, X-Frame-Options, etc.)
+- [x] Request size limits (1MB max)
 
 ---
 
@@ -87,36 +43,14 @@ Implement security from ui-security.md.
 
 **Status: COMPLETE**
 
-- [x] `GET /api/proxies` - list proxies
-- [x] `GET /api/proxies/{id}` - proxy details
-- [x] `GET /api/auth-sessions` - list auth sessions
-- [x] `GET /api/approvals/cached` - list cached approvals
-- [x] `DELETE /api/approvals/cached` - clear all cached approvals
-- [x] `DELETE /api/approvals/cached/entry` - delete single cached approval
-- [x] `GET /api/approvals/pending` (SSE) - stream pending HITL requests
-- [x] `POST /api/approvals/{id}/approve` - approve pending
-- [x] `POST /api/approvals/{id}/deny` - deny pending
-
-- [x] **Policy endpoints** (`api/routes/policy.py`)
-  - [x] `GET /api/policy` - read policy with metadata
-  - [x] `GET /api/policy/rules` - list rules
-  - [x] `POST /api/policy/rules` - add rule (auto-reload)
-  - [x] `PUT /api/policy/rules/{id}` - update rule (auto-reload)
-  - [x] `DELETE /api/policy/rules/{id}` - delete rule (auto-reload)
-- [x] **Auth endpoints** (`api/routes/auth.py`)
-  - [x] `GET /api/auth/status` - auth status + user info + provider
-  - [x] `POST /api/auth/login` - start device flow
-  - [x] `GET /api/auth/login/poll` - poll for completion
-  - [x] `POST /api/auth/logout` - local logout (keychain)
-  - [x] `POST /api/auth/logout-federated` - federated logout URL
-- [x] **Config endpoints** (`api/routes/config.py`)
-  - [x] `GET /api/config` - read config (redacted)
-  - [x] `PUT /api/config` - update config (validated, restart required)
-- [x] **Log endpoints** (`api/routes/logs.py`)
-  - [x] `GET /api/logs/decisions` - policy decisions
-  - [x] `GET /api/logs/operations` - operation audit
-  - [x] `GET /api/logs/auth` - auth events
-  - [x] `GET /api/logs/system` - system logs
+- [x] Proxy listing and details
+- [x] Auth session management
+- [x] Cached approvals (list, clear, delete single)
+- [x] Pending approvals (SSE stream, approve, deny)
+- [x] Policy CRUD (read, list rules, add/update/delete rules)
+- [x] Auth endpoints (status, login device flow, logout, federated logout)
+- [x] Config endpoints (read, update, compare running vs saved)
+- [x] Log endpoints (decisions, operations, auth, system)
 
 ---
 
@@ -124,24 +58,14 @@ Implement security from ui-security.md.
 
 **Status: COMPLETE**
 
-- [x] `ProxyState.create_pending()` - create pending approval
-- [x] `ProxyState.resolve_pending()` - resolve with allow/deny
-- [x] `ProxyState.get_pending_approvals()` - list pending
-- [x] `ProxyState.subscribe()/unsubscribe()` - SSE tracking
-- [x] `ProxyState.is_ui_connected` - check if UI connected
-- [x] `ProxyState.wait_for_decision()` - async wait for resolution
-- [x] SSE broadcast of pending/resolved/timeout events
-- [x] Approval endpoints (approve/deny)
+Human-in-the-loop approval flow for the web UI.
 
-- [x] **HITL handler integration** (`pep/hitl.py`)
-  - [x] `HITLHandler.set_proxy_state()` - wire ProxyState after creation
-  - [x] `HITLHandler._request_approval_via_ui()` - web UI flow
-  - [x] Check `is_ui_connected` before creating pending
-  - [x] If UI connected: use `create_pending()` + `wait_for_decision()`
-  - [x] If timeout or no UI: fall back to osascript
-  - [x] Never show both simultaneously
-
-**Deliverable**: Browser approvals work, osascript fallback when UI closed. ✓
+- [x] Create and resolve pending approvals
+- [x] SSE subscription tracking
+- [x] UI connection detection
+- [x] Async wait for user decision
+- [x] Broadcast of pending/resolved/timeout events
+- [x] Fallback to osascript when UI not connected
 
 ---
 
@@ -151,110 +75,59 @@ Implement security from ui-security.md.
 
 Full React UI with real-time data.
 
-### Pages Implemented
+### Pages
 
-- [x] **Proxies page** (`/`)
-  - [x] Stats row with filter cards (All, Active, Inactive, Pending)
-  - [x] Proxy grid showing all registered proxies
-  - [x] Click proxy to navigate to detail page
-  - [x] Pending approvals drawer (slide-in from right)
+- [x] **Proxies page** - Stats row, proxy grid, pending approvals drawer
+- [x] **Proxy detail page** - Overview, Logs, Policy, Config sections
+- [x] **Auth page** - Status, provider info, login/logout actions
+- [x] **Incidents page** - Security event timeline with filtering
 
-- [x] **Proxy detail page** (`/proxy/:id`)
-  - [x] Breadcrumb navigation
-  - [x] Sidebar with section navigation (Overview, Logs, Policy, Config)
-  - [x] Stats section with metrics
-  - [x] Approvals section (pending for this proxy)
-  - [x] Activity section (recent decisions)
+### Core Components
 
-- [x] **Global logs page** (`/logs`)
-  - [x] Page header matching Proxies page style
-  - [x] Placeholder for log viewer (coming soon)
+- [x] Layout (Header with auth dropdown, Footer, responsive wrapper)
+- [x] Proxy components (cards, grid, stats, pending drawer)
+- [x] Detail sections (stats, approvals, cached, activity, config, policy)
+- [x] Log viewer (folder/file selection, time range, filters, pagination)
+- [x] Policy editor (visual form + JSON view)
+- [x] Incident cards with timeline display
+- [x] Error boundary and inline error banners
+- [x] shadcn/ui components (Button, Card, Badge, Dialog, Sheet, etc.)
 
-- [x] **Auth page** (`/auth`)
-  - [x] Auth status display (authenticated/not authenticated)
-  - [x] Provider info (Auth0, etc.)
-  - [x] Storage backend info
-  - [x] User details when authenticated (Subject ID, Email, Token Expires, Refresh Token)
-  - [x] Login/Logout/Federated Logout actions
+### Context & State
 
-### Components Implemented
+- [x] Global SSE connection with pending state and connection status
+- [x] Document title updates when approvals pending
+- [x] Audio notifications (approval chime, error sound)
+- [x] Toast notifications for all system events
+- [x] Auth state sync via SSE events
+- [x] Incidents context with unread badge
 
-- [x] **Layout components**
-  - [x] Header with nav links and auth dropdown
-  - [x] Footer with version info
-  - [x] Layout wrapper
+### Hooks
 
-- [x] **Auth dropdown** (in Header)
-  - [x] Status indicator (green/red dot)
-  - [x] Login dialog with device flow
-  - [x] Logout and federated logout options
-  - [x] Disabled states when not applicable
-
-- [x] **Proxy components**
-  - [x] StatsRow with filter cards
-  - [x] ProxyGrid with proxy cards
-  - [x] ProxyCard with status indicator
-  - [x] PendingDrawer for approval queue
-
-- [x] **Detail components**
-  - [x] DetailSidebar with section navigation
-  - [x] StatsSection with metrics
-  - [x] ApprovalsSection with approve/deny/approveOnce
-  - [x] CachedSection with cached approvals and clear
-  - [x] ActivitySection with recent logs
-
-- [x] **Error handling**
-  - [x] ErrorBoundary wrapping entire app
-  - [x] Inline error banners in pages (ProxiesPage, AuthPage)
-
-- [x] **shadcn/ui components**
-  - [x] Button, Card, Badge
-  - [x] DropdownMenu
-  - [x] Dialog
-  - [x] Sheet (drawer)
-
-### Context Providers
-
-- [x] `AppStateContext` - global SSE subscription, pending state, connection status
-  - Single SSE connection shared across all pages
-  - Document title shows `🔴 (N) MCP ACP` when pending > 0
-  - Audio chime notification on new pending approval
-  - approve/approveOnce/deny actions
-  - Connection status tracking (connected/reconnecting/disconnected)
-  - Live stats updates via `stats_updated` event
-  - Toast notifications for all system events
-  - Auth state sync via custom DOM events
-
-### Hooks Implemented
-
-- [x] `useProxies` - fetch proxy list with error state
-- [x] `useLogs` - log fetching with filters, cursor pagination, SSE refresh
-- [x] `useMultiLogs` - fetch multiple log types, merge by timestamp
-- [x] `useAuth` - auth status + login/logout/refresh + SSE state sync
-- [x] `useCachedApprovals` - cached approvals with clear/delete actions
-- [x] `useDeviceFlow` - OAuth device flow for login dialog
-- [x] `useCountdown` - countdown timer for HITL timeout display
-- [x] `useNotificationSound` - Web Audio API approval chime
-- [x] `useErrorSound` - Web Audio API error sound for critical events
+- [x] `useProxies` - proxy list with error state
+- [x] `useLogs` / `useMultiLogs` - log fetching with filters and pagination
+- [x] `useAuth` - auth status and device flow
+- [x] `useConfig` - config fetching and updates
+- [x] `useCachedApprovals` - cache management
+- [x] `usePolicy` - policy CRUD operations
+- [x] `useIncidents` - security incident tracking
+- [x] `useDeviceFlow` - OAuth device flow
+- [x] `useCountdown` - HITL timeout display
+- [x] `useNotificationSound` / `useErrorSound` - Web Audio notifications
 
 ### API Client
 
-- [x] Base client with token injection (captured once, cleared from window)
-- [x] Fetch with exponential backoff retry
-- [x] SSE subscription helper with token query param for dev mode
-- [x] JSON parsing error handling
-- [x] Proxy endpoints
-- [x] Approval endpoints (approve, approveOnce, deny)
-- [x] Auth endpoints
-- [x] Log endpoints
+- [x] Dual auth support (HttpOnly cookie + Bearer token)
+- [x] Exponential backoff retry
+- [x] SSE subscription with credentials
+- [x] All endpoint methods (proxies, approvals, auth, logs, config, policy)
 
 ### Styling
 
-- [x] Tailwind CSS with custom theme
-- [x] OKLCH color palette from ui-aesthetics.md
-- [x] Figtree (display), Nunito (text), JetBrains Mono (mono)
-- [x] CSS variables for dynamic theming
+- [x] Tailwind CSS with OKLCH color palette
+- [x] Custom fonts (Figtree, Nunito, JetBrains Mono)
 - [x] Smooth transitions and hover effects
+- [x] Accessibility (ARIA labels, keyboard support)
 
 ---
 
@@ -262,11 +135,10 @@ Full React UI with real-time data.
 
 **Status: COMPLETE**
 
-- [x] Vite build outputs to `src/mcp_acp_extended/web/static/`
-- [x] FastAPI serves static files
-- [x] SPA fallback for client-side routing
-- [x] Token injection via server-side template
-- [x] Auto-open browser on proxy start (if not already running)
+- [x] Vite build outputs to static directory
+- [x] FastAPI serves static files with SPA fallback
+- [x] HttpOnly cookie auth on index.html response
+- [x] Auto-open browser on proxy start
 - [x] `--no-ui` flag to disable auto-open
 
 ---
@@ -276,14 +148,10 @@ Full React UI with real-time data.
 **Status: COMPLETE**
 
 - [x] Clean Ctrl+C shutdown (no traceback spam)
-- [x] Suppress uvicorn error logging on shutdown
-- [x] Login dialog message matches Auth0 prompt
+- [x] Login dialog message matches provider prompt
 - [x] Federated logout disabled when not authenticated
-- [x] Global Logs title font matches Proxies page
-- [x] Stop/Restart buttons removed from proxy detail (Phase 2 feature)
-- [x] Auth page shows provider info
+- [x] Dynamic static file serving (no restart after rebuild)
 - [x] Favicon with correct permissions
-- [x] Dynamic static file serving (no server restart needed after rebuild)
 
 ---
 
@@ -291,70 +159,25 @@ Full React UI with real-time data.
 
 **Status: COMPLETE**
 
-- [x] **Error handling**
-  - [x] ErrorBoundary catches React errors gracefully
-  - [x] Inline error banners in ProxiesPage and AuthPage
-  - [x] API client wraps JSON parsing in try/catch
-
-- [x] **Memory safety**
-  - [x] `useCachedApprovals` uses `mountedRef` to prevent state updates after unmount
-  - [x] Proper cleanup in useEffect hooks
-
-- [x] **State management**
-  - [x] `PendingApprovalsContext` for global pending state
-  - [x] Single SSE connection across all pages
-  - [x] Document title updates globally
-
-- [x] **List rendering**
-  - [x] Stable keys using `request_id` in CachedSection
-  - [x] Improved keys in ActivitySection
-
-- [x] **Audio resources**
-  - [x] `closeAudioContext()` function for cleanup
+- [x] ErrorBoundary catches React errors gracefully
+- [x] Memory-safe hooks with cleanup
+- [x] Single SSE connection across all pages
+- [x] Stable list rendering keys
+- [x] Audio context cleanup
 
 ---
 
-## Phase 9: Real-time Notifications & SSE System Events
+## Phase 9: Real-time Notifications
 
 **Status: COMPLETE**
 
-Comprehensive toast notifications and SSE event handling for all system events.
-
-- [x] **Sonner toast integration** (`components/ui/sonner.tsx`)
-  - [x] Replaced console logging with user-visible toasts
-  - [x] Severity-based styling (info, success, warning, error, critical)
-  - [x] Critical events persist until dismissed (`duration: Infinity`)
-  - [x] Error sound plays on error/critical events
-
-- [x] **SSE system events** (`PendingApprovalsContext`)
-  - [x] Backend connection events (connected, reconnected, disconnected, timeout, refused)
-  - [x] TLS/mTLS events (tls_error, mtls_failed, cert_validation_failed)
-  - [x] Auth events (auth_login, auth_logout, session_expiring, token_refresh_failed)
-  - [x] Policy events (policy_reloaded, policy_reload_failed, policy_rollback)
-  - [x] Rate limiting events (rate_limit_triggered, approved, denied)
-  - [x] Cache events (cache_cleared, cache_entry_deleted)
-  - [x] Critical events (critical_shutdown, audit failures, device health, session hijacking)
-  - [x] Default messages for all event types
-
-- [x] **Auth state sync via SSE**
-  - [x] `useAuth` listens for `auth-state-changed` custom event
-  - [x] Auto-refresh auth status on login/logout/token_refresh_failed
-  - [x] Success toasts handled by SSE events (no duplicates from API calls)
-
-- [x] **Error sound** (`hooks/useErrorSound.ts`)
-  - [x] Web Audio API generated error sound
-  - [x] Plays on error and critical severity events
-  - [x] Separate from approval chime
-
-- [x] **Toast spam prevention**
-  - [x] `errorCountRef` tracks connection errors, shows toast only on first error
-  - [x] `isShutdownRef` prevents reconnection attempts after proxy shutdown
-  - [x] Graceful handling when proxy goes offline (no spam on repeated failures)
-
-- [x] **Individual cached approval deletion**
-  - [x] Delete button on each cached approval in CachedSection
-  - [x] `DELETE /api/approvals/cached/entry` endpoint
-  - [x] SSE `cache_entry_deleted` event broadcast
+- [x] Sonner toast integration with severity-based styling
+- [x] Critical events persist until dismissed
+- [x] Error sound on error/critical events
+- [x] SSE system events (backend, TLS, auth, policy, rate limiting, cache, critical)
+- [x] Auth state sync via SSE
+- [x] Toast spam prevention (error counting, shutdown detection)
+- [x] Individual cached approval deletion with SSE broadcast
 
 ---
 
@@ -362,79 +185,64 @@ Comprehensive toast notifications and SSE event handling for all system events.
 
 **Status: COMPLETE**
 
-Full log viewing with filtering, pagination, and multi-file support.
-
-- [x] **LogViewer component** (`components/logs/LogViewer.tsx`)
-  - [x] Folder selection (audit, system, debug)
-  - [x] File selection with "All Files" option per folder
-  - [x] Time range filter (5m, 1h, 24h, all)
-  - [x] Decision filter (allow, deny, hitl) for decisions log
-  - [x] HITL outcome filter (allowed, denied, timeout)
-  - [x] Log level filter (ERROR, WARNING, INFO, DEBUG) for system log
-  - [x] Session ID and Request ID filters
-  - [x] Policy version and Config version filters
-  - [x] Cursor-based pagination with "Load More"
-  - [x] Expandable rows showing full JSON
-
-- [x] **DataTable component** (`components/logs/DataTable.tsx`)
-  - [x] TanStack Table integration
-  - [x] Column visibility toggles
-  - [x] Row expansion for full entry details
-  - [x] Loading and empty states
-
-- [x] **Column configuration** (`components/logs/columns.tsx`)
-  - [x] Per-log-type column definitions
-  - [x] Merged columns for "All Files" view
-  - [x] Default visibility settings per log type
-  - [x] Timestamp, decision, tool, path, outcome columns
-
-- [x] **Multi-log fetching** (`hooks/useMultiLogs.ts`)
-  - [x] Fetch multiple log types in parallel
-  - [x] Merge entries by timestamp (newest first)
-  - [x] Unified pagination across sources
-
-- [x] **API integration** (`api/logs.ts`)
-  - [x] All log type endpoints
-  - [x] Filter parameter building
-  - [x] Cursor pagination support
-
-- [x] **Page integration**
-  - [x] GlobalLogsPage with full LogViewer
-  - [x] ProxyDetailPage logs section with LogViewer
-  - [x] ActivitySection uses LogViewer (compact mode)
+- [x] LogViewer with folder/file selection
+- [x] Time range and decision filters
+- [x] HITL outcome and log level filters
+- [x] Session ID, Request ID, Policy/Config version filters
+- [x] Cursor-based pagination with "Load More"
+- [x] Expandable rows showing full JSON
+- [x] Per-log-type column definitions
+- [x] Merged columns for "All Files" view
+- [x] Multi-log fetching and merging
 
 ---
 
-## Future Work
+## Phase 11: Backend Transport Robustness
 
-### Pages & Features (Remaining)
+**Status: COMPLETE**
 
-- [x] ~~**Global Logs page** (`/logs`)~~ (Completed in Phase 10)
-  - [x] ~~Log type tabs (decisions, operations, auth, system)~~
-  - [x] ~~Filtering and search~~
-  - [x] ~~Virtual scroll for large logs~~
-  - [x] ~~Live streaming option~~
+- [x] Proper transport error handling (NetworkError, TimeoutException, ProtocolError)
+- [x] mTLS error detection (no retry on cert rejection)
+- [x] Audit integrity monitoring with shutdown on tampering
 
-- [x] ~~**Proxy detail - Logs**~~ (Completed in Phase 10)
-  - [x] ~~Full log viewer for this proxy~~
-  - [x] ~~Filter by type, time range, request id or session id, event type~~
+---
 
-- [ ] **Proxy detail - Config**
-  - [ ] View current configuration
-  - [ ] Edit configuration (with validation)
-  - [ ] Restart required indicator
-  - Note: API complete (`GET/PUT /api/config`), UI pending
+## Phase 12: Configuration Editor
 
-- [ ] **Proxy detail - Policy**
-  - [ ] View policy rules
-  - [ ] Add/edit/delete rules
-  - [ ] Policy validation
-  - [ ] Auto-reload on save
-  - Note: API complete (full CRUD `/api/policy/rules`), UI pending
+**Status: COMPLETE**
 
-### Multi-Proxy Manager (Phase 2)
+- [x] Form-based editing for all config sections
+- [x] Transport type switching (STDIO, HTTP)
+- [x] Logging, OIDC, and mTLS settings
+- [x] Dirty state tracking with visual indicator
+- [x] Discard changes and save with validation
+- [x] Pending changes display (running vs saved config diff)
+- [x] Field-level validation (required fields, URL patterns, bounds)
 
-- [ ] Manager process for multi-backend support
-- [ ] Worker registration protocol
-- [ ] Proxy lifecycle management (start/stop/restart)
-- [ ] Multi-proxy dashboard aggregation
+---
+
+## Phase 13: Incidents Page
+
+**Status: COMPLETE**
+
+- [x] Shutdown logging (security shutdowns)
+- [x] Bootstrap error logging (startup failures)
+- [x] Emergency audit fallback logging
+- [x] Incidents API with pagination
+- [x] Mark-as-read functionality
+- [x] IncidentsPage with timeline and filters
+- [x] Incident cards with type-specific styling
+- [x] Navbar badge for unread incidents
+
+---
+
+## Phase 14: Policy Management UI
+
+**Status: COMPLETE**
+
+- [x] Policy section in proxy detail page
+- [x] Visual rule editor with form dialog
+- [x] JSON view with raw policy display
+- [x] Rule listing with add/edit/delete actions
+- [x] Auto-reload on policy changes
+- [x] Rule ordering support
