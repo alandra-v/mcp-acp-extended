@@ -25,7 +25,7 @@ export function Header({ proxyName }: HeaderProps) {
   }, [location.pathname])
 
   return (
-    <header className="relative flex items-center justify-between px-8 py-4 border-b border-[var(--border-subtle)] bg-gradient-to-b from-base-950 to-background sticky top-0 z-50">
+    <header className="flex items-center justify-between px-8 py-4 border-b border-[var(--border-subtle)] bg-gradient-to-b from-base-950 to-background sticky top-0 z-50">
       {/* Page transition loader - positioned on the border */}
       <div
         key={loaderKey}
