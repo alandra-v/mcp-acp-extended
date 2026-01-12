@@ -219,7 +219,7 @@ class PolicyEnforcementMiddleware(Middleware):
             raise
 
     def _extract_client_info(self, context: MiddlewareContext[Any]) -> None:
-        """Extract and cache client info from initialize request.
+        """Extract and cache client name and version from initialize request.
 
         Also updates ProxyState with client_id for UI display.
 
@@ -698,7 +698,7 @@ class PolicyEnforcementMiddleware(Middleware):
             PermissionDeniedError: If policy denies the request, context
                 building fails, or HITL approval is denied/times out.
         """
-        # Extract client info from initialize (cached for session)
+        # Extract client name from initialize (cached for session)
         self._extract_client_info(context)
 
         # Get correlation IDs
