@@ -453,7 +453,18 @@ def create_proxy(
                 # This allows immediate rebinding if the previous process died unexpectedly
                 http_socket = socket_module.socket(socket_module.AF_INET, socket_module.SOCK_STREAM)
                 http_socket.setsockopt(socket_module.SOL_SOCKET, socket_module.SO_REUSEADDR, 1)
-                http_socket.bind(("127.0.0.1", DEFAULT_API_PORT))
+                try:
+                    http_socket.bind(("127.0.0.1", DEFAULT_API_PORT))
+                except OSError as e:
+                    import errno
+
+                    if e.errno == errno.EADDRINUSE:
+                        raise RuntimeError(
+                            f"Port {DEFAULT_API_PORT} is already in use.\n"
+                            f"Another process is using this port. "
+                            f"Stop it or use --no-ui to disable the management UI."
+                        ) from e
+                    raise
                 http_socket.listen(100)
                 http_socket.setblocking(False)
 
