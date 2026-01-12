@@ -24,9 +24,9 @@ from mcp_acp_extended.context import (
     ToolInfo,
 )
 from mcp_acp_extended.exceptions import PolicyEnforcementFailure
+from mcp_acp_extended.config import HITLConfig
 from mcp_acp_extended.pdp import (
     Decision,
-    HITLConfig,
     PolicyConfig,
     PolicyEngine,
     PolicyRule,
@@ -93,7 +93,6 @@ def sample_policy():
                 conditions=RuleConditions(path_pattern="**/secrets/**"),
             ),
         ],
-        hitl=HITLConfig(timeout_seconds=30),
     )
 
 
@@ -195,14 +194,6 @@ class TestPolicyConfigModel:
 
         # Assert
         assert policy.rules == []
-
-    def test_default_hitl_timeout(self):
-        """Given no hitl config, defaults to 30 second timeout."""
-        # Act
-        policy = PolicyConfig()
-
-        # Assert
-        assert policy.hitl.timeout_seconds == 60
 
     def test_is_immutable(self):
         """Given a PolicyConfig, it cannot be modified after creation."""

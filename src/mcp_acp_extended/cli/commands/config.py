@@ -27,6 +27,36 @@ from mcp_acp_extended.utils.config import (
 from mcp_acp_extended.utils.history_logging import log_config_updated
 
 
+def _load_raw_config(config_path: Path) -> dict[str, object]:
+    """Load raw JSON from config file without Pydantic defaults."""
+    with open(config_path, encoding="utf-8") as f:
+        result: dict[str, object] = json.load(f)
+        return result
+
+
+def _is_default(raw_config: dict[str, object], *keys: str) -> bool:
+    """Check if a config path is missing from raw file (using default).
+
+    Args:
+        raw_config: Raw JSON dict from file.
+        *keys: Path to the value (e.g., "hitl", "timeout_seconds").
+
+    Returns:
+        True if the key path is missing from raw config.
+    """
+    current: object = raw_config
+    for key in keys:
+        if not isinstance(current, dict) or key not in current:
+            return True
+        current = current[key]
+    return False
+
+
+def _default_marker() -> str:
+    """Return styled (default) marker."""
+    return click.style(" (default)", dim=True)
+
+
 @click.group()
 def config() -> None:
     """Configuration management commands.
@@ -52,11 +82,13 @@ def config_show(as_json: bool) -> None:
     """Display current configuration.
 
     Loads configuration from the OS-appropriate location.
+    Values marked (default) are not in the config file - using built-in defaults.
     """
     config_file_path = get_config_path()
 
     try:
         loaded_config = AppConfig.load_from_files(config_file_path)
+        raw_config = _load_raw_config(config_file_path)
 
         if as_json:
             # Output as JSON (exclude sensitive auth fields)
@@ -137,6 +169,39 @@ def config_show(as_json: bool) -> None:
                 click.echo(f"    ca_bundle: {loaded_config.auth.mtls.ca_bundle_path}")
             else:
                 click.echo("  mtls: (not configured)")
+        click.echo()
+
+        # HITL section - mark values not in config file as defaults
+        hitl_is_default = _is_default(raw_config, "hitl")
+        if hitl_is_default:
+            click.echo("Human-in-the-Loop (HITL):" + _default_marker())
+        else:
+            click.echo("Human-in-the-Loop (HITL):")
+
+        timeout_default = _is_default(raw_config, "hitl", "timeout_seconds")
+        click.echo(
+            f"  timeout_seconds: {loaded_config.hitl.timeout_seconds}"
+            + (_default_marker() if timeout_default else "")
+        )
+
+        on_timeout_default = _is_default(raw_config, "hitl", "default_on_timeout")
+        click.echo(
+            f"  default_on_timeout: {loaded_config.hitl.default_on_timeout}"
+            + (_default_marker() if on_timeout_default else "")
+        )
+
+        ttl_default = _is_default(raw_config, "hitl", "approval_ttl_seconds")
+        click.echo(
+            f"  approval_ttl_seconds: {loaded_config.hitl.approval_ttl_seconds}"
+            + (_default_marker() if ttl_default else "")
+        )
+
+        cache_default = _is_default(raw_config, "hitl", "cache_side_effects")
+        if loaded_config.hitl.cache_side_effects:
+            effects = [e.value for e in loaded_config.hitl.cache_side_effects]
+            click.echo(f"  cache_side_effects: {effects}" + (_default_marker() if cache_default else ""))
+        else:
+            click.echo("  cache_side_effects: (none)" + (_default_marker() if cache_default else ""))
         click.echo()
 
         click.echo(f"Config file: {config_file_path}")

@@ -25,6 +25,7 @@ from mcp_acp_extended.api.schemas import (
     ConfigResponse,
     ConfigUpdateRequest,
     ConfigUpdateResponse,
+    HITLConfigResponse,
     HttpTransportResponse,
     LoggingConfigResponse,
     MTLSConfigResponse,
@@ -159,6 +160,16 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
             mtls=mtls_response,
         )
 
+    # Build HITL response
+    hitl_response = HITLConfigResponse(
+        timeout_seconds=config.hitl.timeout_seconds,
+        default_on_timeout=config.hitl.default_on_timeout,
+        approval_ttl_seconds=config.hitl.approval_ttl_seconds,
+        cache_side_effects=(
+            [e.value for e in config.hitl.cache_side_effects] if config.hitl.cache_side_effects else None
+        ),
+    )
+
     return ConfigResponse(
         backend=backend_response,
         logging=LoggingConfigResponse(
@@ -168,6 +179,7 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
         ),
         auth=auth_response,
         proxy=ProxyConfigResponse(name=config.proxy.name),
+        hitl=hitl_response,
         config_path=str(get_config_path()),
         requires_restart_for_changes=True,
     )
@@ -236,6 +248,11 @@ async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
             if update_dict.get("auth") is None:
                 update_dict["auth"] = {}
             update_dict["auth"] = _deep_merge(update_dict["auth"], auth_updates)
+
+    if updates.hitl:
+        hitl_updates = updates.hitl.model_dump(exclude_none=True)
+        if hitl_updates:
+            update_dict["hitl"] = _deep_merge(update_dict["hitl"], hitl_updates)
 
     # Validate by constructing new AppConfig
     try:

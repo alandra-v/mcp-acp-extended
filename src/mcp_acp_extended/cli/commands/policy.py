@@ -57,7 +57,6 @@ def policy_validate(path: Path | None) -> None:
         click.echo(f"✓ Policy valid: {policy_path}")
         click.echo(f"  {rule_count} rule{'s' if rule_count != 1 else ''} defined")
         click.echo(f"  Default action: {policy_config.default_action}")
-        click.echo(f"  HITL timeout: {policy_config.hitl.timeout_seconds}s")
     except (FileNotFoundError, ValueError) as e:
         click.echo(f"✗ {e}", err=True)
         sys.exit(1)
@@ -161,7 +160,6 @@ def policy_show(as_json: bool) -> None:
         click.echo(f"Modified: {modified}")
         click.echo(f"Rules: {len(policy_config.rules)}")
         click.echo(f"Default action: {policy_config.default_action}")
-        click.echo(f"HITL timeout: {policy_config.hitl.timeout_seconds}s")
         click.echo()
 
         if not policy_config.rules:

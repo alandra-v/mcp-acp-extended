@@ -26,6 +26,8 @@ from mcp_acp_extended.api.schemas.config import (
     ConfigResponse,
     ConfigUpdateRequest,
     ConfigUpdateResponse,
+    HITLConfigResponse,
+    HITLConfigUpdate,
     HttpTransportResponse,
     HttpTransportUpdate,
     LoggingConfigResponse,
@@ -42,6 +44,7 @@ from mcp_acp_extended.api.schemas.config import (
 
 # Policy schemas
 from mcp_acp_extended.api.schemas.policy import (
+    PolicyFullUpdate,
     PolicyResponse,
     PolicyRuleCreate,
     PolicyRuleMutationResponse,
@@ -110,6 +113,8 @@ __all__ = [
     "ConfigResponse",
     "ConfigUpdateRequest",
     "ConfigUpdateResponse",
+    "HITLConfigResponse",
+    "HITLConfigUpdate",
     "HttpTransportResponse",
     "HttpTransportUpdate",
     "LoggingConfigResponse",
@@ -123,6 +128,7 @@ __all__ = [
     "StdioTransportResponse",
     "StdioTransportUpdate",
     # Policy
+    "PolicyFullUpdate",
     "PolicyResponse",
     "PolicyRuleCreate",
     "PolicyRuleMutationResponse",

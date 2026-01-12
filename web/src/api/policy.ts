@@ -19,8 +19,10 @@ import type {
 /**
  * Get current policy configuration with metadata.
  *
+ * Note: HITL config is in AppConfig, use getConfig() from config.ts instead.
+ *
  * @param options - Request options with optional abort signal
- * @returns Policy configuration including rules, HITL config, and metadata
+ * @returns Policy configuration including rules and metadata
  */
 export function getPolicy(options?: RequestOptions): Promise<PolicyResponse> {
   return apiGet<PolicyResponse>('/policy', options)

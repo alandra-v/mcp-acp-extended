@@ -5,7 +5,8 @@
  * - Editable textarea with monospace font
  * - "Add Rule from JSON" button with template
  * - Full policy JSON editing with save/discard
- * - Excludes HITL config from editing (managed separately)
+ *
+ * Note: HITL config is in AppConfig (Config section), not here.
  */
 
 import { useState, useEffect, useCallback, useMemo } from 'react'
@@ -43,8 +44,8 @@ const RULE_TEMPLATE: PolicyRuleCreate = {
   },
 }
 
-/** Convert policy response to editable format (without HITL) */
-function policyToEditable(policy: PolicyResponse): Omit<PolicyFullUpdate, 'hitl'> {
+/** Convert policy response to editable format */
+function policyToEditable(policy: PolicyResponse): PolicyFullUpdate {
   return {
     version: policy.version,
     default_action: policy.default_action,
@@ -105,18 +106,14 @@ export function PolicyJsonView({
 
   // Handle save
   const handleSave = useCallback(async () => {
-    const { data: parsed, error } = parseJsonSafe<Omit<PolicyFullUpdate, 'hitl'>>(jsonText)
+    const { data: parsed, error } = parseJsonSafe<PolicyFullUpdate>(jsonText)
     if (!parsed) {
       setParseError(error)
       return
     }
 
-    // Include original HITL config when saving
-    await onSave({
-      ...parsed,
-      hitl: policy.hitl,
-    })
-  }, [jsonText, onSave, policy.hitl])
+    await onSave(parsed)
+  }, [jsonText, onSave])
 
   // Handle cancel/reset
   const handleDiscard = useCallback(() => {

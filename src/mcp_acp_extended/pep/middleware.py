@@ -49,6 +49,7 @@ from mcp_acp_extended.telemetry.audit.decision_logger import create_decision_log
 from mcp_acp_extended.utils.logging.logging_context import get_request_id, get_session_id
 
 if TYPE_CHECKING:
+    from mcp_acp_extended.config import HITLConfig
     from mcp_acp_extended.manager.state import ProxyState, SSEEventType
     from mcp_acp_extended.pdp.policy import PolicyConfig
 
@@ -70,6 +71,7 @@ class PolicyEnforcementMiddleware(Middleware):
         self,
         *,
         policy: "PolicyConfig",
+        hitl_config: "HITLConfig",
         protected_dirs: tuple[str, ...],
         identity_provider: IdentityProvider,
         backend_id: str,
@@ -82,6 +84,7 @@ class PolicyEnforcementMiddleware(Middleware):
 
         Args:
             policy: Policy configuration to enforce.
+            hitl_config: HITL configuration (from AppConfig.hitl).
             protected_dirs: Directories protected from MCP tool access (config, logs).
             identity_provider: Provider for user identity.
             backend_id: Backend server ID (from config.backend.server_name).
@@ -96,11 +99,11 @@ class PolicyEnforcementMiddleware(Middleware):
         self._backend_id = backend_id
         self._logger = logger
         self._policy_version = policy_version
-        self._hitl_handler = HITLHandler(policy.hitl)
-        self._hitl_config = policy.hitl  # For cache settings
+        self._hitl_handler = HITLHandler(hitl_config)
+        self._hitl_config = hitl_config  # For cache settings
         # Approval cache for reducing HITL dialog fatigue
         # Exposed via `approval_store` property for proxy to wire to API app.state
-        self._approval_store = ApprovalStore(ttl_seconds=policy.hitl.approval_ttl_seconds)
+        self._approval_store = ApprovalStore(ttl_seconds=hitl_config.approval_ttl_seconds)
         # Client name extracted from initialize request
         self._client_name: str | None = None
         # Rate limiting for detecting runaway loops
@@ -147,10 +150,11 @@ class PolicyEnforcementMiddleware(Middleware):
 
         Updates:
         - PolicyEngine's policy reference (atomic swap)
-        - HITL handler config (for cache TTL changes)
-        - RateBreachHandler's HITL handler reference
         - DecisionEventLogger's policy version
         - Clears approval cache (HITL rules may have changed)
+
+        Note: HITL configuration is in AppConfig (config.json), not PolicyConfig.
+        HITL settings (timeout, TTL) require proxy restart to take effect.
 
         On error, rolls back to previous state to maintain consistency.
 
@@ -166,9 +170,6 @@ class PolicyEnforcementMiddleware(Middleware):
         """
         # Save old state for rollback
         old_policy = self._engine.policy
-        old_hitl_handler = self._hitl_handler
-        old_hitl_config = self._hitl_config
-        old_approval_store = self._approval_store
         old_policy_version = self._decision_logger.policy_version
         old_count = len(old_policy.rules)
 
@@ -176,31 +177,11 @@ class PolicyEnforcementMiddleware(Middleware):
             # Swap policy in engine (atomic reference swap)
             self._engine.reload_policy(new_policy)
 
-            # Update HITL handler and config (in case TTL or settings changed)
-            # Preserve proxy_state reference for web UI integration
-            old_proxy_state = self._hitl_handler.proxy_state
-            self._hitl_handler = HITLHandler(new_policy.hitl)
-            if old_proxy_state is not None:
-                self._hitl_handler.set_proxy_state(old_proxy_state)
-            self._hitl_config = new_policy.hitl
-
-            # Update RateBreachHandler's HITL reference (uses new timeout settings)
-            if self._rate_breach_handler is not None:
-                self._rate_breach_handler._hitl_handler = self._hitl_handler
-
             # Update DecisionEventLogger's policy version for audit trail
             self._decision_logger.policy_version = policy_version
 
-            # Update approval store TTL if it changed
-            if self._approval_store.ttl_seconds != new_policy.hitl.approval_ttl_seconds:
-                # Create new store with new TTL (old approvals are cleared anyway)
-                # Note: API routes reference the store via proxy_state - this creates
-                # a new store but API will see stale data until restart
-                self._approval_store = ApprovalStore(ttl_seconds=new_policy.hitl.approval_ttl_seconds)
-                cleared_count = 0  # New store, nothing to clear
-            else:
-                # Clear existing cache - HITL rules may have changed
-                cleared_count = self._approval_store.clear()
+            # Clear approval cache - HITL rules may have changed
+            cleared_count = self._approval_store.clear()
 
             new_count = len(new_policy.rules)
 
@@ -220,15 +201,8 @@ class PolicyEnforcementMiddleware(Middleware):
                 }
             )
             self._engine.reload_policy(old_policy)
-            self._hitl_handler = old_hitl_handler
-            self._hitl_config = old_hitl_config
-            # Rollback RateBreachHandler's HITL reference
-            if self._rate_breach_handler is not None:
-                self._rate_breach_handler._hitl_handler = old_hitl_handler
             # Rollback DecisionEventLogger's policy version
             self._decision_logger.policy_version = old_policy_version
-            if self._approval_store is not old_approval_store:
-                self._approval_store = old_approval_store
 
             # Emit SSE event for UI notification
             if self._hitl_handler.proxy_state is not None:
@@ -673,6 +647,7 @@ class PolicyEnforcementMiddleware(Middleware):
                 final_rule=final_rule,
                 policy_eval_ms=eval_duration_ms,
                 policy_hitl_ms=hitl_result.response_time_ms,
+                hitl_approver_id=hitl_result.approver_id,
             )
             return await call_next(context)
 
@@ -686,6 +661,7 @@ class PolicyEnforcementMiddleware(Middleware):
             final_rule=final_rule,
             policy_eval_ms=eval_duration_ms,
             policy_hitl_ms=hitl_result.response_time_ms,
+            hitl_approver_id=hitl_result.approver_id,
         )
 
         reason = "User denied" if hitl_result.outcome == HITLOutcome.USER_DENIED else "Approval timeout"
@@ -862,6 +838,7 @@ class PolicyEnforcementMiddleware(Middleware):
 def create_enforcement_middleware(
     *,
     policy: "PolicyConfig",
+    hitl_config: "HITLConfig",
     protected_dirs: tuple[str, ...],
     identity_provider: IdentityProvider,
     backend_id: str,
@@ -878,6 +855,7 @@ def create_enforcement_middleware(
 
     Args:
         policy: Policy configuration to enforce.
+        hitl_config: HITL configuration (from AppConfig.hitl).
         protected_dirs: Directories protected from MCP tool access (config, logs).
         identity_provider: Provider for user identity.
         backend_id: Backend server ID.
@@ -893,6 +871,7 @@ def create_enforcement_middleware(
 
     return PolicyEnforcementMiddleware(
         policy=policy,
+        hitl_config=hitl_config,
         protected_dirs=protected_dirs,
         identity_provider=identity_provider,
         backend_id=backend_id,

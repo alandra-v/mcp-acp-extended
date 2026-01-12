@@ -18,6 +18,7 @@ __all__ = [
     "AppConfig",
     "AuthConfig",
     "BackendConfig",
+    "HITLConfig",
     "HttpTransportConfig",
     "LoggingConfig",
     "MTLSConfig",
@@ -33,10 +34,17 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from mcp_acp_extended.constants import (
+    DEFAULT_APPROVAL_TTL_SECONDS,
+    DEFAULT_HITL_TIMEOUT_SECONDS,
     DEFAULT_HTTP_TIMEOUT_SECONDS,
+    MAX_APPROVAL_TTL_SECONDS,
+    MAX_HITL_TIMEOUT_SECONDS,
     MAX_HTTP_TIMEOUT_SECONDS,
+    MIN_APPROVAL_TTL_SECONDS,
+    MIN_HITL_TIMEOUT_SECONDS,
     MIN_HTTP_TIMEOUT_SECONDS,
 )
+from mcp_acp_extended.context.resource import SideEffect
 from mcp_acp_extended.utils.file_helpers import load_validated_json, require_file_exists
 
 
@@ -194,11 +202,45 @@ class ProxyConfig(BaseModel):
     name: str = Field(default="mcp-acp-extended", min_length=1)
 
 
+class HITLConfig(BaseModel):
+    """Configuration for Human-in-the-Loop approval.
+
+    Attributes:
+        timeout_seconds: How long to wait for user response (default: 60s).
+            Must be between 5-300 seconds.
+        default_on_timeout: What to do if user doesn't respond (always "deny").
+        approval_ttl_seconds: How long cached approvals remain valid (default: 600s).
+            Must be between 300-900 seconds (5-15 minutes).
+        cache_side_effects: Side effects that are allowed to be cached.
+            If None (default), tools with ANY side effect are never cached.
+            Set to a list of SideEffects to allow caching for those effects.
+
+    Important:
+        The timeout should be shorter than your MCP client's request timeout.
+        If the client times out before the user responds, the request will fail
+        even if the user later approves. See constants.py for details.
+    """
+
+    timeout_seconds: int = Field(
+        default=DEFAULT_HITL_TIMEOUT_SECONDS,
+        ge=MIN_HITL_TIMEOUT_SECONDS,
+        le=MAX_HITL_TIMEOUT_SECONDS,
+    )
+    default_on_timeout: Literal["deny"] = "deny"
+
+    approval_ttl_seconds: int = Field(
+        default=DEFAULT_APPROVAL_TTL_SECONDS,
+        ge=MIN_APPROVAL_TTL_SECONDS,
+        le=MAX_APPROVAL_TTL_SECONDS,
+    )
+    cache_side_effects: list[SideEffect] | None = None
+
+
 class AppConfig(BaseModel):
     """Main application configuration for mcp-acp-extended.
 
     Contains all configuration sections including authentication, logging,
-    backend server, and proxy settings.
+    backend server, proxy settings, and HITL (Human-in-the-Loop) configuration.
 
     Zero Trust: Authentication is mandatory. The proxy will not start without
     valid auth configuration. There is no unauthenticated fallback.
@@ -208,12 +250,14 @@ class AppConfig(BaseModel):
         logging: Logging configuration (log level, paths, payload settings).
         backend: Backend server configuration (STDIO or Streamable HTTP transport).
         proxy: Proxy server configuration (name).
+        hitl: Human-in-the-Loop configuration (timeout, approval TTL, caching).
     """
 
     auth: AuthConfig | None = None  # Validated at runtime - proxy won't start without it
     logging: LoggingConfig
     backend: BackendConfig
     proxy: ProxyConfig = Field(default_factory=ProxyConfig)
+    hitl: HITLConfig = Field(default_factory=HITLConfig)
 
     def save_to_file(self, config_path: Path) -> None:
         """Save configuration to JSON file.

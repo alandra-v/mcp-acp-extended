@@ -58,6 +58,10 @@ class DecisionEvent(BaseModel):
         None,
         description="True if approval was from cache, False if user prompted, None if not HITL",
     )
+    hitl_approver_id: Optional[str] = Field(
+        None,
+        description="OIDC subject ID of user who approved/denied (None if timeout or cache hit)",
+    )
     matched_rules: list[MatchedRuleLog] = Field(
         default_factory=list,
         description="All rules that matched, with effect and optional description for trace",

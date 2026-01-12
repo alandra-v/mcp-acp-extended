@@ -22,7 +22,6 @@ Policy file I/O is in utils/policy/policy_helpers.py.
 from mcp_acp_extended.pdp.decision import Decision
 from mcp_acp_extended.pdp.engine import MatchedRule, PolicyEngine
 from mcp_acp_extended.pdp.policy import (
-    HITLConfig,
     PolicyConfig,
     PolicyRule,
     RuleConditions,
@@ -43,6 +42,5 @@ __all__ = [
     "PolicyConfig",
     "PolicyRule",
     "RuleConditions",
-    "HITLConfig",
     "create_default_policy",
 ]

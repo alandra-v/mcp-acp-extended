@@ -101,6 +101,7 @@ class DecisionEventLogger:
         hitl_outcome: HITLOutcome | None = None,
         policy_hitl_ms: float | None = None,
         hitl_cache_hit: bool | None = None,
+        hitl_approver_id: str | None = None,
     ) -> None:
         """Log policy decision to decisions.jsonl with fallback chain.
 
@@ -113,6 +114,7 @@ class DecisionEventLogger:
             hitl_outcome: HITL outcome if applicable.
             policy_hitl_ms: HITL wait time if applicable.
             hitl_cache_hit: True if approval from cache, False if user prompted.
+            hitl_approver_id: OIDC subject ID of user who approved/denied.
 
         Raises:
             McpError: If primary logging fails (after logging to fallbacks).
@@ -179,6 +181,7 @@ class DecisionEventLogger:
             session_id=decision_context.environment.session_id,
             hitl_outcome=hitl_outcome_value,
             hitl_cache_hit=hitl_cache_hit,
+            hitl_approver_id=hitl_approver_id,
         )
 
         # Log with fallback chain

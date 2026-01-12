@@ -31,9 +31,9 @@ from mcp_acp_extended.pep.applescript import (
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
 
 if TYPE_CHECKING:
+    from mcp_acp_extended.config import HITLConfig
     from mcp_acp_extended.context import DecisionContext
     from mcp_acp_extended.manager.state import ProxyState
-    from mcp_acp_extended.pdp.policy import HITLConfig
 
 __all__ = [
     "HITLOutcome",
@@ -59,10 +59,12 @@ class HITLResult:
     Attributes:
         outcome: The user's decision or timeout.
         response_time_ms: How long the user took to respond.
+        approver_id: OIDC subject ID of the user who approved/denied (None for timeout/cache).
     """
 
     outcome: HITLOutcome
     response_time_ms: float
+    approver_id: str | None = None
 
 
 class HITLHandler:
@@ -178,20 +180,28 @@ class HITLHandler:
         )
 
         # Wait for decision from web UI
-        decision = await self._proxy_state.wait_for_decision(pending.id, timeout_seconds)
+        decision, approver_id = await self._proxy_state.wait_for_decision(pending.id, timeout_seconds)
         response_time_ms = (time.perf_counter() - start_time) * 1000
 
         if decision == "allow":
             # Allow with caching (if caching is possible)
             outcome = HITLOutcome.USER_ALLOWED if will_cache else HITLOutcome.USER_ALLOWED_ONCE
-            return HITLResult(outcome=outcome, response_time_ms=response_time_ms)
+            return HITLResult(outcome=outcome, response_time_ms=response_time_ms, approver_id=approver_id)
 
         elif decision == "allow_once":
             # Allow without caching (user explicitly chose not to cache)
-            return HITLResult(outcome=HITLOutcome.USER_ALLOWED_ONCE, response_time_ms=response_time_ms)
+            return HITLResult(
+                outcome=HITLOutcome.USER_ALLOWED_ONCE,
+                response_time_ms=response_time_ms,
+                approver_id=approver_id,
+            )
 
         elif decision == "deny":
-            return HITLResult(outcome=HITLOutcome.USER_DENIED, response_time_ms=response_time_ms)
+            return HITLResult(
+                outcome=HITLOutcome.USER_DENIED,
+                response_time_ms=response_time_ms,
+                approver_id=approver_id,
+            )
 
         else:
             # Timeout (decision is None)

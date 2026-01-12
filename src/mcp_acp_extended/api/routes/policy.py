@@ -2,6 +2,7 @@
 
 Provides full CRUD access to policy rules:
 - GET /api/policy - Read current policy with metadata
+- PUT /api/policy - Replace entire policy
 - GET /api/policy/rules - List rules (simplified view)
 - POST /api/policy/rules - Add a new rule
 - PUT /api/policy/rules/{id} - Update a rule
@@ -23,6 +24,7 @@ from pydantic import ValidationError
 
 from mcp_acp_extended.api.deps import PolicyReloaderDep
 from mcp_acp_extended.api.schemas import (
+    PolicyFullUpdate,
     PolicyResponse,
     PolicyRuleCreate,
     PolicyRuleMutationResponse,
@@ -76,7 +78,6 @@ def _rebuild_policy(policy: PolicyConfig, new_rules: list[PolicyRule]) -> Policy
             version=policy.version,
             default_action=policy.default_action,
             rules=new_rules,
-            hitl=policy.hitl,
         )
     except ValidationError as e:
         raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
@@ -87,6 +88,7 @@ async def get_policy(reloader: PolicyReloaderDep) -> PolicyResponse:
     """Get current policy configuration.
 
     Returns the active policy with metadata including version info.
+    Note: HITL configuration is now in AppConfig (see /api/config endpoint).
     """
     policy = _load_policy_or_raise()
 
@@ -95,8 +97,67 @@ async def get_policy(reloader: PolicyReloaderDep) -> PolicyResponse:
         default_action=policy.default_action,
         rules_count=len(policy.rules),
         rules=[rule.model_dump() for rule in policy.rules],
-        hitl=policy.hitl.model_dump(),
         policy_version=reloader.current_version,
+        policy_path=str(get_policy_path()),
+    )
+
+
+@router.put("")
+async def update_full_policy(
+    reloader: PolicyReloaderDep,
+    policy_data: PolicyFullUpdate,
+) -> PolicyResponse:
+    """Replace entire policy configuration.
+
+    Validates and saves the new policy, then triggers a reload.
+    All existing rules are replaced with the provided rules.
+
+    Note: HITL configuration is now in AppConfig and requires proxy restart
+    to take effect. Use /api/config endpoint for HITL settings.
+
+    Args:
+        reloader: PolicyReloader dependency for triggering reload.
+        policy_data: New policy configuration.
+
+    Returns:
+        Updated policy response with metadata.
+
+    Raises:
+        HTTPException: 400 if policy validation fails.
+        HTTPException: 500 if reload fails.
+    """
+    # Build new rules from request
+    new_rules: list[PolicyRule] = []
+    for rule_data in policy_data.rules:
+        conditions = _validate_conditions(rule_data.conditions)
+        new_rules.append(
+            PolicyRule(
+                id=rule_data.id,
+                description=rule_data.description,
+                effect=rule_data.effect,
+                conditions=conditions,
+            )
+        )
+
+    # Build new policy
+    try:
+        new_policy = PolicyConfig(
+            version=policy_data.version,
+            default_action=policy_data.default_action,
+            rules=new_rules,
+        )
+    except ValidationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
+
+    # Save and reload
+    policy_version = await _save_and_reload(reloader, new_policy)
+
+    return PolicyResponse(
+        version=new_policy.version,
+        default_action=new_policy.default_action,
+        rules_count=len(new_policy.rules),
+        rules=[rule.model_dump() for rule in new_policy.rules],
+        policy_version=policy_version,
         policy_path=str(get_policy_path()),
     )
 

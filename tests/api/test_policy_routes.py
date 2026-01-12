@@ -18,7 +18,7 @@ from mcp_acp_extended.api.schemas import (
     PolicyRuleMutationResponse,
     PolicyRuleResponse,
 )
-from mcp_acp_extended.pdp.policy import HITLConfig, PolicyConfig, PolicyRule, RuleConditions
+from mcp_acp_extended.pdp.policy import PolicyConfig, PolicyRule, RuleConditions
 
 
 # =============================================================================
@@ -46,7 +46,6 @@ def sample_policy():
                 description="HITL for bash",
             ),
         ],
-        hitl=HITLConfig(timeout_seconds=30),
     )
 
 
@@ -162,7 +161,6 @@ class TestGetPolicyRules:
             version="1",
             default_action="deny",
             rules=[],
-            hitl=HITLConfig(),
         )
 
         with patch("mcp_acp_extended.api.routes.policy.load_policy", return_value=empty_policy):

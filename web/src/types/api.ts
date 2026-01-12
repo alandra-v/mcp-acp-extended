@@ -301,13 +301,14 @@ export interface PolicyRuleCreate {
   conditions: PolicyRuleConditions
 }
 
-/** Full policy response from GET /api/policy */
+/** Full policy response from GET /api/policy
+ * Note: HITL configuration is in ConfigResponse (GET /api/config), not here.
+ */
 export interface PolicyResponse {
   version: string
   default_action: 'deny'
   rules_count: number
   rules: PolicyRuleResponse[]
-  hitl: HITLConfig
   policy_version: string | null
   policy_path: string
 }
@@ -319,10 +320,11 @@ export interface PolicyRuleMutationResponse {
   rules_count: number
 }
 
-/** Full policy update request for PUT /api/policy */
+/** Full policy update request for PUT /api/policy
+ * Note: HITL configuration is managed via /api/config, not here.
+ */
 export interface PolicyFullUpdate {
   version?: string
   default_action?: 'deny'
   rules: PolicyRuleCreate[]
-  hitl?: Partial<HITLConfig>
 }

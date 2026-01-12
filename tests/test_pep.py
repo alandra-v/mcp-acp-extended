@@ -18,6 +18,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 import pytest
 from mcp import McpError
 
+from mcp_acp_extended.config import HITLConfig
 from mcp_acp_extended.pdp.decision import Decision
 from mcp_acp_extended.exceptions import PERMISSION_DENIED_CODE, PermissionDeniedError
 from mcp_acp_extended.pep.hitl import (
@@ -620,10 +621,12 @@ class TestPolicyEnforcementMiddleware:
     @pytest.fixture
     def mock_policy(self) -> MagicMock:
         """Create mock PolicyConfig."""
-        policy = MagicMock()
-        policy.hitl.timeout_seconds = 30
-        policy.hitl.default_on_timeout = "deny"
-        return policy
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_hitl_config(self) -> HITLConfig:
+        """Create HITLConfig for tests."""
+        return HITLConfig(timeout_seconds=30)
 
     @pytest.fixture
     def mock_identity_provider(self) -> MagicMock:
@@ -663,12 +666,14 @@ class TestPolicyEnforcementMiddleware:
     def middleware(
         self,
         mock_policy: MagicMock,
+        mock_hitl_config: HITLConfig,
         mock_identity_provider: MagicMock,
         mock_logger: MagicMock,
     ) -> PolicyEnforcementMiddleware:
         """Create middleware instance with mocked dependencies."""
         return PolicyEnforcementMiddleware(
             policy=mock_policy,
+            hitl_config=mock_hitl_config,
             protected_dirs=(),  # Empty for tests - no paths protected
             identity_provider=mock_identity_provider,
             backend_id="test-server",
@@ -1119,13 +1124,17 @@ class TestApprovalCaching:
 
     @pytest.fixture
     def mock_policy_with_caching(self) -> MagicMock:
-        """Create mock PolicyConfig with caching settings."""
-        policy = MagicMock()
-        policy.hitl.timeout_seconds = 30
-        policy.hitl.default_on_timeout = "deny"
-        policy.hitl.approval_ttl_seconds = 600
-        policy.hitl.cache_side_effects = None  # Default: never cache side effects
-        return policy
+        """Create mock PolicyConfig."""
+        return MagicMock()
+
+    @pytest.fixture
+    def mock_hitl_config_with_caching(self) -> HITLConfig:
+        """Create HITLConfig with caching settings."""
+        return HITLConfig(
+            timeout_seconds=30,
+            approval_ttl_seconds=600,
+            cache_side_effects=None,  # Default: never cache side effects
+        )
 
     @pytest.fixture
     def mock_identity_provider(self) -> MagicMock:
@@ -1155,12 +1164,14 @@ class TestApprovalCaching:
     def middleware_with_caching(
         self,
         mock_policy_with_caching: MagicMock,
+        mock_hitl_config_with_caching: HITLConfig,
         mock_identity_provider: MagicMock,
         mock_logger: MagicMock,
     ) -> PolicyEnforcementMiddleware:
         """Create middleware with caching enabled."""
         return PolicyEnforcementMiddleware(
             policy=mock_policy_with_caching,
+            hitl_config=mock_hitl_config_with_caching,
             protected_dirs=(),
             identity_provider=mock_identity_provider,
             backend_id="test-server",
@@ -1372,6 +1383,7 @@ class TestApprovalCaching:
     async def test_approval_not_stored_for_side_effect_tools(
         self,
         mock_policy_with_caching: MagicMock,
+        mock_hitl_config_with_caching: HITLConfig,
         mock_identity_provider: MagicMock,
         mock_logger: MagicMock,
     ) -> None:
@@ -1381,6 +1393,7 @@ class TestApprovalCaching:
         # Create middleware
         middleware = PolicyEnforcementMiddleware(
             policy=mock_policy_with_caching,
+            hitl_config=mock_hitl_config_with_caching,
             protected_dirs=(),
             identity_provider=mock_identity_provider,
             backend_id="test-server",
@@ -1454,16 +1467,18 @@ class TestApprovalCaching:
         """When cache_side_effects is configured, those effects can be cached."""
         from mcp_acp_extended.context.resource import SideEffect
 
-        # Create policy allowing FS_READ caching
+        # Create policy and HITLConfig allowing FS_READ caching
         mock_policy = MagicMock()
-        mock_policy.hitl.timeout_seconds = 30
-        mock_policy.hitl.default_on_timeout = "deny"
-        mock_policy.hitl.approval_ttl_seconds = 600
-        mock_policy.hitl.cache_side_effects = [SideEffect.FS_READ]
+        hitl_config = HITLConfig(
+            timeout_seconds=30,
+            approval_ttl_seconds=600,
+            cache_side_effects=[SideEffect.FS_READ],
+        )
 
         # Create middleware
         middleware = PolicyEnforcementMiddleware(
             policy=mock_policy,
+            hitl_config=hitl_config,
             protected_dirs=(),
             identity_provider=mock_identity_provider,
             backend_id="test-server",

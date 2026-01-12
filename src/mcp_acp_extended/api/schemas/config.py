@@ -10,6 +10,7 @@ __all__ = [
     "ConfigComparisonResponse",
     "ConfigResponse",
     "ConfigUpdateResponse",
+    "HITLConfigResponse",
     "HttpTransportResponse",
     "LoggingConfigResponse",
     "MTLSConfigResponse",
@@ -20,6 +21,7 @@ __all__ = [
     "AuthConfigUpdate",
     "BackendConfigUpdate",
     "ConfigUpdateRequest",
+    "HITLConfigUpdate",
     "HttpTransportUpdate",
     "LoggingConfigUpdate",
     "MTLSConfigUpdate",
@@ -33,7 +35,11 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from mcp_acp_extended.constants import (
+    MAX_APPROVAL_TTL_SECONDS,
+    MAX_HITL_TIMEOUT_SECONDS,
     MAX_HTTP_TIMEOUT_SECONDS,
+    MIN_APPROVAL_TTL_SECONDS,
+    MIN_HITL_TIMEOUT_SECONDS,
     MIN_HTTP_TIMEOUT_SECONDS,
 )
 
@@ -104,6 +110,15 @@ class ProxyConfigResponse(BaseModel):
     name: str
 
 
+class HITLConfigResponse(BaseModel):
+    """HITL (Human-in-the-Loop) configuration."""
+
+    timeout_seconds: int
+    default_on_timeout: str
+    approval_ttl_seconds: int
+    cache_side_effects: list[str] | None
+
+
 class ConfigResponse(BaseModel):
     """Full configuration response with all details."""
 
@@ -111,6 +126,7 @@ class ConfigResponse(BaseModel):
     logging: LoggingConfigResponse
     auth: AuthConfigResponse | None
     proxy: ProxyConfigResponse
+    hitl: HITLConfigResponse
     config_path: str
     requires_restart_for_changes: bool = True
 
@@ -185,6 +201,22 @@ class AuthConfigUpdate(BaseModel):
     mtls: MTLSConfigUpdate | None = None
 
 
+class HITLConfigUpdate(BaseModel):
+    """Updatable HITL fields."""
+
+    timeout_seconds: int | None = Field(
+        default=None,
+        ge=MIN_HITL_TIMEOUT_SECONDS,
+        le=MAX_HITL_TIMEOUT_SECONDS,
+    )
+    approval_ttl_seconds: int | None = Field(
+        default=None,
+        ge=MIN_APPROVAL_TTL_SECONDS,
+        le=MAX_APPROVAL_TTL_SECONDS,
+    )
+    cache_side_effects: list[str] | None = None
+
+
 class ConfigUpdateRequest(BaseModel):
     """Request body for updating configuration.
 
@@ -196,6 +228,7 @@ class ConfigUpdateRequest(BaseModel):
     backend: BackendConfigUpdate | None = None
     proxy: ProxyConfigUpdate | None = None
     auth: AuthConfigUpdate | None = None
+    hitl: HITLConfigUpdate | None = None
 
 
 class ConfigUpdateResponse(BaseModel):

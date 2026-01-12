@@ -280,35 +280,45 @@ class PendingApprovalRequest:
         self.info = info
         self._decision_event = asyncio.Event()
         self._decision: str | None = None
+        self._approver_id: str | None = None
 
     @property
     def id(self) -> str:
         """Get the approval ID."""
         return self.info.id
 
-    def resolve(self, decision: str) -> None:
+    @property
+    def approver_id(self) -> str | None:
+        """Get the approver ID (set when resolved)."""
+        return self._approver_id
+
+    def resolve(self, decision: str, approver_id: str | None = None) -> None:
         """Resolve this pending approval with a decision.
 
         Args:
-            decision: "allow" or "deny".
+            decision: "allow", "allow_once", or "deny".
+            approver_id: OIDC subject ID of the user who approved/denied.
         """
         self._decision = decision
+        self._approver_id = approver_id
         self._decision_event.set()
 
-    async def wait(self, timeout: float) -> str | None:
+    async def wait(self, timeout: float) -> tuple[str | None, str | None]:
         """Wait for a decision with timeout.
 
         Args:
             timeout: Maximum seconds to wait.
 
         Returns:
-            "allow" or "deny" if decided, None if timeout.
+            Tuple of (decision, approver_id). Decision is "allow", "allow_once",
+            or "deny" if decided, None if timeout. Approver_id is the OIDC subject
+            ID of whoever approved/denied, None if timeout.
         """
         try:
             await asyncio.wait_for(self._decision_event.wait(), timeout=timeout)
-            return self._decision
+            return self._decision, self._approver_id
         except asyncio.TimeoutError:
-            return None
+            return None, None
 
 
 class ProxyState:
@@ -671,12 +681,13 @@ class ProxyState:
 
         return request
 
-    def resolve_pending(self, approval_id: str, decision: str) -> bool:
+    def resolve_pending(self, approval_id: str, decision: str, approver_id: str | None = None) -> bool:
         """Resolve a pending approval.
 
         Args:
             approval_id: The pending approval ID.
-            decision: "allow" or "deny".
+            decision: "allow", "allow_once", or "deny".
+            approver_id: OIDC subject ID of the user who approved/denied.
 
         Returns:
             True if the approval was found and resolved, False otherwise.
@@ -685,7 +696,7 @@ class ProxyState:
         if request is None:
             return False
 
-        request.resolve(decision)
+        request.resolve(decision, approver_id)
 
         # Remove from pending dict
         del self._pending[approval_id]
@@ -701,7 +712,7 @@ class ProxyState:
 
         return True
 
-    async def wait_for_decision(self, approval_id: str, timeout: float) -> str | None:
+    async def wait_for_decision(self, approval_id: str, timeout: float) -> tuple[str | None, str | None]:
         """Wait for a pending approval decision.
 
         Args:
@@ -709,13 +720,14 @@ class ProxyState:
             timeout: Maximum seconds to wait.
 
         Returns:
-            "allow" or "deny" if decided, None if timeout or not found.
+            Tuple of (decision, approver_id). Decision is "allow", "allow_once",
+            or "deny" if decided, None if timeout or not found.
         """
         request = self._pending.get(approval_id)
         if request is None:
-            return None
+            return None, None
 
-        decision = await request.wait(timeout)
+        decision, approver_id = await request.wait(timeout)
         if decision is None:
             # Atomic check-and-remove: only broadcast timeout if WE removed it
             # This prevents race where resolve_pending() removes + broadcasts
@@ -729,7 +741,7 @@ class ProxyState:
                     }
                 )
 
-        return decision
+        return decision, approver_id
 
     def get_pending_approvals(self) -> list[PendingApprovalInfo]:
         """Get all pending approvals.
@@ -738,6 +750,18 @@ class ProxyState:
             List of pending approval info waiting for decision.
         """
         return [request.info for request in self._pending.values()]
+
+    def get_pending_approval(self, approval_id: str) -> PendingApprovalInfo | None:
+        """Get a single pending approval by ID.
+
+        Args:
+            approval_id: The pending approval ID.
+
+        Returns:
+            PendingApprovalInfo if found, None otherwise.
+        """
+        request = self._pending.get(approval_id)
+        return request.info if request else None
 
     # =========================================================================
     # SSE Broadcasting

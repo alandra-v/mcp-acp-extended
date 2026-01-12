@@ -805,6 +805,7 @@ def create_proxy(
     # rate_tracker created earlier (before lifespan) for cleanup access
     enforcement_middleware = create_enforcement_middleware(
         policy=policy,
+        hitl_config=config.hitl,
         protected_dirs=protected_dirs,
         identity_provider=identity_provider,
         backend_id=config.backend.server_name,
