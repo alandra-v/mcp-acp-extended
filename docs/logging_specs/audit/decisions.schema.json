@@ -99,6 +99,19 @@
       "description": "True if approval was from cache, False if user prompted, None if not HITL",
       "title": "Hitl Cache Hit"
     },
+    "hitl_approver_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "OIDC subject ID of user who approved/denied (None if timeout or cache hit)",
+      "title": "Hitl Approver Id"
+    },
     "matched_rules": {
       "description": "All rules that matched, with effect and optional description for trace",
       "items": {

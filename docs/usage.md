@@ -20,176 +20,34 @@ The MCP client starts the proxy, and the proxy spawns/connects to the backend se
 
 ## CLI Commands
 
-**Philosophy**: Explicit init required (security best practice), foreground execution only.
+Use `mcp-acp-extended <command> --help` for detailed options.
 
----
+| Command | Description |
+|---------|-------------|
+| `init` | Initialize configuration (interactive wizard or `--non-interactive`) |
+| `start` | Start proxy manually (use `--no-ui` to disable web UI) |
+| `auth login` | Authenticate via browser (OAuth Device Flow) |
+| `auth logout` | Clear stored credentials (use `--federated` for full logout) |
+| `auth status` | Show authentication state and token info |
+| `config show` | Display current configuration |
+| `config path` | Show config file location |
+| `config edit` | Edit config in `$EDITOR` |
+| `config validate` | Validate config file |
+| `policy show` | Display current policy rules |
+| `policy path` | Show policy file location |
+| `policy edit` | Edit policy in `$EDITOR` |
+| `policy add` | Add a new rule via editor |
+| `policy validate` | Validate policy file |
+| `policy reload` | Reload policy in running proxy |
+| `status` | Show proxy runtime status (requires running proxy) |
+| `approvals cache` | Show cached HITL approvals |
+| `approvals clear` | Clear cached approvals |
+| `logs list` | List available log files |
+| `logs show` | Show recent log entries |
+| `logs tail` | Tail log file in real-time |
+| `sessions list` | List active sessions |
 
-### `mcp-acp-extended init` - Initialize proxy configuration
-
-```bash
-mcp-acp-extended init [OPTIONS]
-
-Options:
-  --non-interactive       Skip prompts, require all options via flags
-  --force                 Overwrite existing config without prompting
-
-  Logging:
-  --log-dir PATH          Log directory (recommended: ~/.mcp-acp-extended)
-  --log-level [debug|info] Logging level (default: info). debug enables wire logs.
-
-  Backend:
-  --server-name TEXT      Backend server name
-  --connection-type [stdio|http|both]  Transport type
-  --command TEXT          Backend command for STDIO (e.g., npx)
-  --args TEXT             Backend arguments for STDIO (comma-separated)
-  --url TEXT              Backend URL for HTTP (e.g., http://localhost:3000/mcp)
-  --timeout INT           Connection timeout for HTTP (default: 30, range: 1-300)
-
-  Authentication (required):
-  --oidc-issuer URL       OIDC issuer (e.g., https://tenant.auth0.com)
-  --oidc-client-id TEXT   OAuth client ID
-  --oidc-audience TEXT    API audience for token validation
-
-  mTLS (optional, all three required together):
-  --mtls-cert PATH        Client certificate (PEM)
-  --mtls-key PATH         Client private key (PEM)
-  --mtls-ca PATH          CA bundle (PEM)
-```
-
-**Config location** (OS-appropriate):
-- macOS: `~/Library/Application Support/mcp-acp-extended/`
-- Linux: `~/.config/mcp-acp-extended/`
-- Windows: `C:\Users\<user>\AppData\Roaming\mcp-acp-extended\`
-
-Interactive mode prompts for values; non-interactive requires all flags. Use `--force` to overwrite existing config.
-
----
-
-### `mcp-acp-extended start` - Start the proxy server
-
-```bash
-mcp-acp-extended start [OPTIONS]
-
-Options:
-  --no-ui    Disable web UI completely (no HTTP server)
-```
-
-All settings come from config file. Runs in foreground (Ctrl+C to stop). Normally started by MCP client, not manually.
-
-**Web UI behavior:**
-- By default, the web UI starts on port 8765 and opens in your browser
-- Use `--no-ui` to completely disable the web UI (no HTTP server runs)
-- When UI is disabled, HITL approvals use system dialogs (osascript on macOS)
-
-**Security note:** The `--no-ui` flag eliminates the HTTP server attack surface entirely. For high-security environments, use `--no-ui` and rely on CLI commands and system dialogs.
-
----
-
-### `mcp-acp-extended config` - Configuration management
-
-#### `mcp-acp-extended config show`
-
-Display current configuration (backend settings, logging, transport, policy summary).
-
-#### `mcp-acp-extended config path`
-
-Show config and policy file locations.
-
-#### `mcp-acp-extended config edit`
-
-Edit config file in `$EDITOR` (falls back to `$VISUAL`, then `vi`). Validates after saving. Policy files must be edited manually - see [Policies](policies.md).
-
-#### `mcp-acp-extended config validate`
-
-Validate configuration file syntax and schema.
-
-```bash
-mcp-acp-extended config validate [--path FILE]
-```
-
-Returns exit code 0 if valid, 1 if invalid.
-
----
-
-### `mcp-acp-extended auth` - Authentication
-
-#### `mcp-acp-extended auth login`
-
-Authenticate via OAuth 2.0 Device Flow (browser-based, like `gh auth login`).
-
-```bash
-mcp-acp-extended auth login [--no-browser]
-```
-
-Use `--no-browser` to display code only. Opens browser, displays verification code, polls for completion (5 min timeout), stores tokens in OS keychain.
-
-#### `mcp-acp-extended auth status`
-
-Check authentication state, token validity, user info, and mTLS certificate status.
-
-```bash
-mcp-acp-extended auth status
-```
-
-#### `mcp-acp-extended auth logout`
-
-Clear stored credentials from OS keychain.
-
-```bash
-mcp-acp-extended auth logout
-```
-
-**Options:**
-- `--federated`: Also log out of the identity provider (Auth0) in your browser. Useful when switching between different users.
-
-```bash
-mcp-acp-extended auth logout --federated
-```
-
-Running proxies need restart after logout.
-
----
-
-### `mcp-acp-extended policy` - Policy Management
-
-#### `mcp-acp-extended policy path`
-
-Show policy file location.
-
-```bash
-mcp-acp-extended policy path
-```
-
-#### `mcp-acp-extended policy validate`
-
-Validate policy file syntax and schema.
-
-```bash
-mcp-acp-extended policy validate [--path FILE]
-```
-
-Returns exit code 0 if valid, 1 if invalid.
-
-#### `mcp-acp-extended policy reload`
-
-Reload policy in running proxy without restart.
-
-```bash
-mcp-acp-extended policy reload
-```
-
-Validates and applies the current `policy.json`. Requires proxy to be running. Clears cached HITL approvals on reload.
-
-Returns exit code 0 if successful, 1 if failed (validation error, proxy not running).
-
----
-
-### Help & Version
-
-```bash
-mcp-acp-extended -v, --version
-mcp-acp-extended -h, --help
-```
+**Config location** (macOS): `~/Library/Application Support/mcp-acp-extended/`
 
 ---
 
@@ -198,27 +56,24 @@ mcp-acp-extended -h, --help
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
-| 1 | General error (config/policy invalid, missing files, validation failure) |
-| 10 | Audit log failure (log directory not writable) |
-| 12 | Identity verification failure (JWKS endpoint unreachable) |
+| 1 | General error (config/policy invalid, missing files) |
+| 10 | Audit log integrity failure |
+| 12 | Identity verification failure (JWKS unreachable) |
 | 13 | Authentication error (not authenticated, token expired) |
-| 14 | Device health check failed (FileVault/SIP not enabled on macOS) |
+| 14 | Device health check failed (FileVault/SIP on macOS) |
+| 15 | Session binding violation (identity changed mid-session) |
 
 ---
 
 ## Claude Desktop Integration
 
-### Step 1: Locate and open config file
+### Step 1: Open Claude Desktop config
 
 ```bash
-# macOS
 nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
 ```
 
-### Step 2: Update configuration
-
-**Instead of using the planned backend server directly:**
-**Only configure the proxy:**
+### Step 2: Add the proxy
 
 ```json
 {
@@ -231,7 +86,7 @@ nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
 }
 ```
 
-**To disable the web UI** (more secure, uses system dialogs for HITL):
+To disable the web UI (uses system dialogs for HITL instead):
 
 ```json
 {
@@ -244,37 +99,19 @@ nano ~/Library/Application\ Support/Claude/claude_desktop_config.json
 }
 ```
 
-**And configure the backend server in the proxy config.**
-
-**Finding the full path:**
+**Find the full path:**
 
 ```bash
-# If installed in a venv
-/path/to/your/venv/bin/mcp-acp-extended
-
-# Find it with 'which' (if in PATH)
 which mcp-acp-extended
+# Or if in a venv: /path/to/venv/bin/mcp-acp-extended
 ```
 
-The proxy must be initialized first (`mcp-acp-extended init`). The backend server is configured in the proxy config, not here.
-
-### Step 3: Save and restart Claude Desktop
+### Step 3: Restart Claude Desktop
 
 ```bash
-# Save in nano: Ctrl+X, then Y, then Enter
-
-# Restart Claude Desktop
 killall Claude
 # Then relaunch Claude Desktop
 ```
-
----
-
-## ChatGPT (Not Supported)
-
-ChatGPT requires MCP servers to communicate via HTTPS with authentication. Currently, the proxy only supports STDIO for client communication, so ChatGPT is not supported.
-
-Future versions may add HTTPS client transport.
 
 ---
 
@@ -283,20 +120,19 @@ Future versions may add HTTPS client transport.
 ### First-time setup
 
 ```bash
-# 1. Initialize configuration (interactive wizard)
+# 1. Initialize (interactive wizard)
 mcp-acp-extended init
 
-# 2. Authenticate (required - Zero Trust)
+# 2. Authenticate
 mcp-acp-extended auth login
 
-# 3. Test proxy manually
+# 3. Test manually (optional)
 mcp-acp-extended start
 ```
 
-### Non-interactive setup (for scripting)
+### Non-interactive setup
 
 ```bash
-# HTTP transport (remote server)
 mcp-acp-extended init --non-interactive \
   --log-dir ~/.mcp-acp-extended \
   --server-name filesystem \
@@ -311,6 +147,7 @@ mcp-acp-extended init --non-interactive \
 
 ## See Also
 
-- [Configuration](configuration.md) for config file format
-- [Policies](policies.md) for policy rules and syntax
-- [Logging](logging.md) for log file details
+- [Configuration](configuration.md) - Config file format
+- [Policies](policies.md) - Policy rules and syntax
+- [Logging](logging.md) - Log file details
+- [Web UI](ui.md) - Optional graphical interface

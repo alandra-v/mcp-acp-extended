@@ -1,6 +1,6 @@
 # Logging
 
-## Primary goals
+## Primary Goals
 
 Logging supports the Zero Trust security model with three primary goals:
 
@@ -15,22 +15,23 @@ Logging supports the Zero Trust security model with three primary goals:
 ## Log Structure
 
 ```
-~/.mcp-acp-extended/mcp_acp_extended_logs/
-├── audit/           # Security audit logs (ALWAYS enabled)
-│   ├── operations.jsonl    # MCP operation audit trail
-│   ├── decisions.jsonl     # Policy evaluation decisions + HITL outcomes
-│   └── auth.jsonl          # Authentication events (token validation, sessions)
-├── debug/           # Wire-level debug logs (DEBUG level only)
-│   ├── client_wire.jsonl   # Client<->Proxy communication
-│   └── backend_wire.jsonl  # Proxy<->Backend communication
-├── system/          # System/operational events
-│   ├── system.jsonl        # Operational logs, errors, backend disconnections
-│   ├── config_history.jsonl # Configuration changes (versioned)
-│   └── policy_history.jsonl # Policy changes (versioned)
-└── metrics/         # Performance metrics (future)
+<log_dir>/mcp_acp_extended_logs/
+├── audit/                        # Security audit logs (ALWAYS enabled)
+│   ├── operations.jsonl          # MCP operation audit trail
+│   ├── decisions.jsonl           # Policy evaluation decisions + HITL outcomes
+│   └── auth.jsonl                # Authentication events
+├── debug/                        # Wire-level debug logs (DEBUG level only)
+│   ├── client_wire.jsonl         # Client ↔ Proxy communication
+│   └── backend_wire.jsonl        # Proxy ↔ Backend communication
+└── system/                       # System/operational events
+    ├── system.jsonl              # Operational logs, errors, backend disconnections
+    ├── config_history.jsonl      # Configuration changes (versioned)
+    └── policy_history.jsonl      # Policy changes (versioned)
 
-# Bootstrap log (in config directory, not log directory)
-<config_dir>/bootstrap.jsonl  # Validation failures before log_dir available
+<config_dir>/emergency_audit.jsonl  # Fallback when primary audit fails
+<config_dir>/bootstrap.jsonl        # Startup validation errors
+<log_dir>/.last_crash               # Breadcrumb for crash popup
+<log_dir>/shutdowns.jsonl           # Security shutdown history
 ```
 
 ---
@@ -40,7 +41,7 @@ Logging supports the Zero Trust security model with three primary goals:
 Log directory is specified via `--log-dir` during `mcp-acp-extended init` (recommended: `~/.mcp-acp-extended`).
 
 **Log level options:**
-- `info` (default): Audit and system logs
+- `info` (default): Audit and system logs only
 - `debug`: Enables wire-level debug logs with full request/response payloads
 
 See [Configuration](configuration.md) for full CLI options.
@@ -53,71 +54,23 @@ Security audit trail - **ALWAYS enabled, cannot be disabled**.
 
 ### operations.jsonl
 
-Each log entry follows the **Kipling method (5W1H)**: Who (subject), What (method, tool), When (timestamp), Where (backend, path), Why (policy decision), How (arguments, transport).
+MCP operation audit trail following the **Kipling method (5W1H)**: Who (subject), What (method, tool), When (timestamp), Where (backend, path), Why (policy decision), How (arguments, transport).
 
-| Field | Description |
-|-------|-------------|
-| `time` | ISO 8601 timestamp |
-| `session_id`, `request_id` | Correlation IDs |
-| `method` | MCP method (e.g., `tools/call`) |
-| `status` | `Success` or `Failure` |
-| `error_code` | MCP/JSON-RPC error code (on failure) |
-| `message` | Human-readable description |
-| `subject` | User identity (`subject_id`, `subject_claims`) |
-| `client_id` | MCP client application name |
-| `backend_id` | Backend server identifier |
-| `transport` | Backend transport (`stdio` or `streamablehttp`) |
-| `tool_name` | Tool name (for `tools/call`) |
-| `file_path`, `file_extension` | File info (for file operations) |
-| `source_path`, `dest_path` | Source/destination paths for copy/move operations |
-| `arguments_summary` | Redacted args: `body_hash`, `payload_length` |
-| `config_version` | Active configuration version |
-| `duration.duration_ms` | Operation duration in milliseconds |
-| `response_summary` | Response metadata: `size_bytes`, `body_hash` |
+**See**: [logging_specs/audit/operations.md](logging_specs/audit/operations.md) for full schema.
 
 ### decisions.jsonl
 
-Every policy evaluation decision, including HITL outcomes.
+Every policy evaluation decision, including HITL outcomes. Captures matched rules, final decision, performance metrics, and approval details.
 
-| Field | Description |
-|-------|-------------|
-| `time` | ISO 8601 timestamp |
-| `event` | Always `policy_decision` |
-| `decision` | `allow`, `deny`, or `hitl` |
-| `final_rule` | Rule ID that determined outcome (or `default`, `discovery_bypass`) |
-| `matched_rules` | All rules that matched (with `id`, `effect`, `description`) |
-| `mcp_method`, `tool_name` | Request method and tool |
-| `path`, `uri`, `scheme` | Resource context (file path or URI) |
-| `source_path`, `dest_path` | Source/destination for move/copy operations |
-| `request_id`, `backend_id`, `policy_version` | Correlation and context (required) |
-| `session_id` | Session ID (optional, may not exist during `initialize`) |
-| `subject_id` | User identity (optional until auth implemented) |
-| `side_effects` | Action classification |
-| `policy_eval_ms` | Policy rule evaluation time |
-| `policy_hitl_ms` | HITL wait time (only for HITL decisions) |
-| `policy_total_ms` | Total evaluation time (eval + HITL) |
-| `hitl_outcome` | `user_allowed`, `user_denied`, `timeout` (if HITL) |
-| `hitl_cache_hit` | `true` if approval from cache, `false` if user prompted |
+**See**: [logging_specs/audit/decisions.md](logging_specs/audit/decisions.md) for full schema.
 
 ### auth.jsonl
 
 Authentication events for Zero Trust compliance. Based on OCSF Authentication (3002) and Authorize Session (3003) classes.
 
-| Field | Description |
-|-------|-------------|
-| `time` | ISO 8601 timestamp |
-| `event_type` | `token_validated`, `token_invalid`, `token_refreshed`, `token_refresh_failed`, `session_started`, `session_ended`, `device_health_passed`, `device_health_failed` |
-| `status` | `Success` or `Failure` |
-| `bound_session_id` | Security-bound session ID (`<user_id>:<session_uuid>`) for auth binding |
-| `mcp_session_id` | MCP session ID for correlation with operations/decisions logs |
-| `request_id` | JSON-RPC request ID (for per-request validation) |
-| `subject` | User identity (`subject_id`, `subject_claims`) |
-| `oidc` | OIDC token details (`issuer`, `provider`, `audience`, `scopes`, `token_exp`, `token_expired`) |
-| `device_checks` | Device health results (`disk_encryption`, `device_integrity`: `pass`/`fail`/`unknown`) |
-| `end_reason` | Session end reason: `normal`, `timeout`, `error`, `auth_expired`, `session_binding_violation` |
-| `method` | MCP method (for per-request token validation) |
-| `error_type`, `error_message` | Error details (for failure events) |
-| `message` | Human-readable status message |
+**Note**: Success events for per-request token validation and device health checks are not logged to reduce noise. Only failures and session lifecycle events are logged.
+
+**See**: [logging_specs/audit/auth.md](logging_specs/audit/auth.md) for full schema.
 
 ---
 
@@ -140,74 +93,51 @@ Operational system events - **only WARNING, ERROR, CRITICAL levels are logged to
 
 ### system.jsonl
 
-Operational issues and errors.
+Operational issues and errors (backend disconnections, path normalization failures, etc.).
 
-| Field | Description |
-|-------|-------------|
-| `time` | ISO 8601 timestamp |
-| `level` | `WARNING`, `ERROR`, or `CRITICAL` |
-| `event` | Event type (e.g., `startup_failed`, `backend_disconnected`) |
-| `message` | Human-readable description |
-| `component` | Source component (e.g., `proxy`, `backend_client`) |
-| `session_id`, `request_id`, `backend_id` | Correlation IDs (if applicable) |
-| `config_version` | Active configuration version |
-| `error_type`, `error_message` | Exception details |
-| `stacktrace` | Optional traceback |
-| `details` | Additional structured data (e.g., `retry_count`, `timeout_ms`) |
-
-**Note**: This schema allows additional fields (`extra="allow"`).
+**See**: [logging_specs/system/system.md](logging_specs/system/system.md) for full schema.
 
 ### config_history.jsonl
 
-Configuration change audit trail.
+Configuration change audit trail with versioning and checksums.
 
-Events: `config_created`, `config_loaded`, `config_updated`, `manual_change_detected`, `config_validation_failed`
-
-| Field | Description |
-|-------|-------------|
-| `config_version`, `previous_version` | Version tracking |
-| `change_type` | `initial_load`, `cli_update`, `manual_edit`, `startup_load`, `validation_error` |
-| `component`, `source` | Where change originated |
-| `config_path` | Path to config file on disk |
-| `checksum` | SHA256 for integrity verification |
-| `snapshot_format` | Always `json` |
-| `snapshot` | Full config content (for creation/changes, skipped for loads) |
-| `changes` | Dict of changed fields with old/new values (for updates) |
-| `message` | Human-readable description |
-| `error_type`, `error_message` | For validation failures |
+**See**: [logging_specs/system/config_history.md](logging_specs/system/config_history.md) for full schema.
 
 ### policy_history.jsonl
 
-Policy change audit trail.
+Policy change audit trail with versioning and checksums.
 
-Events: `policy_created`, `policy_loaded`, `policy_updated`, `manual_change_detected`, `policy_validation_failed`
-
-| Field | Description |
-|-------|-------------|
-| `policy_version`, `previous_version` | Version tracking |
-| `change_type` | `initial_creation`, `startup_load`, `rule_update`, `manual_edit`, `validation_error` |
-| `component`, `source` | Where change originated |
-| `policy_path` | Path to policy file on disk |
-| `checksum` | SHA256 for integrity verification |
-| `snapshot_format` | Always `json` |
-| `snapshot` | Full policy content (for creation/changes, skipped for loads) |
-| `rule_id`, `rule_effect`, `rule_conditions` | For rule update events |
-| `message` | Human-readable description |
-| `error_type`, `error_message` | For validation failures |
+**See**: [logging_specs/system/policy_history.md](logging_specs/system/policy_history.md) for full schema.
 
 ---
 
-## Bootstrap Log
+## Emergency & Startup Logs
 
-Location: `<config_dir>/bootstrap.jsonl` (e.g., `~/Library/Application Support/mcp-acp-extended/bootstrap.jsonl`)
+### emergency_audit.jsonl
 
-Captures startup failures when the user's `log_dir` cannot be read from an invalid config. This ensures errors are never lost, even during misconfiguration.
+Location: `<config_dir>/emergency_audit.jsonl`
 
----
+Last-resort fallback when primary audit logging fails. Lives in config directory (not `log_dir`) to survive log directory deletion.
 
-## Metrics (Future)
+**Fallback chain**: Primary audit log → `system.jsonl` → `emergency_audit.jsonl`. After any fallback, the proxy shuts down.
 
-Performance metrics logging is planned but not yet implemented.
+### bootstrap.jsonl
+
+Location: `<config_dir>/bootstrap.jsonl`
+
+Startup validation errors when config or policy is invalid and `log_dir` is unavailable. Records validation failures with timestamp, error type, and message.
+
+### shutdowns.jsonl
+
+Location: `<log_dir>/shutdowns.jsonl`
+
+JSONL history of security shutdowns for the Incidents page. Records failure type, reason, exit code, and context.
+
+### .last_crash
+
+Location: `<log_dir>/.last_crash`
+
+Simple text breadcrumb for crash popup display (overwritten each shutdown).
 
 ---
 
@@ -227,40 +157,34 @@ Performance metrics logging is planned but not yet implemented.
 
 ## Schema Design
 
-Log schemas are inspired by [OCSF (Open Cybersecurity Schema Framework)](https://schema.ocsf.io/) and security logging best practices:
+Log schemas are inspired by [OCSF (Open Cybersecurity Schema Framework)](https://schema.ocsf.io/):
 
-| Log Type | Inspiration |
-|----------|-------------|
-| `operations.jsonl` | OCSF API Activity class (6003) - Application Activity Category |
-| `decisions.jsonl` | OCSF Authorization class (3003) - Identity & Access Management Category |
-| `system.jsonl` | OCSF Process Activity class (1007) and Application Error class (6008) - System Activity Category and Application Activity Category |
+| Log Type | OCSF Inspiration |
+|----------|------------------|
+| `operations.jsonl` | API Activity (6003) |
+| `decisions.jsonl` | Authorization (3003) |
+| `auth.jsonl` | Authentication (3002), Authorize Session (3003) |
+| `system.jsonl` | Process Activity (1007), Application Error (6008) |
 | `config_history.jsonl` | OWASP, NIST SP 800-92/800-128, CIS Control 8 |
 | `policy_history.jsonl` | OWASP, NIST SP 800-92/800-128, CIS Control 8 |
-| `auth.jsonl` | OCSF Authentication class (3002) and Authorize Session class (3003) - Identity & Access Management Category |
 
-
-See `docs/logging_specs/` for Pydantic models, JSON schemas, and detailed documentation.
+**Full schemas**: See `docs/logging_specs/` for Pydantic models, JSON schemas, and detailed field documentation.
 
 ---
 
 ## SIEM Readiness
 
-The logging design is SIEM-ready:
-
 | Feature | Status |
 |---------|--------|
-| Structured format (JSONL) | ✅ Machine-readable, easily parsed |
-| OCSF-inspired schemas | ✅ Industry standard, 120+ vendor support |
-| ISO 8601 timestamps | ✅ Standardized, sortable, timezone-aware |
-| Correlation IDs | ✅ Cross-event correlation via session_id, request_id |
-| Consistent field names | ✅ Unified queries across log types |
-| Log level filtering | ✅ WARNING+ only, reduces noise |
-| Payload redaction | ✅ Hashes preserve forensic value without PII |
+| Structured format (JSONL) | Machine-readable, easily parsed |
+| OCSF-inspired schemas | Industry standard, 120+ vendor support |
+| ISO 8601 timestamps | Standardized, sortable, timezone-aware |
+| Correlation IDs | Cross-event correlation via session_id, request_id |
+| Consistent field names | Unified queries across log types |
+| Log level filtering | WARNING+ only for system logs |
+| Payload redaction | Hashes preserve forensic value without PII |
 
-**For full SIEM integration:**
-- Add log forwarder (syslog/HTTP/S3)
-- Full OCSF compliance (currently "inspired by", not fully compliant)
-- Log enrichment (device info, geo data, threat intel context)
+**For full SIEM integration**: Add log forwarder (syslog/HTTP/S3), full OCSF compliance, log enrichment.
 
 ---
 
@@ -268,15 +192,11 @@ The logging design is SIEM-ready:
 
 **Payload redaction**: Arguments are never logged in full - only SHA256 hash and byte length. Full payloads only in debug logs.
 
-**Blocking I/O**: All logging is synchronous. Each log call blocks until the write completes (including `fsync` for audit logs). This is intentional for audit integrity - we guarantee the log is on disk before continuing. Trade-off: adds ~1-5ms latency per logged request. For high-throughput scenarios, for the future we might consider async log forwarding to a SIEM rather than relying on local disk.
+**Blocking I/O**: All audit logging is synchronous with `fsync`. This guarantees the log is on disk before continuing (~1-5ms latency).
 
-**Audit log integrity**: Log files are protected by two layers of monitoring:
-1. **Per-write checks**: Before every write, file identity (device ID + inode) is verified
-2. **Background monitoring**: AuditHealthMonitor checks every 30 seconds, even during idle periods
+**Audit log integrity**: Log files are protected by per-write checks (device ID + inode verification) and background monitoring (every 30 seconds). On integrity failure, the proxy shuts down.
 
-On integrity failure, the proxy shuts down. See [Security](security.md) for details.
-
-**Atomic writes**: Config and policy history use atomic writes to prevent corruption. See [Configuration](configuration.md).
+**Atomic writes**: Config and policy history use atomic writes to prevent corruption.
 
 ---
 
@@ -284,3 +204,4 @@ On integrity failure, the proxy shuts down. See [Security](security.md) for deta
 
 - [Security](security.md) for audit log integrity and fail-closed behavior
 - [Configuration](configuration.md) for log directory settings
+- [logging_specs/](logging_specs/) for detailed field schemas and Pydantic models

@@ -130,8 +130,9 @@ The operation being performed.
 |-------|-------------|
 | `mcp_method` | Raw MCP method (`tools/call`, `resources/read`) |
 | `name` | Normalized form (`tools.call`, `resources.read`) |
-| `intent` | Known intent (`read`, `write`) or `None` if unknown |
+| `intent` | Known intent (`read`) or `None` if unknown |
 | `category` | `DISCOVERY` (metadata) or `ACTION` (does something) |
+| `provenance.intent` | Source of intent (`MCP_METHOD` if known, `None` otherwise) |
 
 **Design principle**: We report what we KNOW, not what we guess. For `tools/call`, intent is always `None` because we cannot trust tool names.
 
@@ -141,11 +142,13 @@ The operation being performed.
 |------------|----------|-----|
 | `tools/call` | `ACTION` | Tool execution - cannot trust what it does |
 | `resources/read` | `ACTION` | Content access with known `read` intent |
-| `prompts/get` | `ACTION` | Returns content that may be sensitive |
+| `prompts/get` | `ACTION` | Returns actual content, may contain sensitive data |
 | `initialize`, `ping` | `DISCOVERY` | Protocol methods - auto-allowed |
 | `tools/list`, `resources/list`, `prompts/list` | `DISCOVERY` | Metadata listing - auto-allowed |
 | `resources/templates/list` | `DISCOVERY` | Template discovery - auto-allowed |
 | `notifications/*` | `DISCOVERY` | Async notifications - auto-allowed |
+
+**Note**: `prompts/get` is NOT discovery - it returns actual prompt content which may contain sensitive instructions, API keys, or business logic.
 
 ---
 
@@ -167,13 +170,16 @@ The target of the operation.
 | Field | Description |
 |-------|-------------|
 | `id` | Backend server name (from config) |
+| `provenance` | Source of server ID (`PROXY_CONFIG`) |
 
 ### Tool Info (for `tools/call`)
 
 | Field | Description |
 |-------|-------------|
 | `name` | Tool name from request |
+| `provenance` | Where we got the tool name (`MCP_REQUEST`) |
 | `side_effects` | Known effects (e.g., `fs_write`, `code_exec`, `network_egress`) |
+| `side_effects_provenance` | Where side effects came from (`PROXY_CONFIG` from manual map) |
 | `version` | Tool version (future: from registry) |
 | `risk_tier` | Risk classification (future: from registry) |
 
@@ -185,12 +191,13 @@ Side effects are looked up from `context/tool_side_effects.py`. Policies can mat
 |-------|-------------|
 | `uri` | Full URI if provided |
 | `scheme` | URI scheme (`file`, `http`, `db`, `s3`, etc.) |
-| `path` | Normalized file path (first/primary path found) |
+| `path` | Normalized file path (primary path for single-path tools) |
 | `source_path` | Source path for move/copy operations |
 | `dest_path` | Destination path for move/copy operations |
 | `filename` | Base filename |
 | `extension` | File extension |
 | `parent_dir` | Parent directory |
+| `provenance` | Where we got this info (`MCP_REQUEST`) |
 
 ---
 
@@ -215,11 +222,11 @@ A `tools/call` request to `write_file` targeting `/home/user/.env`:
 
 | Component | Key Fields |
 |-----------|------------|
-| **Subject** | `id="user-123"`, `issuer="https://auth0.com"`, `scopes=["openid", "profile"]` |
+| **Subject** | `id="user-123"`, `issuer="https://auth0.com"` |
 | **Action** | `mcp_method="tools/call"`, `category=ACTION`, `intent=None` |
-| **Resource** | `type=TOOL`, `tool.name="write_file"`, `tool.side_effects={fs_write}` |
+| **Resource** | `type=TOOL`, `tool.name="write_file"`, `tool.side_effects=[fs_write]` |
 | **Resource** | `resource.path="/home/user/.env"`, `resource.extension=None` |
-| **Environment** | `request_id="req-123"`, `session_id="sess-456"`, `mcp_client_name="claude-desktop"` |
+| **Environment** | `request_id="req-123"`, `session_id="sess-456"` |
 
 Note: `intent=None` for tools/call because we cannot trust tool names to determine intent.
 

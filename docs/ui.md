@@ -42,7 +42,7 @@ When enabled (the default), the UI starts automatically with the proxy:
 http://localhost:8765
 ```
 
-No manual login required — authentication is handled automatically.
+The UI is accessible without login for viewing. However, **approving HITL requests requires OIDC authentication** (see Features → HITL Approval Requirements).
 
 ---
 
@@ -88,17 +88,44 @@ CLI commands use a Unix Domain Socket for local communication. Authentication re
 
 ## Features
 
+### Dashboard
+
+- **Proxy status**: Uptime, backend connection, transport type
+- **Live statistics**: Request counts (allowed/denied/HITL)
+- **Pending approvals**: Real-time HITL requests with approve/deny buttons
+- **Cached approvals**: View and clear cached HITL decisions
+- **Activity log**: Recent operations with filtering
+
+### Policy & Config
+
+- View current policy rules and configuration
+- Add/edit/delete policy rules (changes auto-reload)
+- JSON editor for advanced policy editing
+
+### Incidents
+
+- Security shutdown history
+- Bootstrap errors
+- Emergency audit entries
+
 ### Real-time Updates
 
-- SSE (Server-Sent Events) for live approval notifications
+- SSE (Server-Sent Events) for live notifications
 - Audio chime when new HITL request arrives
 - Error sound for critical events (backend disconnect, auth failures)
+- Toast notifications for system events
 
 ### Background Tab Alerts
 
 When the UI is in a background tab:
-- Page title updates with pending count (e.g., "🔴 (2) MCP ACP")
+- Page title updates with pending count (e.g., "(2) MCP ACP")
 - Audio notifications still play
+
+### HITL Approval Requirements
+
+**Important**: Approving or denying requests from the UI requires OIDC authentication. The approver must be the same user who initiated the MCP session (session binding).
+
+If not logged in, use native system dialogs instead (see Fallback Behavior).
 
 ### Fallback Behavior
 
@@ -115,3 +142,4 @@ A banner displays when the backend disconnects, showing reconnection attempts.
 - [Usage](usage.md) — CLI commands
 - [Configuration](configuration.md) — Config file format
 - [Logging](logging.md) — Audit logs
+- [API Reference](api_reference.md) — REST API and SSE events

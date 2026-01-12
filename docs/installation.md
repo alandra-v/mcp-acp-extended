@@ -2,10 +2,29 @@
 
 ## Prerequisites
 
-- **Python 3.11+**
+- **Python 3.11+** (3.11, 3.12, or 3.13)
 - **pip** or **uv** package manager
 - **Node.js 18+** (for MCP servers that use npx)
 - **OIDC Provider** (Auth0, Okta, Azure AD, etc.) with Device Flow enabled - see [Auth](auth.md)
+
+## Platform Requirements
+
+### macOS (Full Support)
+
+The proxy requires the following security features enabled:
+
+| Requirement | Check Command | How to Enable |
+|-------------|---------------|---------------|
+| **FileVault** (disk encryption) | `fdesetup status` | System Settings → Privacy & Security → FileVault |
+| **SIP** (System Integrity Protection) | `csrutil status` | Enabled by default; requires Recovery Mode to disable |
+
+Both checks are **hard gates** - the proxy will not start if either is disabled.
+
+### Other Platforms (Untested)
+
+Only macOS has been tested. The proxy may work on Linux/Windows but device health checks will be skipped.
+
+---
 
 ## Install from Source
 
@@ -15,10 +34,13 @@ cd mcp-acp-extended
 
 # Create and activate virtual environment (recommended)
 python3 -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate
 
 # Install in development mode
 pip install -e .
+
+# Or with dev dependencies (for testing/linting)
+pip install -e ".[dev]"
 ```
 
 <!--

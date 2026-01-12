@@ -34,19 +34,27 @@ Tokens are issued during device flow authentication or injected into the UI on p
 |--------|------|-------------|
 | `GET` | `/api/auth-sessions` | List active user sessions |
 
+Query parameters:
+- `proxy_id`: Filter by proxy (optional, for multi-proxy future)
+
 ### Approvals (Cached)
 
 Previously approved HITL decisions stored in memory.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/approvals/cached` | List cached HITL approvals |
+| `GET` | `/api/approvals/cached` | List cached HITL approvals with TTL info |
 | `DELETE` | `/api/approvals/cached` | Clear all cached approvals |
-| `DELETE` | `/api/approvals/cached/entry?subject_id=X&tool_name=Y&path=Z` | Delete specific cached approval |
+| `DELETE` | `/api/approvals/cached/entry` | Delete specific cached approval |
+
+Query parameters for `/entry`:
+- `subject_id`: User's OIDC subject ID (required)
+- `tool_name`: Tool name (required)
+- `path`: File path (required)
 
 ### Approvals (Pending)
 
-HITL requests currently waiting for user decision.
+HITL requests currently waiting for user decision. **Requires OIDC authentication** - approver must be the original requester (session binding).
 
 | Method | Path | Description |
 |--------|------|-------------|
@@ -60,7 +68,7 @@ HITL requests currently waiting for user decision.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/control/status` | Get proxy status (uptime, policy version) |
+| `GET` | `/api/control/status` | Get proxy status (uptime, policy version, reload count) |
 | `POST` | `/api/control/reload-policy` | Hot-reload policy from disk |
 
 ### Policy
@@ -68,18 +76,23 @@ HITL requests currently waiting for user decision.
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/policy` | Get current policy with metadata |
+| `PUT` | `/api/policy` | Replace entire policy (validates, saves, auto-reloads) |
 | `GET` | `/api/policy/rules` | List all policy rules |
-| `POST` | `/api/policy/rules` | Add a new rule |
+| `POST` | `/api/policy/rules` | Add a new rule (auto-generates ID if not provided) |
 | `PUT` | `/api/policy/rules/{id}` | Update a rule |
 | `DELETE` | `/api/policy/rules/{id}` | Delete a rule |
+
+**Note**: All changes trigger automatic policy reload without proxy restart. Uses last-known-good pattern - validation errors revert to previous policy.
 
 ### Configuration
 
 | Method | Path | Description |
 |--------|------|-------------|
 | `GET` | `/api/config` | Get current configuration |
-| `PUT` | `/api/config` | Update configuration |
+| `PUT` | `/api/config` | Update configuration (requires proxy restart to apply) |
 | `GET` | `/api/config/compare` | Compare running vs saved config |
+
+**Note**: Config updates use deep merge - nested objects are merged, not replaced entirely.
 
 ### Authentication
 
@@ -87,30 +100,74 @@ HITL requests currently waiting for user decision.
 |--------|------|-------------|
 | `GET` | `/api/auth/status` | Get authentication status and user info |
 | `POST` | `/api/auth/login` | Start OAuth device flow |
-| `GET` | `/api/auth/login/poll?code=X` | Poll for device flow completion |
+| `GET` | `/api/auth/login/poll` | Poll for device flow completion |
 | `POST` | `/api/auth/logout` | Clear local credentials (keychain) |
 | `POST` | `/api/auth/logout-federated` | Get federated logout URL + clear local |
 | `POST` | `/api/auth/notify-login` | Notify proxy of CLI login |
 | `POST` | `/api/auth/notify-logout` | Notify proxy of CLI logout |
-| `GET` | `/api/auth/dev-token` | Get API token (dev mode only) |
+| `GET` | `/api/auth/dev-token` | Get API token (dev mode only, 404 in production) |
+
+Query parameters for `/login/poll`:
+- `code`: Device code from `/login` response (required)
 
 ### Logs
 
+Structured log access with filtering and pagination.
+
+**Audit logs:**
+
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/logs` | Get log metadata (available files/folders) |
-| `GET` | `/api/logs/{folder}/{file}` | Read log file contents |
+| `GET` | `/api/logs/decisions` | Policy decision logs |
+| `GET` | `/api/logs/operations` | Operation audit logs |
+| `GET` | `/api/logs/auth` | Authentication event logs |
 
-Query parameters for log reading:
-- `offset`: Skip first N lines
-- `limit`: Maximum lines to return
-- `reverse`: Read from end of file
+**System logs:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/logs/system` | System logs (WARNING, ERROR, CRITICAL) |
+| `GET` | `/api/logs/config_history` | Configuration change history |
+| `GET` | `/api/logs/policy_history` | Policy change history |
+
+**Debug logs** (only when `log_level=DEBUG`):
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/logs/client_wire` | Client ↔ Proxy wire logs |
+| `GET` | `/api/logs/backend_wire` | Proxy ↔ Backend wire logs |
+
+**Metadata:**
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/api/logs/metadata` | Available log files and filter options |
+
+**Common query parameters:**
+- `time_range`: `5m` | `1h` | `24h` | `all` (default: `1h`)
+- `limit`: 1-1000 (default: 100)
+- `before`: ISO timestamp cursor for pagination
+
+**Filtering parameters:**
+- `session_id`: Filter by session
+- `request_id`: Filter by request
+- `policy_version`: Filter by policy version
+- `config_version`: Filter by config version
+- `decision`: Filter decisions by `allow` | `deny` | `hitl`
+- `hitl_outcome`: Filter by `user_allowed` | `user_denied` | `timeout`
+- `event_type`: Filter auth logs by event type
+- `level`: Filter system logs by `WARNING` | `ERROR` | `CRITICAL`
 
 ### Incidents
 
+Security-related events and shutdown history.
+
 | Method | Path | Description |
 |--------|------|-------------|
-| `GET` | `/api/incidents` | Get incident summary (crashes, bootstrap errors) |
+| `GET` | `/api/incidents/summary` | Summary with counts and latest critical timestamp |
+| `GET` | `/api/incidents/shutdowns` | Security shutdown logs (from `shutdowns.jsonl`) |
+| `GET` | `/api/incidents/bootstrap` | Bootstrap/startup error logs |
+| `GET` | `/api/incidents/emergency` | Emergency audit logs (audit fallback) |
 
 ---
 
@@ -128,23 +185,35 @@ The `/api/approvals/pending` endpoint provides Server-Sent Events for real-time 
 - `pending_timeout` - Approval timed out
 - `pending_not_found` - Approval already resolved/expired
 
+**Cache Operations:**
+- `cache_cleared` - All cached approvals cleared
+- `cache_entry_deleted` - Single cache entry removed
+
 **Backend Connection:**
-- `backend_connected` - Backend available
-- `backend_reconnected` - Backend recovered
+- `backend_connected` - Backend connection established
+- `backend_reconnected` - Backend recovered after failure
 - `backend_disconnected` - Backend connection lost
 - `backend_timeout` - Backend request timeout
 - `backend_refused` - Backend connection refused
+
+**TLS/mTLS:**
+- `tls_error` - General TLS error
+- `mtls_failed` - mTLS authentication failed
+- `cert_validation_failed` - Certificate validation failed
 
 **Authentication:**
 - `auth_login` - User logged in
 - `auth_logout` - User logged out
 - `auth_session_expiring` - Session expiring soon
 - `token_refresh_failed` - Token refresh failed
+- `token_validation_failed` - Token validation failed
 - `auth_failure` - Authentication error
 
 **Policy:**
 - `policy_reloaded` - Policy hot-reloaded
 - `policy_reload_failed` - Policy reload error
+- `policy_file_not_found` - Policy file missing
+- `policy_rollback` - Rollback to previous policy
 - `config_change_detected` - Config file changed
 
 **Rate Limiting:**
@@ -152,20 +221,25 @@ The `/api/approvals/pending` endpoint provides Server-Sent Events for real-time 
 - `rate_limit_approved` - Rate limit override approved
 - `rate_limit_denied` - Rate limit override denied
 
-**Cache:**
-- `cache_cleared` - Approval cache cleared
-- `cache_entry_deleted` - Single cache entry removed
+**Request Processing:**
+- `request_error` - Request processing error
+- `hitl_parse_failed` - HITL request parsing failed
+- `tool_sanitization_failed` - Tool/path sanitization failed
 
 **Live Updates:**
 - `stats_updated` - Request statistics changed
 - `new_log_entries` - New log entries available
 
-**Critical Events:**
+**Critical Events (Proxy Shutdown):**
 - `critical_shutdown` - Proxy shutting down
-- `audit_init_failed` - Audit system failed
+- `audit_init_failed` - Audit system initialization failed
 - `device_health_failed` - Device health check failed
-- `session_hijacking` - Session binding violation
+- `session_hijacking` - Session binding violation detected
 - `audit_tampering` - Audit log tampering detected
+- `audit_missing` - Audit file missing
+- `audit_permission_denied` - Audit permission denied
+- `health_degraded` - Health status degraded
+- `health_monitor_failed` - Health monitor failed
 
 ### Event Format
 
@@ -184,6 +258,8 @@ The `/api/approvals/pending` endpoint provides Server-Sent Events for real-time 
   }
 }
 ```
+
+**Severity levels:** `success`, `info`, `warning`, `error`, `critical`
 
 ---
 

@@ -46,7 +46,7 @@ The proxy builds a `DecisionContext` with four attribute categories:
 | **Subject** | `id`, `issuer`, `scopes`, `client_id`, `audience` | OIDC token or local identity |
 | **Action** | `mcp_method`, `name`, `intent`, `category` | MCP request |
 | **Resource** | `tool_name`, `path`, `source_path`, `dest_path`, `extension`, `backend_id`, `side_effects` | MCP request arguments |
-| **Environment** | `timestamp`, `session_id`, `request_id`, `mcp_client_name` | Runtime context |
+| **Environment** | `timestamp`, `session_id`, `request_id`, `mcp_client_name`, `mcp_client_version` | Runtime context |
 
 **External PIPs**: When OIDC authentication is configured, the proxy queries the external IdP for JWKS (key validation) and token refresh. Tool side effects use a local mapping (see `tool_side_effects.py`).
 
@@ -105,17 +105,13 @@ This is equivalent to:
 {
   "version": "1",
   "default_action": "deny",
-  "rules": [],
-  "hitl": {
-    "timeout_seconds": 30,
-    "default_on_timeout": "deny",
-    "approval_ttl_seconds": 600,
-    "cache_side_effects": null
-  }
+  "rules": []
 }
 ```
 
 With no rules, all operations are denied (Zero Trust default).
+
+**Note:** HITL configuration (timeout, caching) is in `config.json`, not `policy.json`. See the [HITL Configuration](#hitl-configuration) section below.
 
 ### PolicyConfig Fields
 
@@ -124,7 +120,6 @@ With no rules, all operations are denied (Zero Trust default).
 | `version` | No | `"1"` | Schema version for migrations |
 | `default_action` | No | `"deny"` | What to do when no rule matches (always "deny", cannot be changed) |
 | `rules` | No | `[]` | List of rules; all matches combined via HITL > DENY > ALLOW |
-| `hitl` | No | (see below) | HITL configuration |
 
 ### Example Policy
 
@@ -145,12 +140,7 @@ With no rules, all operations are denied (Zero Trust default).
       "effect": "hitl",
       "conditions": { "operations": ["write"] }
     }
-  ],
-  "hitl": {
-    "timeout_seconds": 30,
-    "approval_ttl_seconds": 600,
-    "cache_side_effects": null
-  }
+  ]
 }
 ```
 
@@ -192,7 +182,7 @@ Most conditions support **list values with OR logic** - when a list is provided,
 Path patterns support glob syntax:
 - `*` matches any characters except `/`
 - `**` matches any characters including `/`
-- `?` matches a single character
+- `?` matches a single character except `/`
 
 **Important**: `/path/**` matches both the directory itself and everything under it:
 - `/project/**` matches `/project`, `/project/file`, `/project/src/main.py`
@@ -300,7 +290,7 @@ The side effects system allows policies to match based on what a tool CAN DO rat
 
 Uses **ANY logic**: matches if tool has ANY of the listed effects.
 
-Unknown tools have empty side effects -> won't match side_effect rules (conservative).
+Unknown tools (not in mapping) won't match side_effect rules (conservative).
 
 ### How Side Effects Are Determined
 
@@ -333,7 +323,7 @@ Possible future: Verified Tool Registry
 
 ## Discovery Bypass
 
-Discovery methods skip policy evaluation entirely. These include connection setup (`initialize`, `ping`), capability discovery (`tools/list`, `resources/list`, `prompts/list`), and async notifications.
+Discovery methods skip policy evaluation entirely. These include connection setup (`initialize`, `ping`), capability discovery (`tools/list`, `resources/list`, `resources/templates/list`, `prompts/list`), and async notifications.
 
 See `DISCOVERY_METHODS` in `constants.py` for the complete list.
 
@@ -399,12 +389,7 @@ A practical policy allowing reads from a project directory, requiring approval f
         "path_pattern": "**/private/**"
       }
     }
-  ],
-  "hitl": {
-    "timeout_seconds": 30,
-    "approval_ttl_seconds": 600,
-    "cache_side_effects": ["fs_write"]
-  }
+  ]
 }
 ```
 
@@ -422,23 +407,28 @@ HITL is triggered **exclusively by policy rules** with `effect: "hitl"`. The sys
 
 ### Platform Support
 
-Currently **macOS only** via native `osascript` dialogs:
-- Audio notification (`Funk.aiff`) on first dialog
-- Queue indicator shows pending requests
+**Two HITL interfaces are available:**
 
-**Linux/Windows**: Auto-deny with warning log. Cross-platform UI planned.
+1. **Web UI** (cross-platform): When the management UI is connected via SSE, approval requests are routed to the web interface. This works on all platforms.
 
-### Dialog Content
+2. **macOS native dialogs**: Falls back to `osascript` dialogs when web UI is not connected:
+   - Audio notification (`Funk.aiff`) on first dialog
+   - Queue indicator shows pending requests
+
+**Linux/Windows without web UI**: Auto-deny with warning log.
+
+### Dialog Content (osascript)
 
 ```
 Tool: <tool_name>
+Backend: <backend_id>
 Path: <path>                    (truncated to 60 chars if needed)
 Rule: <rule_that_triggered>     (why HITL was required)
 Effects: <side_effects>         (e.g., fs_write, code_exec)
 User: <subject_id>
 Queue: #2 pending               (only shown if queue_position > 1)
 
-Auto-deny in 30s
+Auto-deny in 60s
 [Esc] Deny | Allow (Xm) | [Return] Allow once
 ```
 
@@ -451,11 +441,13 @@ Auto-deny in 30s
 - **Deny** (Esc): Reject the operation
 - **Allow** (Return): Approve the operation
 
-### HITLConfig Fields
+### HITL Configuration
+
+HITL settings are configured in `config.json` (not `policy.json`). Changes require proxy restart.
 
 | Field | Required | Default | Constraints | Description |
 |-------|----------|---------|-------------|-------------|
-| `timeout_seconds` | No | `30` | 5-300 | How long to wait for user response |
+| `timeout_seconds` | No | `60` | 5-300 | How long to wait for user response |
 | `default_on_timeout` | No | `"deny"` | (fixed) | Always deny on timeout (Zero Trust, cannot be changed) |
 | `approval_ttl_seconds` | No | `600` | 300-900 | How long cached approvals remain valid (5-15 min) |
 | `cache_side_effects` | No | `null` | see below | Which side effects can be cached |
@@ -464,16 +456,18 @@ Auto-deny in 30s
 
 | Value | Behavior |
 |-------|----------|
-| `null` (default) | Only cache tools with NO side effects |
+| `null` (default) | Only cache tools with NO side effects (unknown tools are also not cached) |
 | `["fs_write", ...]` | Also cache tools with these specific side effects |
 | (any value) | Tools with `code_exec` are **never cached** (unsafe - same key matches different commands) |
 
-Example:
+Example (in `config.json`):
 ```json
-"hitl": {
-  "timeout_seconds": 60,
-  "approval_ttl_seconds": 600,
-  "cache_side_effects": ["fs_write"]
+{
+  "hitl": {
+    "timeout_seconds": 60,
+    "approval_ttl_seconds": 600,
+    "cache_side_effects": ["fs_write"]
+  }
 }
 ```
 
@@ -498,6 +492,6 @@ All HITL decisions are logged to `decisions.jsonl`. See [Logging](logging.md) fo
 
 ## See Also
 
-- [Configuration](configuration.md) for policy file location
+- [Configuration](configuration.md) for policy file location and HITL settings (in config.json)
 - [Security](security.md) for fail-closed behavior
 - [Logging](logging.md) for decision logging

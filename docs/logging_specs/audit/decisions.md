@@ -14,6 +14,7 @@ event — fixed string "policy_decision"
 decision — "allow" | "deny" | "hitl"
 hitl_outcome — optional, "user_allowed" | "user_denied" | "timeout" (only when decision == "hitl")
 hitl_cache_hit — optional, true if approval was from cache, false if user was prompted, null if not HITL
+hitl_approver_id — optional, OIDC subject ID of user who approved/denied (null if timeout or cache hit)
 matched_rules — list of matched rule objects with decision trace info:
   - id: rule identifier
   - effect: "allow" | "deny" | "hitl"

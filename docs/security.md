@@ -84,6 +84,27 @@ At startup, the proxy resolves protected directories using `os.path.realpath()`:
 
 This resolution happens once at startup, preventing symlink-based bypass attempts. These paths are then checked before policy evaluation for every request.
 
+### Device Health Checks (macOS)
+
+Before accepting requests, the proxy verifies device security posture:
+
+| Check | Requirement | Why |
+|-------|-------------|-----|
+| **FileVault** | Must be enabled | Ensures disk encryption protects tokens and logs at rest |
+| **SIP** | Must be enabled | Prevents malware from tampering with system binaries |
+
+This is a **hard gate** - the proxy refuses to start if either check fails (exit code 14).
+
+**Runtime Monitoring**: Device health is re-checked every 5 minutes during operation. If the device becomes unhealthy (e.g., FileVault disabled), the proxy triggers a security shutdown.
+
+**Non-macOS Platforms**: Device health checks are skipped on Linux/Windows. The proxy starts but without hardware security verification.
+
+### Binary Attestation (STDIO Backends)
+
+Before spawning STDIO backend processes, the proxy can verify binary integrity via hash verification, code signature (macOS), and SLSA provenance. All configured checks must pass (fail-closed).
+
+See [Authentication](auth.md#binary-attestation-stdio-backends) for configuration and verification details.
+
 ### Startup Failure Handling
 
 If startup fails due to configuration or validation errors:
@@ -161,6 +182,35 @@ Two rate limiters protect against different threats:
 - Credential abuse patterns
 
 Both limiters are unidirectional (client → proxy only). Backend notifications bypass rate limiting.
+
+### Session Management
+
+**Session Binding**: Each session is bound to the authenticated user identity at creation. Format: `<user_id>:<session_id>` where session_id uses 256 bits of cryptographic entropy (`secrets.token_urlsafe(32)`).
+
+**Session TTL**: Sessions expire after 8 hours from creation. This is shorter than typical token lifetimes to limit the window for session-based attacks.
+
+**Per-Request Validation**: On every request, the session manager verifies the current user identity matches the session's bound identity. If mismatched (indicating potential session hijacking), the proxy triggers an immediate security shutdown (exit code 15).
+
+**Session Lifecycle Events**: Session start/end logged to `audit/auth.jsonl` with subject ID for audit trail.
+
+### Authentication
+
+**OIDC Token Validation**: Every request requires a valid OIDC token. Tokens are validated per-request (Zero Trust - no cached trust decisions). Validation includes:
+- Signature verification against issuer's JWKS
+- Issuer (`iss`) and audience (`aud`) claim verification
+- Expiration (`exp`) and not-before (`nbf`) claim checks
+
+**JWKS Caching**: The issuer's JSON Web Key Set is cached for 10 minutes to reduce IdP load. Token validation itself is never cached - only the public keys used to verify signatures.
+
+**Token Storage**: Tokens are stored securely in the OS keychain via the `keyring` library (macOS tested). If keychain is unavailable, falls back to Fernet-encrypted file storage in the protected config directory. No plaintext tokens are stored.
+
+**Token Refresh**: When tokens expire, automatic refresh is attempted using the refresh token. If refresh fails, the user must re-authenticate.
+
+### mTLS (Mutual TLS) for HTTP Backends
+
+For HTTP/SSE backends requiring client certificate authentication, the proxy supports mTLS with certificate expiry monitoring (warning at 14 days, critical at 7 days, blocked if expired).
+
+See [Backend Authentication](backend_auth.md) for configuration and certificate requirements.
 
 ### Tool Description Sanitization
 
@@ -290,7 +340,9 @@ Each event includes version number, checksum, and snapshot for forensic analysis
 - Backslashes escaped before quotes - order matters for correct escaping
 - Double quotes escaped - prevents breaking out of string literals
 
-**Timeout Behavior**: HITL timeout defaults to DENY (fail-safe). The default timeout is 30 seconds with a minimum of 5 seconds (ensures user has time to read the prompt).
+**Timeout Behavior**: HITL timeout defaults to DENY (fail-safe). The default timeout is 60 seconds (range: 5-300 seconds). The minimum ensures users have time to read the prompt.
+
+**Approval Caching**: To reduce dialog fatigue, approvals are cached with a 10-minute TTL (range: 5-15 minutes). Cached approvals match on (subject_id, tool_name, normalized_path). Tools with side effects are not cached by default.
 
 ### Error Handling
 
@@ -348,13 +400,28 @@ Shutdown is triggered when security invariants are violated:
 6. Schedules delayed exit (100ms allows error response to flush)
 7. Calls `os._exit(15)` - cannot be caught by exception handlers
 
-### Breadcrumb File
+### Shutdown Logging
 
-On critical security failure, a breadcrumb file is written for post-incident analysis:
+On critical security failure, shutdown events are logged to multiple destinations:
 
-- **Location**: `<log_dir>/.last_crash`
-- **Contents**: timestamp, failure type, list of missing/compromised files
-- **Files checked**: `audit/`, `audit/operations.jsonl`, `audit/decisions.jsonl`, `system/`, `system/system.jsonl`, `system/config_history.jsonl`, `system/policy_history.jsonl`
+**1. Shutdowns Log** (`<log_dir>/shutdowns.jsonl`):
+- JSONL format for programmatic access (displayed in UI Incidents page)
+- Contains: timestamp, event type, failure type, reason, exit code, context
+
+**2. Breadcrumb File** (`<log_dir>/.last_crash`):
+- Human-readable format for post-incident analysis
+- Format:
+  ```
+  <timestamp>
+  failure_type: <type>
+  exit_code: <code>
+  reason: <reason>
+  context: <json>
+  ```
+
+**3. System Log** (`<log_dir>/system/system.jsonl`):
+- Best-effort logging to primary system log
+- May fail if filesystem issues caused the shutdown
 
 ### Exit Codes
 
@@ -362,8 +429,8 @@ On critical security failure, a breadcrumb file is written for post-incident ana
 |------|---------|--------------|
 | 10 | Audit log integrity failure | File deletion, replacement, or write failure |
 | 11 | Policy enforcement failure | Reserved for future use |
-| 12 | Identity verification failure | JWKS endpoint unreachable |
-| 13 | Authentication error | No token, expired token, invalid signature |
+| 12 | Identity verification failure | JWKS endpoint unreachable and cache expired |
+| 13 | Authentication error | No token in keychain, expired token that cannot be refreshed, invalid signature, OIDC issuer/audience validation failure |
 | 14 | Device health check failure | FileVault/SIP not enabled (macOS) |
 | 15 | Session binding violation | Identity changed mid-session (potential hijacking) |
 
@@ -376,5 +443,7 @@ After shutdown, MCP clients may auto-restart the proxy. The restarted proxy rece
 ## See Also
 
 - [Architecture](architecture.md) - Zero Trust principles, PEP/PDP separation, request flow
+- [Authentication](auth.md) - User authentication, binary attestation, device health, session binding
+- [Backend Authentication](backend_auth.md) - mTLS configuration, certificate management
 - [Policies](policies.md) - Policy syntax, HITL configuration, combining algorithm
 - [Logging](logging.md) - Log structure, formats, correlation IDs
