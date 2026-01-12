@@ -141,8 +141,11 @@ The operation being performed.
 |------------|----------|-----|
 | `tools/call` | `ACTION` | Tool execution - cannot trust what it does |
 | `resources/read` | `ACTION` | Content access with known `read` intent |
-| `tools/list`, `resources/list` | `DISCOVERY` | Metadata listing - auto-allowed |
-| `ping`, `initialize` | `DISCOVERY` | Protocol methods - auto-allowed |
+| `prompts/get` | `ACTION` | Returns content that may be sensitive |
+| `initialize`, `ping` | `DISCOVERY` | Protocol methods - auto-allowed |
+| `tools/list`, `resources/list`, `prompts/list` | `DISCOVERY` | Metadata listing - auto-allowed |
+| `resources/templates/list` | `DISCOVERY` | Template discovery - auto-allowed |
+| `notifications/*` | `DISCOVERY` | Async notifications - auto-allowed |
 
 ---
 
@@ -171,6 +174,8 @@ The target of the operation.
 |-------|-------------|
 | `name` | Tool name from request |
 | `side_effects` | Known effects (e.g., `fs_write`, `code_exec`, `network_egress`) |
+| `version` | Tool version (future: from registry) |
+| `risk_tier` | Risk classification (future: from registry) |
 
 Side effects are looked up from `context/tool_side_effects.py`. Policies can match on tool names directly or use side effects for broader rules.
 
@@ -180,7 +185,9 @@ Side effects are looked up from `context/tool_side_effects.py`. Policies can mat
 |-------|-------------|
 | `uri` | Full URI if provided |
 | `scheme` | URI scheme (`file`, `http`, `db`, `s3`, etc.) |
-| `path` | Normalized file path |
+| `path` | Normalized file path (first/primary path found) |
+| `source_path` | Source path for move/copy operations |
+| `dest_path` | Destination path for move/copy operations |
 | `filename` | Base filename |
 | `extension` | File extension |
 | `parent_dir` | Parent directory |
@@ -197,8 +204,8 @@ Contextual information about the request.
 | `request_id` | Request correlation ID |
 | `session_id` | Session identifier |
 | `mcp_client_name` | Client application name (from initialize) |
-| `mcp_client_version` | Client version |
-| `proxy_instance` | Proxy instance ID (for multi-instance deployments) |
+| `mcp_client_version` | Client version (from initialize) |
+| `proxy_instance` | Proxy instance ID (future: multi-instance deployments) |
 
 ---
 
@@ -208,11 +215,11 @@ A `tools/call` request to `write_file` targeting `/home/user/.env`:
 
 | Component | Key Fields |
 |-----------|------------|
-| **Subject** | `id="user-123"`, `issuer="https://auth0.com"` |
+| **Subject** | `id="user-123"`, `issuer="https://auth0.com"`, `scopes=["openid", "profile"]` |
 | **Action** | `mcp_method="tools/call"`, `category=ACTION`, `intent=None` |
-| **Resource** | `type=TOOL`, `tool.name="write_file"`, `tool.side_effects=[fs_write]` |
+| **Resource** | `type=TOOL`, `tool.name="write_file"`, `tool.side_effects={fs_write}` |
 | **Resource** | `resource.path="/home/user/.env"`, `resource.extension=None` |
-| **Environment** | `request_id="req-123"`, `session_id="sess-456"` |
+| **Environment** | `request_id="req-123"`, `session_id="sess-456"`, `mcp_client_name="claude-desktop"` |
 
 Note: `intent=None` for tools/call because we cannot trust tool names to determine intent.
 
