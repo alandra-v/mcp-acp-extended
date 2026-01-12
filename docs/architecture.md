@@ -41,25 +41,25 @@
 
 ```
 1. Client sends MCP request -> Proxy (STDIO)
-2. DoS rate limiter: Check global request rate
-3. Logging middleware: Log client_request
-4. Enforcement middleware:
+2. DoS rate limiter: Check global request rate (10 req/s, 50 burst)
+3. Context middleware: Set request_id, session_id, tool_context
+4. Audit middleware: Log operation to operations.jsonl
+5. ClientLogger: Debug logging (if enabled)
+6. Enforcement middleware:
    a. Build DecisionContext (user, session, operation, resource)
    b. Check per-tool rate limits (triggers HITL if exceeded)
    c. Call PolicyEngine.evaluate(context) -> Decision
    d. If ALLOW: forward to backend
    e. If DENY: return error, log denial
    f. If HITL: prompt user -> ALLOW or DENY
-5. Backend logging: Log proxy_request
-6. Backend processes request
-7. Backend logging: Log backend_response
-8. Logging middleware: Log proxy_response
+7. Backend processes request
+8. Response flows back through middleware (inner-to-outer)
 9. Client receives response
 ```
 
 ### Middleware Stack
 
-Middleware executes outer-to-inner on requests, inner-to-outer on responses:
+Middleware executes outer-to-inner on requests, inner-to-outer on responses. In FastMCP, **first-added middleware is outermost** (runs first on requests).
 
 ```
 Request:  Client → DoS → Context → Audit → ClientLogger → Enforcement → Backend
@@ -68,7 +68,7 @@ Response: Client ← DoS ← Context ← Audit ← ClientLogger ← Enforcement 
 
 | Middleware | Purpose |
 |------------|---------|
-| DoS (outermost) | Token bucket rate limiting (10 req/s, 50 burst) - prevents request flooding |
+| DoS (outermost) | Token bucket rate limiting (10 req/s, 50 burst) - catches flooding before any processing |
 | Context | Sets request_id, session_id, tool_context for correlation |
 | Audit | Logs all operations to `operations.jsonl` (always enabled) |
 | ClientLogger | Debug wire logging to `client_wire.jsonl` (if debug enabled) |
@@ -88,115 +88,54 @@ For detailed sequence diagrams, see [Request Flow Diagrams](request_flow_diagram
 
 The proxy implements Zero Trust Architecture based on the seven tenets defined in [NIST SP 800-207](https://doi.org/10.6028/NIST.SP.800-207):
 
-| # | NIST Tenet | Implementation |
-|---|------------|----------------|
-| 1 | "All data sources and computing services are considered resources." | MCP operations (tools/call, resources/read, prompts/get) require policy evaluation; discovery methods allowed for protocol function (see `constants.py`) |
-| 2 | "All communication is secured regardless of network location." | STDIO (local process); Streamable HTTP with optional mTLS |
-| 3 | "Access to individual enterprise resources is granted on a per-session basis." | Policy evaluated every request; identity cached 60s for performance; HITL approvals cached to reduce dialog fatigue |
-| 4 | "Access to resources is determined by dynamic policy—including the observable state of client identity, application/service, and the requesting asset—and may include other behavioral and environmental attributes." | ABAC policy engine evaluates subject, action, resource, environment attributes per request |
-| 5 | "The enterprise monitors and measures the integrity and security posture of all owned and associated assets." | Audit log integrity monitoring (30s interval) with fail-closed shutdown; device posture checks (FileVault, SIP) with 5-min interval |
-| 6 | "All resource authentication and authorization are dynamic and strictly enforced before access is allowed." | Policy enforced before forwarding; OIDC token validated with 60-second cache for performance |
-| 7 | "The enterprise collects as much information as possible about the current state of assets, network infrastructure and communications and uses it to improve its security posture." | Comprehensive audit logging (operations, decisions, config/policy history) for forensics and analysis |
+| # | NIST Tenet | Status | Implementation | Gaps |
+|---|------------|--------|----------------|------|
+| 1 | "All data sources and computing services are considered resources." | Partial | MCP operations (tools/call, resources/read, prompts/get) require policy evaluation | Discovery methods (`tools/list`, `resources/list`, etc.) bypass policy entirely (`pdp/engine.py:242`) |
+| 2 | "All communication is secured regardless of network location." | Partial | STDIO with binary attestation (hash, codesign, SLSA); Streamable HTTP with mTLS | Post-spawn process verification implemented but **not integrated** into transport (`binary_attestation.py:28`) |
+| 3 | "Access to individual enterprise resources is granted on a per-session basis." | Partial | Policy evaluated for ACTION methods; identity validated per-request; session-scoped approvals | Discovery methods skip per-request authorization; HITL approvals cached (reduces re-auth frequency) |
+| 4 | "Access to resources is determined by dynamic policy..." | Full | ABAC policy engine evaluates subject, action, resource, environment attributes per request | — |
+| 5 | "The enterprise monitors and measures the integrity and security posture of all owned and associated assets." | POC | Audit log integrity (30s interval, fail-closed); device posture (5-min interval) | Device health is **POC only** (`device.py:3-6`): just FileVault/SIP on macOS, no MDM, endpoint agents, or cert attestation; backend→proxy notifications bypass middleware (`proxy.py:775`) |
+| 6 | "All resource authentication and authorization are dynamic and strictly enforced before access is allowed." | Partial | OIDC JWT validated per-request (mandatory); policy enforced before forwarding | Discovery methods bypass authorization entirely |
+| 7 | "The enterprise collects as much information as possible..." | Full | Audit logging (operations, decisions, config/policy history) for forensics | — |
 
 **Additional design principles:**
-- **Fail-closed**: All errors result in DENY (context build failure, policy error, HITL timeout)
+- **Fail-closed**: All errors result in DENY; audit/integrity failures trigger shutdown
 - **Human oversight**: HITL for sensitive operations as policy-defined escalation
-- **Least privilege**: Path-scoped policies, default-deny
+- **Least privilege**: Path-scoped policies, default-deny, protected directories
 
 ### Modularity
 
 | Component | Mechanism | Status |
 |-----------|-----------|--------|
-| Identity | `IdentityProvider` protocol | ✅ Pluggable (local → OAuth → mTLS) |
-| Transport | FastMCP transport abstraction | ✅ STDIO, streamable HTTP |
-| Middleware | FastMCP middleware stack | ✅ Composable ordering |
-| Configuration | Version field, Pydantic models | ✅ Schema evolution supported |
+| Identity | `IdentityProvider` protocol | Pluggable (OIDC implemented) |
+| Transport | FastMCP transport abstraction | STDIO, streamable HTTP |
+| Middleware | FastMCP middleware stack | Composable ordering |
+| Configuration | Version field, Pydantic models | Schema evolution supported |
 | Policy engine | Class-based, no protocol yet | Future 3rd party integration |
-| Logging | Pydantic models, JSONL format | ✅ Extensible (SystemEvent allows extra fields) |
+| Logging | Pydantic models, JSONL format | Extensible (SystemEvent allows extra fields) |
 
 
 ---
 
-## Separation of Concerns
+## Module Organization
 
-Modules are organized by domain with related responsibilities grouped together:
+The codebase is organized by domain with related responsibilities grouped together:
 
-```
-src/mcp_acp_extended/
-├── proxy.py                    # Main entry point, orchestration
-├── config.py                   # Configuration models (Pydantic)
-├── constants.py                # Shared constants
-├── exceptions.py               # Custom exceptions
-├── api/                        # Management API server
-│   ├── s erver.py               # FastAPI app creation
-│   └── routes/                # API endpoints
-│       ├── control.py          # /api/control/* (status, reload-policy)
-│       ├── approvals.py        # /api/approvals (cached approval visibility)
-│       └── ...
-├── manager/                    # UI state aggregation layer
-│   ├── state.py                # ProxyState, PendingApprovalInfo/Request
-│   └── routes.py               # /api/proxies, /api/sessions, /api/approvals/pending/*
-├── cli/                        # CLI package (Click-based)
-│   ├── main.py                 # CLI group definition
-│   ├── prompts.py              # Interactive prompt helpers
-│   ├── startup_alerts.py       # Startup alert display
-│   └── commands/               # Subcommand modules
-│       ├── init.py, start.py, config.py, auth.py, policy.py
-├── context/                    # ABAC context building
-│   ├── context.py              # DecisionContext model + build_decision_context()
-│   ├── subject.py              # Subject attributes (user identity)
-│   ├── action.py               # Action attributes (MCP method, intent)
-│   ├── resource.py             # Resource attributes (tool, file, server)
-│   ├── environment.py          # Environment attributes (timestamp, IDs)
-│   ├── provenance.py           # Provenance tracking (TOKEN, PROXY_CONFIG, etc.)
-│   ├── parsing.py              # Path/URI parsing utilities
-│   └── tool_side_effects.py    # Tool side effects mapping
-├── pdp/                        # Policy Decision Point
-│   ├── policy.py               # PolicyConfig, PolicyRule, RuleConditions
-│   ├── matcher.py              # Pattern matching (glob, regex)
-│   ├── engine.py               # PolicyEngine.evaluate()
-│   └── decision.py             # Decision enum (ALLOW/DENY/HITL)
-├── pep/                        # Policy Enforcement Point
-│   ├── middleware.py           # PolicyEnforcementMiddleware
-│   ├── context_middleware.py   # ContextMiddleware (request context lifecycle)
-│   ├── hitl.py                 # HITLHandler (macOS osascript dialogs)
-│   ├── applescript.py          # AppleScript utilities
-│   ├── approval_store.py       # HITL approval caching
-│   ├── rate_handler.py         # Rate limit breach handling
-│   └── reloader.py             # Hot policy reload
-├── pips/                       # Policy Information Points
-│   └── auth/                   # Authentication PIP
-│       ├── oidc_provider.py    # OIDCIdentityProvider (JWKS, token validation)
-│       ├── claims.py           # Token claims processing
-│       └── session.py          # Session management
-├── security/
-│   ├── identity.py             # IdentityProvider protocol
-│   ├── shutdown.py             # ShutdownCoordinator
-│   ├── rate_limiter.py         # Per-session rate tracking
-│   ├── mtls.py                 # mTLS configuration
-│   ├── sanitizer.py            # Input sanitization
-│   ├── tool_sanitizer.py       # Tool description sanitization
-│   ├── auth/                   # JWT validation
-│   │   └── jwt_validator.py
-│   ├── posture/                # Device health checks
-│   │   └── device.py           # FileVault, SIP checks
-│   └── integrity/              # Audit log integrity
-│       ├── audit_handler.py    # FailClosedAuditHandler (inode verification)
-│       ├── audit_monitor.py    # AuditHealthMonitor (background checks)
-│       └── emergency_audit.py  # Fallback chain logging
-├── telemetry/                  # All logging functionality
-│   ├── audit/                  # Security audit logging (ALWAYS enabled)
-│   │   ├── operation_logger.py, decision_logger.py, auth_logger.py
-│   ├── debug/                  # Wire-level debug logging (DEBUG level only)
-│   │   ├── client_logger.py, backend_logger.py
-│   ├── system/                 # System/operational logging
-│   │   └── system_logger.py
-│   └── models/                 # Pydantic models for log events
-│       ├── wire.py, system.py, audit.py, decision.py
-└── utils/                      # General utilities
-    ├── file_helpers.py, transport.py
-    ├── config/, policy/, history_logging/, logging/
-```
+| Module | Purpose |
+|--------|---------|
+| `proxy.py` | Main entry point, lifecycle orchestration |
+| `config.py` | Configuration models (Pydantic) |
+| `api/` | Management API server (FastAPI), routes, schemas |
+| `manager/` | UI state aggregation (ProxyState, SSE events) |
+| `cli/` | Command-line interface (Click-based) |
+| `context/` | ABAC context building (subject, action, resource, environment) |
+| `pdp/` | Policy Decision Point (engine, matcher, rules) |
+| `pep/` | Policy Enforcement Point (middleware, HITL, approval cache) |
+| `pips/` | Policy Information Points (OIDC, session management) |
+| `security/` | Security infrastructure (auth, posture, integrity, shutdown) |
+| `telemetry/` | Logging (audit, debug, system) |
+| `web/` | Static files for React UI |
+| `utils/` | Helpers (config, policy, history logging) |
 
 ---
 
@@ -211,8 +150,8 @@ src/mcp_acp_extended/
 
 | PIP | What it provides | Status |
 |-----|------------------|--------|
-| OIDC Identity Provider | User ID, scopes, token claims from JWT | ✅ Implemented |
-| Device Posture | FileVault, SIP status | ✅ Implemented |
+| OIDC Identity Provider | User ID, scopes, token claims from JWT | Implemented |
+| Device Posture | FileVault, SIP status | Implemented |
 | Tool Registry | Verified side effects, risk tiers | Future |
 | Threat Intel Feed | Known bad IPs, risk scores | Future |
 
@@ -224,21 +163,28 @@ The `DecisionContext` flows through the system for policy evaluation, logging, a
 
 ---
 
-## Error Handling
+## State Management
 
-### Backend Errors
+The `manager/` module provides state aggregation for the Management API.
 
-MCP errors from backend servers are forwarded to clients unchanged. These are already properly formatted MCP error responses with standard MCP error codes.
+**ProxyState** aggregates:
+- Cached HITL approvals
+- Active user sessions
+- Pending approvals (requests waiting for UI decision)
+- Request statistics (total/allowed/denied/HITL counts)
+- Backend connection state (for reconnection detection)
 
-### Proxy-Level Errors
+**SSE Events** are broadcast to connected UI clients for real-time updates:
+- **HITL lifecycle**: pending_created, pending_resolved, pending_timeout
+- **Backend connection**: backend_connected, backend_disconnected, backend_reconnected, backend_timeout
+- **Authentication**: auth_login, auth_logout, token_refresh_failed, auth_session_expiring
+- **Policy**: policy_reloaded, policy_reload_failed, config_change_detected
+- **Rate limiting**: rate_limit_triggered, rate_limit_approved, rate_limit_denied
+- **Cache**: cache_cleared, cache_entry_deleted
+- **Live updates**: stats_updated, new_log_entries
+- **Critical events**: critical_shutdown, audit_tampering, device_health_failed
 
-Transport failures (backend disconnect, timeout) and internal proxy errors surface as raw exceptions rather than MCP error codes. This is a conscious trade-off:
-
-- **Rare occurrence**: These errors are edge cases, not normal operation
-- **Diagnostic value**: Raw error messages (e.g., `BrokenPipeError`, `ConnectionError`) provide useful context
-- **Complexity vs benefit**: Adding `ErrorHandlingMiddleware` would add complexity for minimal benefit
-
-If clients need consistent MCP error surfaces, FastMCP's `ErrorHandlingMiddleware` can be added as the outermost middleware to transform proxy errors to MCP format.
+See `manager/state.py` for the full `SSEEventType` enum.
 
 ---
 
@@ -252,31 +198,20 @@ If clients need consistent MCP error surfaces, FastMCP's `ErrorHandlingMiddlewar
 - STDIO and Streamable HTTP transports
 
 **Stage 2 (Current): Authentication & Authorization**
-- OAuth authentication (Auth0 IdP)
-- User ID, roles, groups from JWT tokens
-- Enhanced device posture tracking
+- OIDC authentication (Auth0 IdP)
+- mTLS for proxy↔backend authentication
+- User ID, email, scopes from JWT tokens
+- Background health monitors with fail-closed shutdown
+- Web UI for monitoring and HITL
 
 **Stage 3: Multi-server**
 - Multiple backend servers with per-server policies
-- mTLS for proxy<->backend authentication
-- Cross-server data flow tracking
-
-
-### Planned Capabilities
-
-| Capability | Description |
-|------------|-------------|
-| Client-side protections | Sanitize responses before returning to client |
-| Heuristic HITL | Risk scoring to trigger HITL based on behavioral patterns |
-| Anomaly detection | Behavioral analysis based on request patterns |
-| Content inspection | Secret/PII detection in request/response payloads |
-| Cross-server rules | Lateral movement detection across multiple backends |
-| Trust-level policies | Require TOKEN provenance for sensitive operations |
 
 ---
 
 ## See Also
 
+- [API Reference](api_reference.md) for Management API endpoints
 - [Security](security.md) for security design decisions
 - [Logging](logging.md) for telemetry architecture
 - [Policies](policies.md) for policy evaluation
