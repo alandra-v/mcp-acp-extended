@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getProxies } from '@/api/proxies'
-import { toast } from '@/components/ui/sonner'
+import { notifyError } from '@/hooks/useErrorSound'
 import type { Proxy } from '@/types/api'
 
 export interface UseProxiesResult {
@@ -22,7 +22,7 @@ export function useProxies(): UseProxiesResult {
       hasShownErrorRef.current = false
     } catch {
       if (!hasShownErrorRef.current) {
-        toast.error('Failed to load proxies')
+        notifyError('Failed to load proxies')
         hasShownErrorRef.current = true
       }
     } finally {

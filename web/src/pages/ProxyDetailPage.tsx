@@ -12,6 +12,7 @@ import { ActivitySection } from '@/components/detail/ActivitySection'
 import { LogViewer } from '@/components/logs'
 import { Section } from '@/components/detail/Section'
 import { ConfigSection } from '@/components/detail/ConfigSection'
+import { PolicySection } from '@/components/detail/PolicySection'
 import { useProxies } from '@/hooks/useProxies'
 import { useAppState } from '@/context/AppStateContext'
 import { useCachedApprovals } from '@/hooks/useCachedApprovals'
@@ -140,7 +141,7 @@ export function ProxyDetailPage() {
           )}
 
           {activeSection === 'logs' && (
-            <Section number="001" title="Logs" loaded={loaded}>
+            <Section index={0} title="Logs" loaded={loaded}>
               <LogViewer
                 initialFolder="audit"
                 initialLogType="_all"
@@ -150,9 +151,7 @@ export function ProxyDetailPage() {
           )}
 
           {activeSection === 'policy' && (
-            <div className="text-center py-16 text-muted-foreground">
-              Policy section coming soon
-            </div>
+            <PolicySection loaded={loaded} />
           )}
 
           {activeSection === 'config' && (

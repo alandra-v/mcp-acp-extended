@@ -51,11 +51,19 @@ export interface ProxyConfig {
   name: string
 }
 
+export interface HITLConfig {
+  timeout_seconds: number
+  default_on_timeout: string
+  approval_ttl_seconds: number
+  cache_side_effects: string[] | null
+}
+
 export interface ConfigResponse {
   backend: BackendConfig
   logging: LoggingConfig
   auth: AuthConfig | null
   proxy: ProxyConfig
+  hitl: HITLConfig
   config_path: string
   requires_restart_for_changes: boolean
 }
@@ -132,11 +140,18 @@ export interface ProxyConfigUpdate {
   name?: string
 }
 
+export interface HITLConfigUpdate {
+  timeout_seconds?: number
+  approval_ttl_seconds?: number
+  cache_side_effects?: string[]
+}
+
 export interface ConfigUpdateRequest {
   logging?: LoggingConfigUpdate
   backend?: BackendConfigUpdate
   proxy?: ProxyConfigUpdate
   auth?: AuthConfigUpdate
+  hitl?: HITLConfigUpdate
 }
 
 // =============================================================================

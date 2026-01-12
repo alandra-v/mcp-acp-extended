@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { toast } from '@/components/ui/sonner'
+import { notifyError } from '@/hooks/useErrorSound'
 import { cn } from '@/lib/utils'
 import type { ConfigResponse, ConfigUpdateRequest, TransportType, ConfigChange } from '@/api/config'
 
@@ -54,6 +55,9 @@ interface FormState {
   mtls_client_cert_path: string
   mtls_client_key_path: string
   mtls_ca_bundle_path: string
+  // HITL
+  hitl_timeout_seconds: string
+  hitl_approval_ttl_seconds: string
 }
 
 /**
@@ -79,6 +83,8 @@ function configToFormState(config: ConfigResponse): FormState {
     mtls_client_cert_path: config.auth?.mtls?.client_cert_path || '',
     mtls_client_key_path: config.auth?.mtls?.client_key_path || '',
     mtls_ca_bundle_path: config.auth?.mtls?.ca_bundle_path || '',
+    hitl_timeout_seconds: config.hitl.timeout_seconds.toString(),
+    hitl_approval_ttl_seconds: config.hitl.approval_ttl_seconds.toString(),
   }
 }
 
@@ -191,6 +197,20 @@ function formStateToUpdateRequest(
     }
   }
 
+  // HITL
+  const hitlUpdates: ConfigUpdateRequest['hitl'] = {}
+  const originalTimeout = original.hitl.timeout_seconds.toString()
+  const originalTtl = original.hitl.approval_ttl_seconds.toString()
+  if (form.hitl_timeout_seconds !== originalTimeout) {
+    hitlUpdates.timeout_seconds = parseInt(form.hitl_timeout_seconds, 10)
+  }
+  if (form.hitl_approval_ttl_seconds !== originalTtl) {
+    hitlUpdates.approval_ttl_seconds = parseInt(form.hitl_approval_ttl_seconds, 10)
+  }
+  if (Object.keys(hitlUpdates).length > 0) {
+    updates.hitl = hitlUpdates
+  }
+
   return updates
 }
 
@@ -245,7 +265,7 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
 
     // Check if user is still authenticated
     if (!authStatus?.authenticated) {
-      toast.error('You must be logged in to save config changes')
+      notifyError('You must be logged in to save config changes')
       return
     }
 
@@ -263,7 +283,7 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
 
   if (loading) {
     return (
-      <Section number="001" title="Configuration" loaded={loaded}>
+      <Section index={0} title="Configuration" loaded={loaded}>
         <div className="text-center py-8 text-muted-foreground">Loading configuration...</div>
       </Section>
     )
@@ -271,7 +291,7 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
 
   if (!config || !form) {
     return (
-      <Section number="001" title="Configuration" loaded={loaded}>
+      <Section index={0} title="Configuration" loaded={loaded}>
         <div className="text-center py-8 text-muted-foreground">
           Failed to load configuration.
           <Button variant="ghost" size="sm" onClick={refresh} className="ml-2">
@@ -286,7 +306,7 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
   const isHttpActive = form.backend_transport === 'streamablehttp' || form.backend_transport === 'auto'
 
   return (
-    <Section number="001" title="Configuration" loaded={loaded}>
+    <Section index={0} title="Configuration" loaded={loaded}>
       <div
         className={cn(
           'space-y-8 p-6 rounded-lg border transition-all duration-300',
@@ -489,6 +509,30 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
           </FormSection>
         )}
 
+        {/* HITL Settings */}
+        <FormSection title="Human-in-the-Loop (HITL)">
+          <FormRow label="Timeout" hint="Seconds to wait for user approval (5-300)">
+            <Input
+              type="number"
+              min={5}
+              max={300}
+              value={form.hitl_timeout_seconds}
+              onChange={(e) => updateField('hitl_timeout_seconds', e.target.value)}
+              className="w-24"
+            />
+          </FormRow>
+          <FormRow label="Approval TTL" hint="Seconds cached approvals remain valid (300-900)">
+            <Input
+              type="number"
+              min={300}
+              max={900}
+              value={form.hitl_approval_ttl_seconds}
+              onChange={(e) => updateField('hitl_approval_ttl_seconds', e.target.value)}
+              className="w-24"
+            />
+          </FormRow>
+        </FormSection>
+
         {/* Pending Changes (saved but not running) */}
         {hasPendingChanges && (
           <div className="pt-4 border-t border-[var(--border-subtle)]">
@@ -498,8 +542,9 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
 
         {/* Config File Path (read-only) */}
         <div className="pt-4 border-t border-[var(--border-subtle)]">
-          <div className="text-xs text-muted-foreground">
-            Config file: <span className="font-mono">{config.config_path}</span>
+          <div className="text-xs text-muted-foreground space-y-1">
+            <div>Config file: <span className="font-mono">{config.config_path}</span></div>
+            <div>Changes require proxy restart to take effect.</div>
           </div>
         </div>
 

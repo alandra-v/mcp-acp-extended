@@ -8,6 +8,7 @@ import {
   ConfigChange,
 } from '@/api/config'
 import { toast } from '@/components/ui/sonner'
+import { notifyError } from '@/hooks/useErrorSound'
 
 export interface UseConfigResult {
   config: ConfigResponse | null
@@ -73,7 +74,7 @@ export function useConfig(): UseConfigResult {
       if (mountedRef.current) {
         const msg = e instanceof Error ? e.message : 'Failed to load config'
         setError(msg)
-        toast.error(msg)
+        notifyError(msg)
       }
     } finally {
       if (mountedRef.current) {
@@ -99,7 +100,7 @@ export function useConfig(): UseConfigResult {
           // API errors include the detail in the message
           msg = e.message
         }
-        toast.error(msg)
+        notifyError(msg)
       }
       return false
     } finally {

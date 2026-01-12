@@ -19,7 +19,7 @@ export function ApprovalsSection({
   loaded = true,
 }: ApprovalsSectionProps) {
   return (
-    <Section number="002" title="Pending Approvals" loaded={loaded}>
+    <Section index={0} title="Pending Approvals" loaded={loaded}>
       <div className="space-y-3">
         <DataState hasData={approvals.length > 0} emptyMessage="No pending approvals">
           {approvals.map((approval) => (

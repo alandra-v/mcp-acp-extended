@@ -18,7 +18,7 @@ export function ActivitySection({
 
   return (
     <Section
-      number="004"
+      index={0}
       title="Recent Activity"
       loaded={loaded}
     >

@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { getLogs, type LogType, type LogFilters } from '@/api/logs'
 import { toast } from '@/components/ui/sonner'
+import { notifyError } from '@/hooks/useErrorSound'
 import { ApiError, type LogEntry } from '@/types/api'
 
 export interface UseLogsResult {
@@ -73,7 +74,7 @@ export function useLogs(
       if (isDebugLog && is404) {
         toast.warning('Debug logs not available. Set log_level to DEBUG in config.')
       } else {
-        toast.error('Failed to load logs')
+        notifyError('Failed to load logs')
       }
     } finally {
       setLoading(false)

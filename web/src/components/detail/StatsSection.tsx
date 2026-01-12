@@ -9,7 +9,7 @@ export function StatsSection({ loaded = true }: StatsSectionProps) {
   const { stats } = useAppState()
 
   return (
-    <Section number="001" title="Session Statistics" loaded={loaded}>
+    <Section index={0} title="Session Statistics" loaded={loaded}>
       <div className="grid grid-cols-4 gap-4">
         <StatBox label="Total Requests" value={stats?.requests_total.toString() ?? '0'} />
         <StatBox label="Allowed" value={stats?.requests_allowed.toString() ?? '0'} />

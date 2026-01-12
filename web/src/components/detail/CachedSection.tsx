@@ -21,7 +21,7 @@ export function CachedSection({
   loaded = true,
 }: CachedSectionProps) {
   return (
-    <Section number="003" title="Cached Decisions" loaded={loaded}>
+    <Section index={0} title="Cached Decisions" loaded={loaded}>
       <div className="space-y-3">
         <DataState
           loading={loading}

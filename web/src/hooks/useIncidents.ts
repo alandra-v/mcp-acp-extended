@@ -14,7 +14,7 @@ import {
   getEmergencyLogs,
   type IncidentType,
 } from '@/api/incidents'
-import { toast } from '@/components/ui/sonner'
+import { notifyError } from '@/hooks/useErrorSound'
 import type { LogEntry } from '@/types/api'
 
 export interface IncidentEntry extends LogEntry {
@@ -108,7 +108,7 @@ export function useIncidents(): UseIncidentsResult {
         setEmergency((prev) => [...prev, ...emergencyRes.entries])
       }
     } catch {
-      toast.error('Failed to load incidents')
+      notifyError('Failed to load incidents')
     } finally {
       setLoading(false)
     }

@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { getLogs, type LogType, type LogFilters } from '@/api/logs'
-import { toast } from '@/components/ui/sonner'
+import { notifyError } from '@/hooks/useErrorSound'
 import type { LogEntry } from '@/types/api'
 
 export interface UseMultiLogsResult {
@@ -105,7 +105,7 @@ export function useMultiLogs(
       setHasMoreByType(newHasMore)
       setTotalScanned((prev) => reset ? scanned : prev + scanned)
     } catch {
-      toast.error('Failed to load logs')
+      notifyError('Failed to load logs')
     } finally {
       setLoading(false)
     }
