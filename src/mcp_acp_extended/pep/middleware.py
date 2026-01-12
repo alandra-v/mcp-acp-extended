@@ -104,8 +104,9 @@ class PolicyEnforcementMiddleware(Middleware):
         # Approval cache for reducing HITL dialog fatigue
         # Exposed via `approval_store` property for proxy to wire to API app.state
         self._approval_store = ApprovalStore(ttl_seconds=hitl_config.approval_ttl_seconds)
-        # Client name extracted from initialize request
+        # Client info extracted from initialize request
         self._client_name: str | None = None
+        self._client_version: str | None = None
         # Rate limiting for detecting runaway loops
         self._rate_tracker = rate_tracker
         # Tool description sanitizer for prompt injection defense
@@ -217,8 +218,8 @@ class PolicyEnforcementMiddleware(Middleware):
                 )
             raise
 
-    def _extract_client_name(self, context: MiddlewareContext[Any]) -> None:
-        """Extract and cache client name from initialize request.
+    def _extract_client_info(self, context: MiddlewareContext[Any]) -> None:
+        """Extract and cache client info from initialize request.
 
         Also updates ProxyState with client_id for UI display.
 
@@ -234,6 +235,8 @@ class PolicyEnforcementMiddleware(Middleware):
             # Update ProxyState for UI display
             if self._hitl_handler.proxy_state is not None:
                 self._hitl_handler.proxy_state.set_client_id(client_info.name)
+        if client_info.version:
+            self._client_version = client_info.version
 
     async def _build_context(
         self,
@@ -261,6 +264,7 @@ class PolicyEnforcementMiddleware(Middleware):
             request_id=request_id,
             backend_id=self._backend_id,
             client_name=self._client_name,
+            client_version=self._client_version,
         )
 
     def _extract_arguments(self, context: MiddlewareContext[Any]) -> dict[str, Any] | None:
@@ -694,8 +698,8 @@ class PolicyEnforcementMiddleware(Middleware):
             PermissionDeniedError: If policy denies the request, context
                 building fails, or HITL approval is denied/times out.
         """
-        # Extract client name from initialize (cached for session)
-        self._extract_client_name(context)
+        # Extract client info from initialize (cached for session)
+        self._extract_client_info(context)
 
         # Get correlation IDs
         request_id = get_request_id() or "unknown"

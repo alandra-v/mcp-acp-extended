@@ -87,6 +87,7 @@ async def build_decision_context(
     request_id: str,
     backend_id: str,
     client_name: str | None = None,
+    client_version: str | None = None,
 ) -> DecisionContext:
     """Build DecisionContext from MCP request components.
 
@@ -101,6 +102,7 @@ async def build_decision_context(
         request_id: Request correlation ID.
         backend_id: Backend server identifier.
         client_name: Client application name (from initialize).
+        client_version: Client version (from initialize).
 
     Returns:
         DecisionContext with ABAC attributes populated from observable facts.
@@ -141,6 +143,7 @@ async def build_decision_context(
         request_id=request_id,
         session_id=session_id,
         mcp_client_name=client_name,
+        mcp_client_version=client_version,
     )
 
     return DecisionContext(

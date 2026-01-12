@@ -910,6 +910,7 @@ class TestPolicyEnforcementMiddleware:
         context.message.params = MagicMock()
         context.message.params.clientInfo = MagicMock()
         context.message.params.clientInfo.name = "TestClient"
+        context.message.params.clientInfo.version = "1.0.0"
         context.message.model_dump.return_value = {}
 
         call_next = AsyncMock(return_value={})
@@ -922,6 +923,7 @@ class TestPolicyEnforcementMiddleware:
 
         # Assert
         assert middleware._client_name == "TestClient"
+        assert middleware._client_version == "1.0.0"
 
 
 # =============================================================================
