@@ -753,10 +753,26 @@ def create_proxy(
 
     # =========================================================================
     # PHASE 6: Middleware Chain
-    # Register middleware in order: Context → Audit → Client → Enforcement
+    # Register middleware in order: DoS → Context → Audit → Client → Enforcement
+    # First-added = outermost (runs first on requests)
     # =========================================================================
 
-    # Register context middleware (outermost - added first)
+    # DoS protection: FastMCP's rate limiter as outermost layer
+    # Token bucket: 10 req/s sustained, 50 burst capacity
+    # This catches request flooding before any processing
+    #
+    # NOTE: Both rate limiters (this + SessionRateTracker) are unidirectional
+    # (client → proxy only). Backend → proxy notifications bypass middleware
+    # via ProxyClient handlers. Risk is low since backend can only spam during
+    # active requests, and a malicious backend is a larger threat than spam.
+    dos_rate_limiter = RateLimitingMiddleware(
+        max_requests_per_second=10.0,
+        burst_capacity=50,
+        global_limit=True,  # Single limit for STDIO proxy
+    )
+    proxy.add_middleware(dos_rate_limiter)
+
+    # Register context middleware
     # Sets up request_id, session_id, and tool_context for all downstream middleware
     context_middleware = create_context_middleware()
     proxy.add_middleware(context_middleware)
@@ -789,8 +805,9 @@ def create_proxy(
     )
     proxy.add_middleware(client_middleware)
 
-    # Load policy and register enforcement middleware (innermost - added last)
+    # Load policy and register enforcement middleware (innermost)
     # Evaluates policy and blocks denied requests before they reach the backend.
+    # Contains per-tool rate tracking (SessionRateTracker) for runaway loop detection.
     # Logs every decision to audit/decisions.jsonl with fail-closed handler
     policy = load_policy()
 
@@ -850,20 +867,5 @@ def create_proxy(
     # OIDCIdentityProvider emits token_refresh_failed, auth_login, auth_logout
     if hasattr(identity_provider, "set_proxy_state"):
         identity_provider.set_proxy_state(proxy_state)
-
-    # DoS protection: FastMCP's rate limiter as outermost layer
-    # Token bucket: 10 req/s sustained, 50 burst capacity
-    # This catches request flooding before any processing
-    #
-    # NOTE: Both rate limiters (this + SessionRateTracker) are unidirectional
-    # (client → proxy only). Backend → proxy notifications bypass middleware
-    # via ProxyClient handlers. Risk is low since backend can only spam during
-    # active requests, and a malicious backend is a larger threat than spam.
-    dos_rate_limiter = RateLimitingMiddleware(
-        max_requests_per_second=10.0,
-        burst_capacity=50,
-        global_limit=True,  # Single limit for STDIO proxy
-    )
-    proxy.add_middleware(dos_rate_limiter)
 
     return proxy, transport_type
