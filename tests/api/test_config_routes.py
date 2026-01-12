@@ -59,6 +59,13 @@ def mock_config():
     config.auth.oidc.scopes = ["openid", "profile"]
     config.auth.mtls = None
 
+    # HITL config
+    config.hitl = MagicMock()
+    config.hitl.timeout_seconds = 60
+    config.hitl.default_on_timeout = "deny"
+    config.hitl.approval_ttl_seconds = 600
+    config.hitl.cache_side_effects = None
+
     return config
 
 
@@ -77,6 +84,14 @@ def mock_config_no_auth():
     config.logging.include_payloads = False
     config.proxy.name = "test-proxy"
     config.auth = None
+
+    # HITL config
+    config.hitl = MagicMock()
+    config.hitl.timeout_seconds = 60
+    config.hitl.default_on_timeout = "deny"
+    config.hitl.approval_ttl_seconds = 600
+    config.hitl.cache_side_effects = None
+
     return config
 
 
@@ -201,6 +216,11 @@ class TestUpdateConfig:
         new_config.logging.include_payloads = True
         new_config.proxy.name = "test"
         new_config.auth = None
+        new_config.hitl = MagicMock()
+        new_config.hitl.timeout_seconds = 60
+        new_config.hitl.default_on_timeout = "deny"
+        new_config.hitl.approval_ttl_seconds = 600
+        new_config.hitl.cache_side_effects = None
         new_config.save_to_file = MagicMock()
 
         config_path = tmp_path / "config.json"
@@ -266,6 +286,11 @@ class TestUpdateConfig:
         mock_config.logging.include_payloads = False
         mock_config.proxy.name = "test"
         mock_config.auth = None
+        mock_config.hitl = MagicMock()
+        mock_config.hitl.timeout_seconds = 60
+        mock_config.hitl.default_on_timeout = "deny"
+        mock_config.hitl.approval_ttl_seconds = 600
+        mock_config.hitl.cache_side_effects = None
 
         with patch("mcp_acp_extended.config.AppConfig.load_from_files", return_value=mock_config):
             with patch("mcp_acp_extended.config.AppConfig.model_validate", return_value=mock_config):
