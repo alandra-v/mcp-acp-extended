@@ -457,13 +457,16 @@ class OIDCIdentityProvider:
         self._cache = None
 
     def logout(self, emit_event: bool = True) -> None:
-        """Clear stored tokens and cache.
+        """Clear stored tokens, identity cache, and HITL approval cache.
 
         Call this to log out the user. They will need to run
         'mcp-acp-extended auth login' to re-authenticate.
 
+        Also clears the HITL approval cache to prevent stale approvals
+        from being visible to subsequent users.
+
         Args:
-            emit_event: Whether to emit SSE event (default True).
+            emit_event: Whether to emit SSE events (default True).
                 Set to False if caller will handle notification.
         """
         self._storage.delete()
@@ -471,8 +474,16 @@ class OIDCIdentityProvider:
         self._current_token = None
         self._expiry_warned = False  # Reset for next login
 
+        if self._proxy_state is None:
+            return
+
+        # Clear HITL approval cache - prevents stale approvals from being
+        # visible to subsequent users and ensures clean slate on re-login.
+        # Note: clear_all_cached_approvals() emits CACHE_CLEARED SSE event.
+        self._proxy_state.clear_all_cached_approvals()
+
         # Emit SSE event for UI notification
-        if emit_event and self._proxy_state is not None:
+        if emit_event:
             from mcp_acp_extended.manager.state import SSEEventType
 
             self._proxy_state.emit_system_event(
