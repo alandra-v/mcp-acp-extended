@@ -96,7 +96,7 @@ export function ApprovalItem({
 
   if (compact) {
     return (
-      <div className="flex items-center gap-4 p-4 card-gradient border border-[var(--border-subtle)] rounded-lg">
+      <div className="flex items-center gap-4 p-4 card-gradient border border-[oklch(0.75_0.15_85_/_0.5)] rounded-lg shadow-[0_0_8px_var(--warning)]">
         <span className="font-mono text-sm text-base-300 bg-base-800 px-2.5 py-1.5 rounded">
           {approval.tool_name}
         </span>

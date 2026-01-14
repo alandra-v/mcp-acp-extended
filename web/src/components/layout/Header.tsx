@@ -1,17 +1,17 @@
 import { useEffect, useState } from 'react'
 import { Link, useLocation } from 'react-router-dom'
-import { AlertTriangle } from 'lucide-react'
+import { AlertTriangle, Clock } from 'lucide-react'
 import { AuthDropdown } from '@/components/auth/AuthDropdown'
+import { PendingDrawer } from '@/components/approvals/PendingDrawer'
 import { useIncidentsContext } from '@/context/IncidentsContext'
+import { useAppState } from '@/context/AppStateContext'
 import { cn } from '@/lib/utils'
 
-interface HeaderProps {
-  proxyName?: string
-}
-
-export function Header({ proxyName }: HeaderProps) {
+export function Header() {
   const location = useLocation()
-  const { hasUnread } = useIncidentsContext()
+  const { hasUnread, criticalCount } = useIncidentsContext()
+  const { pending, approve, approveOnce, deny } = useAppState()
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   // Page loader state
   const [isLoading, setIsLoading] = useState(false)
@@ -42,24 +42,23 @@ export function Header({ proxyName }: HeaderProps) {
         >
           MCP ACP
         </Link>
-
-        {/* Breadcrumb - shown on detail page */}
-        {proxyName && (
-          <div className="flex items-center gap-2 text-sm text-muted-foreground">
-            <span className="text-base-600">/</span>
-            <Link
-              to="/"
-              className="hover:text-foreground transition-smooth"
-            >
-              Proxies
-            </Link>
-            <span className="text-base-600">/</span>
-            <span className="text-foreground font-medium">{proxyName}</span>
-          </div>
-        )}
       </div>
 
       <div className="flex items-center gap-4">
+        {/* Pending Approvals Button */}
+        <button
+          onClick={() => setDrawerOpen(true)}
+          className="relative flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm font-medium text-muted-foreground hover:text-foreground hover:bg-base-900 transition-smooth"
+        >
+          <Clock className="w-4 h-4" />
+          Pending
+          {pending.length > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-semibold text-white shadow-[0_0_6px_rgba(239,68,68,0.5)]">
+              {pending.length}
+            </span>
+          )}
+        </button>
+
         {/* Incidents Link with Badge */}
         <Link
           to="/incidents"
@@ -72,13 +71,25 @@ export function Header({ proxyName }: HeaderProps) {
         >
           <AlertTriangle className="w-4 h-4" />
           Incidents
-          {hasUnread && (
-            <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.5)]" />
+          {hasUnread && criticalCount > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-semibold text-white shadow-[0_0_6px_rgba(239,68,68,0.5)]">
+              {criticalCount}
+            </span>
           )}
         </Link>
 
         <AuthDropdown />
       </div>
+
+      {/* Pending Approvals Drawer */}
+      <PendingDrawer
+        open={drawerOpen}
+        onOpenChange={setDrawerOpen}
+        approvals={pending}
+        onApprove={approve}
+        onApproveOnce={approveOnce}
+        onDeny={deny}
+      />
     </header>
   )
 }

@@ -3,6 +3,7 @@ import { subscribeToPendingApprovals, approveRequest, approveOnceRequest, denyRe
 import { toast } from '@/components/ui/sonner'
 import { playApprovalChime } from '@/hooks/useNotificationSound'
 import { playErrorSound, notifyError } from '@/hooks/useErrorSound'
+import { requestNotificationPermission, showApprovalNotification } from '@/lib/notifications'
 import { ApiError, type CachedApproval, type PendingApproval, type ProxyStats, type SSEEvent, type SSEEventType, type SSESystemEvent } from '@/types/api'
 
 const ORIGINAL_TITLE = 'MCP ACP'
@@ -151,6 +152,10 @@ export function AppStateProvider({ children }: { children: ReactNode }) {
           if (event.approval) {
             setPending((prev) => [...prev, event.approval!])
             playApprovalChime()
+            // Request notification permission on first approval, then show notification
+            requestNotificationPermission()
+              .then(() => showApprovalNotification(event.approval!))
+              .catch(() => {}) // Notification errors are non-critical
           }
           break
         case 'pending_resolved':

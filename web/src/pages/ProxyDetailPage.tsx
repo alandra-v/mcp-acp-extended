@@ -1,8 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
-import { ArrowLeft } from 'lucide-react'
 import { Layout } from '@/components/layout/Layout'
-import { Button } from '@/components/ui/button'
 import { DetailSidebar, type DetailSection } from '@/components/detail/DetailSidebar'
 import { TransportFlow } from '@/components/detail/TransportFlow'
 import { StatsSection } from '@/components/detail/StatsSection'
@@ -19,24 +16,19 @@ import { useCachedApprovals } from '@/hooks/useCachedApprovals'
 import { cn } from '@/lib/utils'
 
 export function ProxyDetailPage() {
-  const { id } = useParams<{ id: string }>()
-  const navigate = useNavigate()
   const { proxies, loading: proxiesLoading } = useProxies()
   const { pending, approve, approveOnce, deny } = useAppState()
   const { cached, loading: cachedLoading, clear: clearCached, deleteEntry: deleteCached } = useCachedApprovals()
   const [activeSection, setActiveSection] = useState<DetailSection>('overview')
   const [loaded, setLoaded] = useState(false)
 
-  // Find the current proxy
-  const proxy = useMemo(
-    () => proxies.find((p) => p.id === id),
-    [proxies, id]
-  )
+  // Single proxy mode - use first proxy
+  const proxy = proxies[0]
 
   // Filter pending approvals for this proxy
   const proxyPending = useMemo(
-    () => pending.filter((p) => p.proxy_id === id),
-    [pending, id]
+    () => pending.filter((p) => p.proxy_id === proxy?.id),
+    [pending, proxy?.id]
   )
 
   // Trigger section load animation
@@ -60,9 +52,11 @@ export function ProxyDetailPage() {
       <Layout>
         <div className="max-w-[1200px] mx-auto px-8 py-12 text-center">
           <h1 className="font-display text-2xl font-semibold mb-4">
-            Proxy not found
+            Waiting for proxy...
           </h1>
-          <Button onClick={() => navigate('/')}>Back to Proxies</Button>
+          <p className="text-muted-foreground">
+            Unable to connect. Check that the proxy is running.
+          </p>
         </div>
       </Layout>
     )
@@ -71,18 +65,10 @@ export function ProxyDetailPage() {
   const isActive = proxy.status === 'running'
 
   return (
-    <Layout proxyName={proxy.backend_id} showFooter={false}>
+    <Layout showFooter={false}>
       <div className="grid grid-cols-[180px_1fr] gap-12 max-w-[1200px] mx-auto px-8 py-8">
         {/* Header */}
         <div className="col-span-2 flex items-center gap-6 pb-6 border-b border-[var(--border-subtle)] mb-2">
-          <button
-            onClick={() => navigate('/')}
-            className="inline-flex items-center gap-2 px-4 py-2 bg-transparent border border-[var(--border-subtle)] rounded-lg text-muted-foreground text-sm hover:bg-base-900 hover:text-foreground transition-smooth"
-          >
-            <ArrowLeft className="w-4 h-4" />
-            Back
-          </button>
-
           <div className="flex-1 flex items-center gap-3">
             <h1 className="font-display text-xl font-semibold">
               {proxy.backend_id}
@@ -99,8 +85,6 @@ export function ProxyDetailPage() {
               {isActive ? 'Active' : 'Inactive'}
             </div>
           </div>
-
-          {/* Stop/Restart buttons for multi-proxy support (Phase 2) */}
         </div>
 
         {/* Sidebar */}

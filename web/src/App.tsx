@@ -4,7 +4,6 @@ import { ConnectionStatusBanner } from '@/components/ConnectionStatusBanner'
 import { Toaster } from '@/components/ui/sonner'
 import { AppStateProvider } from '@/context/AppStateContext'
 import { IncidentsProvider } from '@/context/IncidentsContext'
-import { ProxiesPage } from '@/pages/ProxiesPage'
 import { ProxyDetailPage } from '@/pages/ProxyDetailPage'
 import { IncidentsPage } from '@/pages/IncidentsPage'
 import { AuthPage } from '@/pages/AuthPage'
@@ -17,9 +16,7 @@ export function App() {
           <ConnectionStatusBanner />
           <BrowserRouter>
             <Routes>
-              <Route path="/" element={<ProxiesPage />} />
-              <Route path="/proxies" element={<ProxiesPage />} />
-              <Route path="/proxy/:id" element={<ProxyDetailPage />} />
+              <Route path="/" element={<ProxyDetailPage />} />
               <Route path="/incidents" element={<IncidentsPage />} />
               <Route path="/auth" element={<AuthPage />} />
             </Routes>
