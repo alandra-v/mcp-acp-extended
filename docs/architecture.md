@@ -175,14 +175,16 @@ The `manager/` module provides state aggregation for the Management API.
 - Backend connection state (for reconnection detection)
 
 **SSE Events** are broadcast to connected UI clients for real-time updates:
-- **HITL lifecycle**: pending_created, pending_resolved, pending_timeout
-- **Backend connection**: backend_connected, backend_disconnected, backend_reconnected, backend_timeout
-- **Authentication**: auth_login, auth_logout, token_refresh_failed, auth_session_expiring
-- **Policy**: policy_reloaded, policy_reload_failed, config_change_detected
+- **HITL lifecycle**: snapshot, pending_created, pending_resolved, pending_timeout, pending_not_found
+- **Backend connection**: backend_connected, backend_disconnected, backend_reconnected, backend_timeout, backend_refused
+- **TLS/mTLS**: tls_error, mtls_failed, cert_validation_failed
+- **Authentication**: auth_login, auth_logout, auth_session_expiring, token_refresh_failed, token_validation_failed, auth_failure
+- **Policy**: policy_reloaded, policy_reload_failed, policy_file_not_found, policy_rollback, config_change_detected
 - **Rate limiting**: rate_limit_triggered, rate_limit_approved, rate_limit_denied
-- **Cache**: cache_cleared, cache_entry_deleted
+- **Cache**: cache_cleared, cache_entry_deleted, cached_snapshot
+- **Request processing**: request_error, hitl_parse_failed, tool_sanitization_failed
 - **Live updates**: stats_updated, new_log_entries
-- **Critical events**: critical_shutdown, audit_tampering, device_health_failed
+- **Critical events**: critical_shutdown, audit_init_failed, device_health_failed, session_hijacking, audit_tampering, audit_missing, audit_permission_denied, health_degraded, health_monitor_failed
 
 See `manager/state.py` for the full `SSEEventType` enum.
 
