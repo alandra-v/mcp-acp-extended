@@ -235,15 +235,100 @@ export type SSEEvent =
 // Type helper to extract event type strings
 export type SSEEventType = SSEEvent['type']
 
-// API Error
+// Error codes for programmatic handling (matching backend ErrorCode enum)
+export const ErrorCode = {
+  // Authentication (401, 403)
+  AUTH_REQUIRED: 'AUTH_REQUIRED',
+  AUTH_FORBIDDEN: 'AUTH_FORBIDDEN',
+  AUTH_PROVIDER_UNAVAILABLE: 'AUTH_PROVIDER_UNAVAILABLE',
+  AUTH_DEVICE_FLOW_FAILED: 'AUTH_DEVICE_FLOW_FAILED',
+  AUTH_DEVICE_FLOW_LIMIT: 'AUTH_DEVICE_FLOW_LIMIT',
+
+  // Approvals (403, 404)
+  APPROVAL_NOT_FOUND: 'APPROVAL_NOT_FOUND',
+  APPROVAL_UNAUTHORIZED: 'APPROVAL_UNAUTHORIZED',
+  CACHED_APPROVAL_NOT_FOUND: 'CACHED_APPROVAL_NOT_FOUND',
+
+  // Policy (400, 404, 409, 500)
+  POLICY_NOT_FOUND: 'POLICY_NOT_FOUND',
+  POLICY_INVALID: 'POLICY_INVALID',
+  POLICY_RULE_NOT_FOUND: 'POLICY_RULE_NOT_FOUND',
+  POLICY_RULE_DUPLICATE: 'POLICY_RULE_DUPLICATE',
+  POLICY_RELOAD_FAILED: 'POLICY_RELOAD_FAILED',
+
+  // Config (400, 404, 500)
+  CONFIG_NOT_FOUND: 'CONFIG_NOT_FOUND',
+  CONFIG_INVALID: 'CONFIG_INVALID',
+  CONFIG_SAVE_FAILED: 'CONFIG_SAVE_FAILED',
+
+  // Resources (404)
+  PROXY_NOT_FOUND: 'PROXY_NOT_FOUND',
+  LOG_NOT_AVAILABLE: 'LOG_NOT_AVAILABLE',
+  NOT_FOUND: 'NOT_FOUND', // Generic 404
+
+  // Conflict (409)
+  CONFLICT: 'CONFLICT', // Generic 409
+
+  // Validation (400, 422)
+  VALIDATION_ERROR: 'VALIDATION_ERROR',
+
+  // Internal (500, 501, 502, 503)
+  INTERNAL_ERROR: 'INTERNAL_ERROR',
+  NOT_IMPLEMENTED: 'NOT_IMPLEMENTED',
+  UPSTREAM_ERROR: 'UPSTREAM_ERROR',
+  SERVICE_UNAVAILABLE: 'SERVICE_UNAVAILABLE',
+} as const
+
+export type ErrorCodeType = (typeof ErrorCode)[keyof typeof ErrorCode]
+
+// Validation error item from Pydantic
+export interface ValidationErrorItem {
+  loc: (string | number)[]
+  msg: string
+  type: string
+}
+
+// Structured error detail from backend
+export interface ErrorDetail {
+  code: string
+  message: string
+  details?: Record<string, unknown>
+  validation_errors?: ValidationErrorItem[]
+}
+
+// API Error with structured error support
 export class ApiError extends Error {
+  /** Error code for programmatic handling (e.g., 'APPROVAL_NOT_FOUND') */
+  public code: string | null = null
+  /** Contextual details from the error response */
+  public details: Record<string, unknown> | null = null
+  /** Validation errors for 422 responses */
+  public validationErrors: ValidationErrorItem[] | null = null
+
   constructor(
     public status: number,
     public statusText: string,
-    message?: string
+    message?: string,
+    errorDetail?: ErrorDetail
   ) {
     super(message || `API Error: ${status} ${statusText}`)
     this.name = 'ApiError'
+
+    if (errorDetail) {
+      this.code = errorDetail.code
+      this.details = errorDetail.details ?? null
+      this.validationErrors = errorDetail.validation_errors ?? null
+    }
+  }
+
+  /** Check if this error has a specific error code */
+  hasCode(code: ErrorCodeType): boolean {
+    return this.code === code
+  }
+
+  /** Get detail value by key */
+  getDetail<T>(key: string): T | undefined {
+    return this.details?.[key] as T | undefined
   }
 }
 

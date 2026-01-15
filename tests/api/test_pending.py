@@ -8,10 +8,11 @@ from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from mcp_acp_extended.api.deps import get_identity_provider, get_proxy_state
+from mcp_acp_extended.api.errors import APIError
 from mcp_acp_extended.api.routes.pending import _resolve_approval, router
 from mcp_acp_extended.api.schemas import ApprovalActionResponse, PendingApprovalResponse
 
@@ -193,7 +194,7 @@ class TestApproveEndpoint:
 
         # Assert
         assert response.status_code == 404
-        assert "not found" in response.json()["detail"].lower()
+        assert "not found" in response.json()["detail"]["message"].lower()
 
     def test_approve_requires_auth(self):
         """Given unauthenticated user, returns 401."""
@@ -215,7 +216,7 @@ class TestApproveEndpoint:
 
         # Assert
         assert response.status_code == 401
-        assert "authentication required" in response.json()["detail"].lower()
+        assert "authentication required" in response.json()["detail"]["message"].lower()
 
     def test_approve_requires_matching_identity(self, mock_identity_provider):
         """Given approver != requester, returns 403."""
@@ -237,7 +238,7 @@ class TestApproveEndpoint:
 
         # Assert
         assert response.status_code == 403
-        assert "only approve your own" in response.json()["detail"].lower()
+        assert "only approve your own" in response.json()["detail"]["message"].lower()
 
 
 # =============================================================================
@@ -352,18 +353,18 @@ class TestResolveApprovalHelper:
         mock_state.resolve_pending.assert_called_once_with("test-id", "allow", "user@example.com")
 
     def test_resolve_failure_raises_404(self):
-        """Given failed resolution, raises HTTPException 404."""
+        """Given failed resolution, raises APIError 404."""
         # Arrange
         mock_state = MagicMock()
         mock_state.resolve_pending.return_value = False
         mock_state.emit_system_event = MagicMock()
 
         # Act & Assert
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             _resolve_approval("test-id", "deny", "denied", mock_state, "user@example.com")
 
         assert exc_info.value.status_code == 404
-        assert "test-id" in exc_info.value.detail
+        assert "test-id" in exc_info.value.detail["message"]
 
     def test_resolve_emits_event_on_failure(self):
         """Given failed resolution, emits system event."""
@@ -373,7 +374,7 @@ class TestResolveApprovalHelper:
         mock_state.emit_system_event = MagicMock()
 
         # Act
-        with pytest.raises(HTTPException):
+        with pytest.raises(APIError):
             _resolve_approval("test-id", "deny", "denied", mock_state, "user@example.com")
 
         # Assert

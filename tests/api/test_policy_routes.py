@@ -8,9 +8,10 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from mcp_acp_extended.api.errors import APIError
 from mcp_acp_extended.api.routes.policy import _load_policy_or_raise, _rule_to_response, router
 from mcp_acp_extended.api.schemas import (
     PolicyResponse,
@@ -115,7 +116,7 @@ class TestGetPolicy:
 
         # Assert
         assert response.status_code == 404
-        assert "not found" in response.json()["detail"].lower()
+        assert "not found" in response.json()["detail"]["message"].lower()
 
     def test_returns_500_on_invalid_policy(self, client, mock_reloader):
         """Given invalid policy, returns 500."""
@@ -221,7 +222,7 @@ class TestAddPolicyRule:
 
         # Assert
         assert response.status_code == 409
-        assert "already exists" in response.json()["detail"]
+        assert "already exists" in response.json()["detail"]["message"]
 
     def test_validates_conditions(self, client, sample_policy, mock_reloader):
         """Given invalid conditions, returns 400."""
@@ -379,7 +380,7 @@ class TestLoadPolicyOrRaise:
             side_effect=FileNotFoundError,
         ):
             # Act & Assert
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(APIError) as exc_info:
                 _load_policy_or_raise()
 
         assert exc_info.value.status_code == 404
@@ -392,7 +393,7 @@ class TestLoadPolicyOrRaise:
             side_effect=ValueError("Invalid"),
         ):
             # Act & Assert
-            with pytest.raises(HTTPException) as exc_info:
+            with pytest.raises(APIError) as exc_info:
                 _load_policy_or_raise()
 
         assert exc_info.value.status_code == 500

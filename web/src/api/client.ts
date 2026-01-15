@@ -1,4 +1,4 @@
-import { ApiError } from '@/types/api'
+import { ApiError, type ErrorDetail } from '@/types/api'
 
 const API_BASE = '/api'
 
@@ -88,24 +88,40 @@ function sleep(ms: number): Promise<void> {
 }
 
 /**
- * Parse error message from response body.
- * FastAPI returns JSON with {"detail": "..."}, extract that.
+ * Parse error response from backend.
+ * Handles both old (string detail) and new (structured detail) formats.
+ *
+ * Response formats:
+ * - Structured: {"detail": {"code": "...", "message": "...", "details": {...}}}
+ * - Legacy string: {"detail": "message"}
+ * - Legacy Pydantic: {"detail": [{loc: [...], msg: "..."}]}
  */
-async function parseErrorMessage(res: Response): Promise<string> {
+async function parseErrorResponse(res: Response): Promise<ApiError> {
   const text = await res.text()
+
   try {
     const json = JSON.parse(text)
-    // Pydantic validation error format: {"detail": [{msg: "..."}]}
-    if (Array.isArray(json.detail)) {
-      return json.detail.map((e: { msg?: string }) => e.msg || JSON.stringify(e)).join(', ')
+
+    // New structured format: {"detail": {"code": "...", "message": "...", ...}}
+    if (json.detail && typeof json.detail === 'object' && 'code' in json.detail) {
+      const errorDetail = json.detail as ErrorDetail
+      return new ApiError(res.status, res.statusText, errorDetail.message, errorDetail)
     }
-    // FastAPI HTTPException format: {"detail": "message"}
+
+    // Legacy string format: {"detail": "string message"}
     if (typeof json.detail === 'string') {
-      return json.detail
+      return new ApiError(res.status, res.statusText, json.detail)
     }
-    return text
+
+    // Legacy Pydantic validation error format: {"detail": [{msg: "..."}]}
+    if (Array.isArray(json.detail)) {
+      const messages = json.detail.map((e: { msg?: string }) => e.msg || JSON.stringify(e)).join(', ')
+      return new ApiError(res.status, res.statusText, messages)
+    }
+
+    return new ApiError(res.status, res.statusText, text)
   } catch {
-    return text
+    return new ApiError(res.status, res.statusText, text)
   }
 }
 
@@ -155,7 +171,7 @@ async function fetchWithRetry(
       }
 
       // Server error (5xx) - will retry
-      const error = new ApiError(res.status, res.statusText, await parseErrorMessage(res))
+      const error = await parseErrorResponse(res)
       lastError = error
 
       if (attempt < retries - 1 && isRetryable(error)) {
@@ -216,7 +232,7 @@ async function apiRequest<T>(
   })
 
   if (!res.ok) {
-    throw new ApiError(res.status, res.statusText, await parseErrorMessage(res))
+    throw await parseErrorResponse(res)
   }
 
   // Handle 204 No Content (e.g., DELETE responses)
