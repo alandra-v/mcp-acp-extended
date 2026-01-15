@@ -13,10 +13,11 @@ __all__ = ["router"]
 
 from typing import Any
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import ValidationError
 
 from mcp_acp_extended.api.deps import ConfigDep
+from mcp_acp_extended.api.errors import APIError, ErrorCode
 from mcp_acp_extended.api.schemas import (
     AuthConfigResponse,
     BackendConfigResponse,
@@ -219,9 +220,18 @@ async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
     try:
         current_config = AppConfig.load_from_files(config_path)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Config file not found")
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.CONFIG_NOT_FOUND,
+            message="Config file not found",
+            details={"path": str(config_path)},
+        )
     except ValueError as e:
-        raise HTTPException(status_code=500, detail=f"Invalid config file: {e}")
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.CONFIG_INVALID,
+            message=f"Invalid config file: {e}",
+        )
 
     # Apply updates to a mutable dict
     update_dict = current_config.model_dump()
@@ -258,13 +268,26 @@ async def update_config(updates: ConfigUpdateRequest) -> ConfigUpdateResponse:
     try:
         new_config = AppConfig.model_validate(update_dict)
     except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid configuration: {e}")
+        validation_errors = [
+            {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
+            for err in e.errors()
+        ]
+        raise APIError(
+            status_code=400,
+            code=ErrorCode.CONFIG_INVALID,
+            message=f"Invalid configuration: {e.error_count()} validation error(s)",
+            validation_errors=validation_errors,
+        )
 
     # Save to file
     try:
         new_config.save_to_file(config_path)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save config: {e}")
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.CONFIG_SAVE_FAILED,
+            message=f"Failed to save config: {e}",
+        )
 
     return ConfigUpdateResponse(
         config=_build_config_response(new_config),
@@ -289,9 +312,18 @@ async def compare_config(config: ConfigDep) -> ConfigComparisonResponse:
         saved_config = AppConfig.load_from_files(config_path)
         saved_response = _build_config_response(saved_config)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Config file not found")
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.CONFIG_NOT_FOUND,
+            message="Config file not found",
+            details={"path": str(config_path)},
+        )
     except ValueError as e:
-        raise HTTPException(status_code=500, detail=f"Invalid config file: {e}")
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.CONFIG_INVALID,
+            message=f"Invalid config file: {e}",
+        )
 
     # Compare the two configs
     running_dict = running_response.model_dump()

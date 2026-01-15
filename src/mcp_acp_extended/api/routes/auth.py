@@ -20,10 +20,11 @@ import os
 import time
 from typing import TYPE_CHECKING, Literal, cast
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 from pydantic import BaseModel
 
 from mcp_acp_extended.api.deps import OIDCConfigDep
+from mcp_acp_extended.api.errors import APIError, ErrorCode
 from mcp_acp_extended.api.schemas import (
     AuthStatusResponse,
     DeviceFlowPollResponse,
@@ -87,11 +88,19 @@ async def get_dev_token(request: Request) -> DevTokenResponse:
     to local development tools.
     """
     if not _is_dev_mode():
-        raise HTTPException(status_code=404, detail="Not found")
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.INTERNAL_ERROR,
+            message="Not found",
+        )
 
     token = getattr(request.app.state, "api_token", None)
     if not token:
-        raise HTTPException(status_code=503, detail="Token not available")
+        raise APIError(
+            status_code=503,
+            code=ErrorCode.SERVICE_UNAVAILABLE,
+            message="Token not available",
+        )
 
     return DevTokenResponse(token=token)
 
@@ -174,9 +183,10 @@ def _require_identity_provider(request: Request) -> "OIDCIdentityProvider":
     """Get identity provider from app state, raising 503 if unavailable."""
     provider = _get_identity_provider_optional(request)
     if provider is None:
-        raise HTTPException(
+        raise APIError(
             status_code=503,
-            detail="Identity provider not available",
+            code=ErrorCode.AUTH_PROVIDER_UNAVAILABLE,
+            message="Identity provider not available",
         )
     return provider
 
@@ -347,16 +357,22 @@ async def start_login(oidc_config: OIDCConfigDep) -> DeviceFlowStartResponse:
 
     # Prevent memory exhaustion from too many concurrent flows
     if len(_device_flows) >= _MAX_DEVICE_FLOWS:
-        raise HTTPException(
+        raise APIError(
             status_code=503,
-            detail="Too many concurrent login attempts. Please try again later.",
+            code=ErrorCode.AUTH_DEVICE_FLOW_LIMIT,
+            message="Too many concurrent login attempts. Please try again later.",
+            details={"max_flows": _MAX_DEVICE_FLOWS},
         )
 
     # Start device flow (synchronous HTTP call, run in thread pool)
     try:
         device_code = await asyncio.to_thread(_request_device_code, oidc_config)
     except DeviceFlowError as e:
-        raise HTTPException(status_code=502, detail=str(e))
+        raise APIError(
+            status_code=502,
+            code=ErrorCode.AUTH_DEVICE_FLOW_FAILED,
+            message=str(e),
+        )
 
     # Store flow state for polling
     _device_flows[device_code.user_code] = _DeviceFlowState(device_code, oidc_config)
@@ -475,9 +491,11 @@ async def notify_login(request: Request) -> NotifyResponse:
     provider = _require_identity_provider(request)
 
     if not hasattr(provider, "reload_token_from_storage"):
-        raise HTTPException(
+        raise APIError(
             status_code=501,
-            detail="Identity provider does not support token reload",
+            code=ErrorCode.NOT_IMPLEMENTED,
+            message="Identity provider does not support token reload",
+            details={"feature": "reload_token_from_storage"},
         )
 
     success = provider.reload_token_from_storage()
@@ -503,9 +521,11 @@ async def notify_logout(request: Request) -> NotifyResponse:
     provider = _require_identity_provider(request)
 
     if not hasattr(provider, "logout"):
-        raise HTTPException(
+        raise APIError(
             status_code=501,
-            detail="Identity provider does not support logout",
+            code=ErrorCode.NOT_IMPLEMENTED,
+            message="Identity provider does not support logout",
+            details={"feature": "logout"},
         )
 
     # Clear proxy's in-memory token (emits SSE event)
@@ -536,9 +556,10 @@ async def logout(request: Request, oidc_config: OIDCConfigDep) -> LogoutResponse
     try:
         _clear_credentials(request, oidc_config, best_effort=False)
     except Exception as e:
-        raise HTTPException(
+        raise APIError(
             status_code=500,
-            detail=f"Failed to clear credentials: {e}",
+            code=ErrorCode.INTERNAL_ERROR,
+            message=f"Failed to clear credentials: {e}",
         )
 
     return LogoutResponse(

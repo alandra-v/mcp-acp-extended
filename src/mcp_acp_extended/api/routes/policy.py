@@ -19,10 +19,11 @@ __all__ = ["router"]
 
 import json
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from pydantic import ValidationError
 
 from mcp_acp_extended.api.deps import PolicyReloaderDep
+from mcp_acp_extended.api.errors import APIError, ErrorCode
 from mcp_acp_extended.api.schemas import (
     PolicyFullUpdate,
     PolicyResponse,
@@ -43,25 +44,44 @@ router = APIRouter()
 
 
 def _load_policy_or_raise() -> PolicyConfig:
-    """Load policy from disk, raising HTTPException on error."""
+    """Load policy from disk, raising APIError on error."""
     try:
         return load_policy()
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Policy file not found")
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.POLICY_NOT_FOUND,
+            message="Policy file not found",
+            details={"path": str(get_policy_path())},
+        )
     except ValueError as e:
-        raise HTTPException(status_code=500, detail=f"Invalid policy: {e}")
+        raise APIError(
+            status_code=500,
+            code=ErrorCode.POLICY_INVALID,
+            message=f"Invalid policy: {e}",
+        )
 
 
 def _validate_conditions(conditions: dict) -> RuleConditions:
-    """Validate and parse rule conditions, raising HTTPException on error."""
+    """Validate and parse rule conditions, raising APIError on error."""
     try:
         return RuleConditions.model_validate(conditions)
     except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid conditions: {e}")
+        # Extract validation errors for structured response
+        validation_errors = [
+            {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
+            for err in e.errors()
+        ]
+        raise APIError(
+            status_code=400,
+            code=ErrorCode.POLICY_INVALID,
+            message=f"Invalid conditions: {e.error_count()} validation error(s)",
+            validation_errors=validation_errors,
+        )
 
 
 def _rebuild_policy(policy: PolicyConfig, new_rules: list[PolicyRule]) -> PolicyConfig:
-    """Rebuild policy with new rules, raising HTTPException on validation error.
+    """Rebuild policy with new rules, raising APIError on validation error.
 
     Args:
         policy: Original policy to copy settings from.
@@ -71,7 +91,7 @@ def _rebuild_policy(policy: PolicyConfig, new_rules: list[PolicyRule]) -> Policy
         New PolicyConfig with updated rules.
 
     Raises:
-        HTTPException: 400 if resulting policy is invalid.
+        APIError: 400 if resulting policy is invalid.
     """
     try:
         return PolicyConfig(
@@ -80,7 +100,16 @@ def _rebuild_policy(policy: PolicyConfig, new_rules: list[PolicyRule]) -> Policy
             rules=new_rules,
         )
     except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
+        validation_errors = [
+            {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
+            for err in e.errors()
+        ]
+        raise APIError(
+            status_code=400,
+            code=ErrorCode.POLICY_INVALID,
+            message=f"Invalid policy: {e.error_count()} validation error(s)",
+            validation_errors=validation_errors,
+        )
 
 
 @router.get("")
@@ -123,8 +152,8 @@ async def update_full_policy(
         Updated policy response with metadata.
 
     Raises:
-        HTTPException: 400 if policy validation fails.
-        HTTPException: 500 if reload fails.
+        APIError: 400 POLICY_INVALID if policy validation fails.
+        APIError: 500 POLICY_RELOAD_FAILED if reload fails.
     """
     # Build new rules from request
     new_rules: list[PolicyRule] = []
@@ -147,7 +176,16 @@ async def update_full_policy(
             rules=new_rules,
         )
     except ValidationError as e:
-        raise HTTPException(status_code=400, detail=f"Invalid policy: {e}")
+        validation_errors = [
+            {"loc": list(err.get("loc", [])), "msg": err.get("msg", ""), "type": err.get("type", "")}
+            for err in e.errors()
+        ]
+        raise APIError(
+            status_code=400,
+            code=ErrorCode.POLICY_INVALID,
+            message=f"Invalid policy: {e.error_count()} validation error(s)",
+            validation_errors=validation_errors,
+        )
 
     # Save and reload
     policy_version = await _save_and_reload(reloader, new_policy)
@@ -207,9 +245,11 @@ async def _save_and_reload(reloader: PolicyReloader, policy: PolicyConfig) -> st
     result = await reloader.reload()
 
     if result.status != "success":
-        raise HTTPException(
+        raise APIError(
             status_code=500,
-            detail=f"Policy reload failed: {result.error}",
+            code=ErrorCode.POLICY_RELOAD_FAILED,
+            message=f"Policy reload failed: {result.error}",
+            details={"error": result.error},
         )
 
     return result.policy_version
@@ -241,9 +281,11 @@ async def add_policy_rule(
     if rule_data.id:
         for existing in policy.rules:
             if existing.id == rule_data.id:
-                raise HTTPException(
+                raise APIError(
                     status_code=409,
-                    detail=f"Rule with id '{rule_data.id}' already exists",
+                    code=ErrorCode.POLICY_RULE_DUPLICATE,
+                    message=f"Rule with id '{rule_data.id}' already exists",
+                    details={"rule_id": rule_data.id},
                 )
 
     # Validate conditions
@@ -308,7 +350,12 @@ async def update_policy_rule(
             new_rules.append(r)
 
     if not found:
-        raise HTTPException(status_code=404, detail=f"Rule '{rule_id}' not found")
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.POLICY_RULE_NOT_FOUND,
+            message=f"Rule '{rule_id}' not found",
+            details={"rule_id": rule_id},
+        )
 
     # Rebuild policy
     updated_policy = _rebuild_policy(policy, new_rules)
@@ -338,7 +385,12 @@ async def delete_policy_rule(reloader: PolicyReloaderDep, rule_id: str) -> None:
     new_rules = [r for r in policy.rules if r.id != rule_id]
 
     if len(new_rules) == len(policy.rules):
-        raise HTTPException(status_code=404, detail=f"Rule '{rule_id}' not found")
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.POLICY_RULE_NOT_FOUND,
+            message=f"Rule '{rule_id}' not found",
+            details={"rule_id": rule_id},
+        )
 
     # Rebuild policy and save
     updated_policy = _rebuild_policy(policy, new_rules)

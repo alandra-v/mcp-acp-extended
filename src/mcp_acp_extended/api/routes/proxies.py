@@ -9,9 +9,10 @@ from __future__ import annotations
 
 __all__ = ["router"]
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from mcp_acp_extended.api.deps import ProxyStateDep
+from mcp_acp_extended.api.errors import APIError, ErrorCode
 from mcp_acp_extended.api.schemas import ProxyResponse, StatsResponse
 from mcp_acp_extended.manager.state import ProxyInfo, ProxyStats
 
@@ -69,12 +70,17 @@ async def get_proxy(proxy_id: str, state: ProxyStateDep) -> ProxyResponse:
         ProxyResponse with proxy details.
 
     Raises:
-        HTTPException: 404 if proxy not found.
+        APIError: 404 PROXY_NOT_FOUND if proxy not found.
     """
     info = state.get_proxy_info()
 
     if info.id != proxy_id:
-        raise HTTPException(status_code=404, detail=f"Proxy '{proxy_id}' not found")
+        raise APIError(
+            status_code=404,
+            code=ErrorCode.PROXY_NOT_FOUND,
+            message=f"Proxy '{proxy_id}' not found",
+            details={"proxy_id": proxy_id},
+        )
 
     stats = state.get_stats()
 

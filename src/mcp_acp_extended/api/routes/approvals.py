@@ -13,9 +13,10 @@ __all__ = ["router"]
 
 import time
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 
 from mcp_acp_extended.api.deps import ApprovalStoreDep, ProxyStateDep
+from mcp_acp_extended.api.errors import APIError, ErrorCode
 from mcp_acp_extended.api.schemas import (
     ApprovalCacheResponse,
     CachedApprovalResponse,
@@ -84,13 +85,15 @@ async def delete_approval(
         path: The path that was approved (optional).
 
     Raises:
-        HTTPException: 404 if approval not found.
+        APIError: 404 CACHED_APPROVAL_NOT_FOUND if approval not found.
     """
     deleted = store.delete(subject_id, tool_name, path)
     if not deleted:
-        raise HTTPException(
+        raise APIError(
             status_code=404,
-            detail=f"Cached approval not found for {subject_id}/{tool_name}/{path}",
+            code=ErrorCode.CACHED_APPROVAL_NOT_FOUND,
+            message=f"Cached approval not found for {subject_id}/{tool_name}/{path}",
+            details={"subject_id": subject_id, "tool_name": tool_name, "path": path},
         )
 
     # Emit SSE event for UI notification

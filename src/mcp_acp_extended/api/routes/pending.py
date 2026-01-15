@@ -19,10 +19,11 @@ import asyncio
 import json
 from typing import TYPE_CHECKING, AsyncIterator
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter
 from fastapi.responses import StreamingResponse
 
 from mcp_acp_extended.api.deps import IdentityProviderDep, ProxyStateDep
+from mcp_acp_extended.api.errors import APIError, ErrorCode
 from mcp_acp_extended.api.schemas import ApprovalActionResponse, PendingApprovalResponse
 from mcp_acp_extended.manager.state import SSEEventType
 from mcp_acp_extended.telemetry.system.system_logger import get_system_logger
@@ -149,7 +150,7 @@ async def _get_approver_identity(
         Approver's subject ID.
 
     Raises:
-        HTTPException: 401 if not authenticated.
+        APIError: 401 AUTH_REQUIRED if not authenticated.
     """
     from mcp_acp_extended.exceptions import AuthenticationError
 
@@ -157,9 +158,10 @@ async def _get_approver_identity(
         identity = await identity_provider.get_identity()
         return identity.subject_id
     except AuthenticationError as e:
-        raise HTTPException(
+        raise APIError(
             status_code=401,
-            detail=f"Authentication required to approve requests. {e}",
+            code=ErrorCode.AUTH_REQUIRED,
+            message=f"Authentication required to approve requests. {e}",
         ) from e
 
 
@@ -176,14 +178,16 @@ def _verify_approver_is_requester(
         state: Proxy state.
 
     Raises:
-        HTTPException: 403 if approver doesn't match requester.
-        HTTPException: 404 if approval not found.
+        APIError: 404 APPROVAL_NOT_FOUND if approval not found.
+        APIError: 403 APPROVAL_UNAUTHORIZED if approver doesn't match requester.
     """
     pending = state.get_pending_approval(approval_id)
     if pending is None:
-        raise HTTPException(
+        raise APIError(
             status_code=404,
-            detail=f"Pending approval '{approval_id}' not found",
+            code=ErrorCode.APPROVAL_NOT_FOUND,
+            message=f"Pending approval '{approval_id}' not found",
+            details={"approval_id": approval_id},
         )
 
     if pending.subject_id != approver_id:
@@ -196,9 +200,11 @@ def _verify_approver_is_requester(
                 "approver_id": approver_id,
             }
         )
-        raise HTTPException(
+        raise APIError(
             status_code=403,
-            detail="You can only approve your own requests",
+            code=ErrorCode.APPROVAL_UNAUTHORIZED,
+            message="You can only approve your own requests",
+            details={"approval_id": approval_id, "requester_id": pending.subject_id},
         )
 
 
@@ -222,7 +228,7 @@ def _resolve_approval(
         ApprovalActionResponse with status confirmation.
 
     Raises:
-        HTTPException: 404 if approval not found.
+        APIError: 404 APPROVAL_NOT_FOUND if approval not found or already resolved.
     """
     if not state.resolve_pending(approval_id, action, approver_id):
         state.emit_system_event(
@@ -231,9 +237,11 @@ def _resolve_approval(
             message="Approval not found (may have timed out)",
             approval_id=approval_id,
         )
-        raise HTTPException(
+        raise APIError(
             status_code=404,
-            detail=f"Pending approval '{approval_id}' not found or already resolved",
+            code=ErrorCode.APPROVAL_NOT_FOUND,
+            message=f"Pending approval '{approval_id}' not found or already resolved",
+            details={"approval_id": approval_id},
         )
 
     return ApprovalActionResponse(status=response_status, approval_id=approval_id)

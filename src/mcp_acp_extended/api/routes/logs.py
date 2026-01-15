@@ -29,9 +29,10 @@ __all__ = ["router"]
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Query
 
 from mcp_acp_extended.api.deps import ConfigDep
+from mcp_acp_extended.api.errors import APIError, ErrorCode
 from mcp_acp_extended.api.schemas import (
     LogFileInfo,
     LogFolderInfo,
@@ -130,14 +131,16 @@ def _fetch_logs(
         LogsResponse with entries and metadata.
 
     Raises:
-        HTTPException: 404 if require_exists=True and file doesn't exist.
+        APIError: 404 LOG_NOT_AVAILABLE if require_exists=True and file doesn't exist.
     """
     log_path = get_log_base_path(config) / LOG_PATHS[log_key]
 
     if require_exists and not log_path.exists():
-        raise HTTPException(
+        raise APIError(
             status_code=404,
-            detail="Debug logs not available. Set log_level to DEBUG in config.",
+            code=ErrorCode.LOG_NOT_AVAILABLE,
+            message="Debug logs not available. Set log_level to DEBUG in config.",
+            details={"log_type": log_key, "requires": "log_level=DEBUG"},
         )
 
     cutoff_time = get_cutoff_time(time_range)
