@@ -20,8 +20,8 @@ const LAST_SEEN_KEY = 'mcp-acp-incidents-last-seen'
 interface IncidentsContextValue {
   /** Whether there are unread incidents (shutdowns or emergency) */
   hasUnread: boolean
-  /** Total count of critical incidents (shutdowns + emergency) */
-  criticalCount: number
+  /** Total count of all incidents (shutdowns + emergency + bootstrap) */
+  totalCount: number
   /** Summary data from API */
   summary: IncidentsSummary | null
   /** Mark all incidents as read (update localStorage) */
@@ -62,7 +62,10 @@ export function IncidentsProvider({ children }: IncidentsProviderProps) {
       (!lastSeen || summary.latest_critical_timestamp > lastSeen)
   )
 
-  const criticalCount = (summary?.shutdowns_count ?? 0) + (summary?.emergency_count ?? 0)
+  const totalCount =
+    (summary?.shutdowns_count ?? 0) +
+    (summary?.emergency_count ?? 0) +
+    (summary?.bootstrap_count ?? 0)
 
   const markAsRead = useCallback(() => {
     if (summary?.latest_critical_timestamp) {
@@ -73,7 +76,7 @@ export function IncidentsProvider({ children }: IncidentsProviderProps) {
 
   const value: IncidentsContextValue = {
     hasUnread,
-    criticalCount,
+    totalCount,
     summary,
     markAsRead,
     refresh: fetchSummary,

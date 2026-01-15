@@ -22,7 +22,7 @@ function CountBadge({ count, variant = 'error' }: { count: number; variant?: 'er
 
 export function Header() {
   const location = useLocation()
-  const { hasUnread, criticalCount } = useIncidentsContext()
+  const { hasUnread, totalCount } = useIncidentsContext()
   const { pending, approve, approveOnce, deny } = useAppState()
   const [drawerOpen, setDrawerOpen] = useState(false)
 
@@ -80,7 +80,7 @@ export function Header() {
         >
           <AlertTriangle className="w-4 h-4" />
           Incidents
-          {hasUnread && criticalCount > 0 && <CountBadge count={criticalCount} />}
+          {hasUnread && totalCount > 0 && <CountBadge count={totalCount} />}
         </Link>
 
         <AuthDropdown />
