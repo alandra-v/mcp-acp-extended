@@ -21,6 +21,7 @@ from mcp_acp_extended.config import (
     LoggingConfig,
     MTLSConfig,
     OIDCConfig,
+    StdioAttestationConfig,
     StdioTransportConfig,
 )
 from mcp_acp_extended.constants import (
@@ -38,6 +39,7 @@ from mcp_acp_extended.utils.config import (
 )
 from mcp_acp_extended.utils.history_logging import log_config_created
 from mcp_acp_extended.utils.transport import check_http_health, validate_mtls_config
+from mcp_acp_extended.utils.validation import validate_sha256_hex
 from mcp_acp_extended.security.auth.token_storage import create_token_storage
 
 from ..prompts import prompt_auth_config, prompt_http_config, prompt_stdio_config, prompt_with_retry
@@ -301,6 +303,10 @@ def _run_non_interactive_init(
     mtls_cert: str | None,
     mtls_key: str | None,
     mtls_ca: str | None,
+    # Attestation options
+    attestation_slsa_owner: str | None,
+    attestation_sha256: str | None,
+    attestation_require_signature: bool | None,
 ) -> tuple[str, str, bool, str, str, StdioTransportConfig | None, HttpTransportConfig | None, AuthConfig]:
     """Run non-interactive configuration setup.
 
@@ -320,6 +326,9 @@ def _run_non_interactive_init(
         mtls_cert: mTLS client certificate path.
         mtls_key: mTLS client key path.
         mtls_ca: mTLS CA bundle path.
+        attestation_slsa_owner: GitHub owner for SLSA attestation.
+        attestation_sha256: Expected SHA-256 hash of STDIO binary.
+        attestation_require_signature: Require code signature (macOS).
 
     Returns:
         Tuple of (log_dir, log_level, include_payloads, server_name, connection_type,
@@ -344,6 +353,14 @@ def _run_non_interactive_init(
         click.echo("Error: --oidc-issuer, --oidc-client-id, and --oidc-audience are required", err=True)
         sys.exit(1)
 
+    # Validate attestation SHA-256 format if provided
+    if attestation_sha256:
+        is_valid, normalized = validate_sha256_hex(attestation_sha256)
+        if not is_valid:
+            click.echo("Error: --attestation-sha256 must be a 64-character hex string", err=True)
+            sys.exit(1)
+        attestation_sha256 = normalized
+
     stdio_config: StdioTransportConfig | None = None
     http_config: HttpTransportConfig | None = None
 
@@ -353,7 +370,18 @@ def _run_non_interactive_init(
             click.echo("Error: --command and --args required for stdio connection", err=True)
             sys.exit(1)
         args_list = [arg.strip() for arg in args.split(",") if arg.strip()]
-        stdio_config = StdioTransportConfig(command=command, args=args_list)
+
+        # Build attestation config if any attestation option provided
+        attestation_config: StdioAttestationConfig | None = None
+        if attestation_slsa_owner or attestation_sha256 or attestation_require_signature:
+            attestation_config = StdioAttestationConfig(
+                slsa_owner=attestation_slsa_owner,
+                expected_sha256=attestation_sha256,
+                require_signature=attestation_require_signature or False,
+            )
+            click.echo("Binary attestation configured.")
+
+        stdio_config = StdioTransportConfig(command=command, args=args_list, attestation=attestation_config)
 
     if connection_type.lower() in ("http", "both"):
         if not url:
@@ -467,6 +495,20 @@ def _run_non_interactive_init(
     "--mtls-ca",
     help="CA bundle for mTLS (PEM). Used to verify backend server's certificate.",
 )
+# STDIO attestation options
+@click.option(
+    "--attestation-slsa-owner",
+    help="GitHub owner for SLSA attestation verification. Requires `gh` CLI.",
+)
+@click.option(
+    "--attestation-sha256",
+    help="Expected SHA-256 hash of the STDIO backend binary (64 hex chars).",
+)
+@click.option(
+    "--attestation-require-signature/--no-attestation-require-signature",
+    default=None,
+    help="Require valid code signature on macOS. Ignored on other platforms.",
+)
 @click.option("--force", is_flag=True, help="Overwrite existing config without prompting")
 def init(
     non_interactive: bool,
@@ -485,6 +527,9 @@ def init(
     mtls_cert: str | None,
     mtls_key: str | None,
     mtls_ca: str | None,
+    attestation_slsa_owner: str | None,
+    attestation_sha256: str | None,
+    attestation_require_signature: bool | None,
     force: bool,
 ) -> None:
     """Initialize proxy configuration.
@@ -511,6 +556,13 @@ def init(
     provide all three mTLS options: --mtls-cert, --mtls-key, --mtls-ca.
     Get certificates from your IT team or generate for testing.
     See 'docs/auth.md' for certificate generation instructions.
+
+    \b
+    Binary Attestation (STDIO only):
+    Verify STDIO backend binaries before spawning. Options:
+    - --attestation-slsa-owner: GitHub owner for SLSA provenance verification
+    - --attestation-sha256: Expected SHA-256 hash of the binary
+    - --attestation-require-signature: Require code signature (macOS only)
 
     Use --non-interactive with required flags for scripted setup.
     """
@@ -580,6 +632,9 @@ def init(
                 mtls_cert,
                 mtls_key,
                 mtls_ca,
+                attestation_slsa_owner,
+                attestation_sha256,
+                attestation_require_signature,
             )
         else:
             (

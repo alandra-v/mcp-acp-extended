@@ -9,9 +9,12 @@ __all__ = [
     "prompt_auth_config",
     "prompt_http_config",
     "prompt_optional",
+    "prompt_stdio_attestation_config",
     "prompt_stdio_config",
     "prompt_with_retry",
 ]
+
+import platform
 
 import click
 
@@ -20,10 +23,12 @@ from mcp_acp_extended.config import (
     HttpTransportConfig,
     MTLSConfig,
     OIDCConfig,
+    StdioAttestationConfig,
     StdioTransportConfig,
 )
 from mcp_acp_extended.constants import DEFAULT_HTTP_TIMEOUT_SECONDS, HEALTH_CHECK_TIMEOUT_SECONDS
 from mcp_acp_extended.utils.transport import check_http_health, validate_mtls_config
+from mcp_acp_extended.utils.validation import validate_sha256_hex
 
 
 def prompt_with_retry(prompt_text: str) -> str:
@@ -66,7 +71,71 @@ def prompt_stdio_config() -> StdioTransportConfig:
     command = prompt_with_retry("Command to run")
     args_str = prompt_with_retry("Arguments (comma-separated)")
     args_list = [arg.strip() for arg in args_str.split(",") if arg.strip()]
-    return StdioTransportConfig(command=command, args=args_list)
+
+    # Optional attestation configuration
+    attestation_config = prompt_stdio_attestation_config()
+
+    return StdioTransportConfig(command=command, args=args_list, attestation=attestation_config)
+
+
+def prompt_stdio_attestation_config() -> StdioAttestationConfig | None:
+    """Prompt for STDIO binary attestation configuration.
+
+    Returns:
+        StdioAttestationConfig if user configures attestation, None otherwise.
+    """
+    click.echo("\n--- Binary Attestation (Optional) ---")
+    click.echo("Attestation verifies the backend binary before spawning.")
+    click.echo("Options:")
+    click.echo("  - SLSA Provenance: Verify build attestation via GitHub CLI")
+    click.echo("  - SHA-256 Hash: Verify binary matches expected hash")
+    click.echo("  - Code Signature: Require valid signature (macOS only)")
+    click.echo()
+
+    if not click.confirm("Configure binary attestation?", default=False):
+        return None
+
+    click.echo()
+
+    # SLSA owner
+    click.echo("SLSA Provenance (optional):")
+    click.echo("  GitHub owner (user/org) that built the binary.")
+    click.echo("  Requires `gh` CLI to be installed and authenticated.")
+    slsa_owner = prompt_optional("  SLSA owner (leave empty to skip)")
+    slsa_owner = slsa_owner if slsa_owner else None
+
+    # Expected SHA-256
+    click.echo("\nSHA-256 Hash (optional):")
+    click.echo("  Expected hash of the binary (hex string).")
+    click.echo("  Get it with: shasum -a 256 /path/to/binary")
+    expected_sha256: str | None = None
+    while True:
+        sha_input = prompt_optional("  Expected SHA-256 (leave empty to skip)")
+        if not sha_input:
+            break
+        is_valid, normalized = validate_sha256_hex(sha_input)
+        if is_valid:
+            expected_sha256 = normalized
+            break
+        click.echo("    Invalid SHA-256 hash. Must be 64 hex characters.")
+
+    # Code signature (macOS only)
+    require_signature = False
+    if platform.system() == "Darwin":
+        click.echo("\nCode Signature (macOS):")
+        click.echo("  Require valid code signature from Apple or identified developer.")
+        require_signature = click.confirm("  Require code signature?", default=False)
+
+    # Only return config if at least one option is configured
+    if not slsa_owner and not expected_sha256 and not require_signature:
+        click.echo("\nNo attestation options configured, skipping.")
+        return None
+
+    return StdioAttestationConfig(
+        slsa_owner=slsa_owner,
+        expected_sha256=expected_sha256,
+        require_signature=require_signature,
+    )
 
 
 def prompt_http_config() -> HttpTransportConfig:
