@@ -276,15 +276,47 @@ All endpoints return standard HTTP status codes:
 | `401` | Unauthorized (missing/invalid token) |
 | `404` | Not found |
 | `409` | Conflict (duplicate ID) |
+| `422` | Validation error (invalid request body) |
 | `500` | Internal server error |
 | `502` | Bad gateway (upstream error, e.g., OAuth) |
 | `503` | Service unavailable (provider not ready) |
 
-Error response format:
+### Structured Error Format
+
+All errors return a structured response with error codes for programmatic handling:
 
 ```json
 {
-  "detail": "Error message describing what went wrong"
+  "detail": {
+    "code": "APPROVAL_NOT_FOUND",
+    "message": "Pending approval not found",
+    "details": {"approval_id": "abc123"}
+  }
+}
+```
+
+**Error codes by domain:**
+
+| Domain | Codes |
+|--------|-------|
+| Auth | `AUTH_REQUIRED`, `AUTH_FORBIDDEN`, `AUTH_PROVIDER_UNAVAILABLE`, `AUTH_DEVICE_FLOW_FAILED` |
+| Approval | `APPROVAL_NOT_FOUND`, `APPROVAL_UNAUTHORIZED`, `CACHED_APPROVAL_NOT_FOUND` |
+| Policy | `POLICY_NOT_FOUND`, `POLICY_INVALID`, `POLICY_RULE_NOT_FOUND`, `POLICY_RULE_DUPLICATE`, `POLICY_RELOAD_FAILED` |
+| Config | `CONFIG_NOT_FOUND`, `CONFIG_INVALID`, `CONFIG_SAVE_FAILED` |
+| Validation | `VALIDATION_ERROR` (includes `validation_errors` array with field-level details) |
+| Internal | `INTERNAL_ERROR`, `NOT_IMPLEMENTED`, `UPSTREAM_ERROR`, `SERVICE_UNAVAILABLE` |
+
+**Validation error example:**
+
+```json
+{
+  "detail": {
+    "code": "VALIDATION_ERROR",
+    "message": "effect: Input should be 'allow', 'deny' or 'hitl'",
+    "validation_errors": [
+      {"loc": ["body", "effect"], "msg": "Input should be 'allow', 'deny' or 'hitl'", "type": "literal_error"}
+    ]
+  }
 }
 ```
 

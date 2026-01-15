@@ -75,7 +75,12 @@ Displays current authentication state including token validity, user info, and m
 
 ### auth logout
 
-Removes stored credentials from keychain.
+Removes stored credentials from keychain and clears HITL approval cache.
+
+**What gets cleared:**
+- Tokens from OS keychain
+- In-memory identity cache
+- HITL approval cache (prevents stale approvals on re-login)
 
 Use `--federated` to also log out of the identity provider in browser (recommended when switching users).
 

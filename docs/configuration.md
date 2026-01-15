@@ -26,6 +26,7 @@ mcp-acp-extended init --non-interactive \
 - `--non-interactive` - Skip prompts (requires all options to be specified)
 - `--oidc-issuer`, `--oidc-client-id`, `--oidc-audience` - Authentication (required)
 - `--mtls-cert`, `--mtls-key`, `--mtls-ca` - mTLS for HTTPS backends (optional)
+- `--attestation-slsa-owner`, `--attestation-sha256`, `--attestation-require-signature` - Binary attestation for STDIO backends (optional)
 - `--log-dir`, `--log-level`, `--include-payloads/--no-include-payloads` - Logging configuration
 - `--server-name`, `--connection-type`, `--command`, `--args`, `--url`, `--timeout` - Backend configuration
 - `--force` - Overwrite existing config without prompting
@@ -131,7 +132,12 @@ Configuration is stored in an OS-specific application directory:
     "transport": "auto",
     "stdio": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"]
+      "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
+      "attestation": {
+        "expected_sha256": "abc123...",
+        "require_signature": true,
+        "slsa_owner": "github-username"
+      }
     },
     "http": {
       "url": "http://localhost:3000/mcp",
@@ -177,6 +183,9 @@ Configuration is stored in an OS-specific application directory:
 | `transport` | `"stdio"`, `"streamablehttp"`, or `"auto"` (default: `"auto"`) |
 | `stdio.command` | Command to spawn backend (e.g., `npx`) |
 | `stdio.args` | Arguments for the command |
+| `stdio.attestation.expected_sha256` | Expected SHA-256 hash of the binary (optional) |
+| `stdio.attestation.require_signature` | Require valid code signature, macOS only (optional) |
+| `stdio.attestation.slsa_owner` | GitHub owner for SLSA provenance verification (optional) |
 | `http.url` | Backend Streamable HTTP server URL |
 | `http.timeout` | Streamable HTTP connection timeout in seconds (default: 30, min: 1, max: 300) |
 

@@ -317,6 +317,10 @@ For maximum protection, enable OS-level append-only attributes on audit logs:
 
 Principle: Policy paths are identifiers, not filesystem references. Policy matches what the client requested, not what it might resolve to.
 
+**Known Limitation - Symlink Bypass**: Because policy evaluation does not resolve symlinks,
+an attacker with write access to an allowed directory could create symlinks to bypass deny rules.
+See "Symlink Considerations" section below for mitigation guidance.
+
 **Config and Policy History Logs**: Changes to configuration and policy are tracked in versioned history logs:
 
 - `system/config_history.jsonl` - config lifecycle events
@@ -437,6 +441,24 @@ On critical security failure, shutdown events are logged to multiple destination
 ### Post-Shutdown Client Behavior
 
 After shutdown, MCP clients may auto-restart the proxy. The restarted proxy receives requests without proper initialization, causing `-32602 Invalid request parameters` errors. This is expected behavior - users must manually reconnect their MCP client.
+
+---
+
+## Symlink Considerations
+
+Policy evaluation does **not** resolve symlinks. This preserves compatibility with macOS
+(where `/tmp` → `/private/tmp`) and user symlinks in workflows.
+
+**Implication**: An attacker with write access to an allowed directory could create a symlink
+to bypass deny rules. For example, `/tmp/allowed/link` → `/etc/shadow` would match an
+`allow /tmp/allowed/**` rule.
+
+**Mitigations**:
+- Use HITL instead of ALLOW for directories where untrusted symlinks might exist
+- Restrict filesystem write access to allowed directories
+- Protected paths (config dir, log dir) are symlink-safe via `realpath()` at startup
+
+For most deployments where you control the allowed directories, this is low risk.
 
 ---
 
