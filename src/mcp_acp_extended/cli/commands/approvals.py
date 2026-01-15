@@ -14,6 +14,8 @@ import click
 
 from mcp_acp_extended.cli.api_client import api_request
 
+from ..styling import style_dim, style_error, style_label, style_success
+
 
 @click.group()
 def approvals() -> None:
@@ -44,10 +46,10 @@ def approvals_cache(as_json: bool) -> None:
         approvals_list = data.get("approvals", [])
 
         if count == 0:
-            click.echo("No cached approvals.")
+            click.echo(style_dim("No cached approvals."))
             return
 
-        click.echo(f"\nCached approvals: {count} (TTL: {ttl}s)\n")
+        click.echo("\n" + style_label("Cached approvals") + f" {count} (TTL: {ttl}s)\n")
 
         for i, approval in enumerate(approvals_list, 1):
             tool_name = approval.get("tool_name", "?")
@@ -77,11 +79,11 @@ def approvals_clear(clear_all: bool, entry_num: int | None) -> None:
     Use --all to clear entire cache, or --entry=N to clear a specific entry.
     """
     if not clear_all and entry_num is None:
-        click.echo("Error: Specify --all or --entry=N", err=True)
+        click.echo(style_error("Error: Specify --all or --entry=N"), err=True)
         sys.exit(1)
 
     if clear_all and entry_num is not None:
-        click.echo("Error: Cannot use both --all and --entry", err=True)
+        click.echo(style_error("Error: Cannot use both --all and --entry"), err=True)
         sys.exit(1)
 
     # Get current cache
@@ -90,21 +92,21 @@ def approvals_clear(clear_all: bool, entry_num: int | None) -> None:
     approvals_list = cache_data.get("approvals", [])
 
     if not approvals_list:
-        click.echo("No cached approvals to clear.")
+        click.echo(style_dim("No cached approvals to clear."))
         return
 
     if clear_all:
         if not click.confirm(f"Clear all {len(approvals_list)} cached approval(s)?", default=True):
-            click.echo("Cancelled.")
+            click.echo(style_dim("Cancelled."))
             return
 
         response = api_request("DELETE", "/api/approvals/cached")
         result = response if isinstance(response, dict) else {}
-        click.echo(f"Cleared {result.get('cleared', 0)} cached approval(s).")
+        click.echo(style_success(f"Cleared {result.get('cleared', 0)} cached approval(s)."))
 
     else:
         if entry_num < 1 or entry_num > len(approvals_list):
-            click.echo(f"Error: Invalid entry. Valid: 1-{len(approvals_list)}", err=True)
+            click.echo(style_error(f"Error: Invalid entry. Valid: 1-{len(approvals_list)}"), err=True)
             sys.exit(1)
 
         approval = approvals_list[entry_num - 1]
@@ -113,7 +115,7 @@ def approvals_clear(clear_all: bool, entry_num: int | None) -> None:
 
         desc = f"'{tool}'" + (f" ({path})" if path else "")
         if not click.confirm(f"Clear cached approval for {desc}?", default=True):
-            click.echo("Cancelled.")
+            click.echo(style_dim("Cancelled."))
             return
 
         params = {
@@ -122,4 +124,4 @@ def approvals_clear(clear_all: bool, entry_num: int | None) -> None:
             "path": path,
         }
         api_request("DELETE", "/api/approvals/cached/entry", params=params)
-        click.echo(f"Cleared cached approval for '{tool}'.")
+        click.echo(style_success(f"Cleared cached approval for '{tool}'."))

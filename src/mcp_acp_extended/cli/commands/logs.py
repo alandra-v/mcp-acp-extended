@@ -16,6 +16,8 @@ from pathlib import Path
 import click
 
 from mcp_acp_extended.config import AppConfig
+
+from ..styling import style_label
 from mcp_acp_extended.utils.config import (
     get_auth_log_path,
     get_config_history_path,
@@ -81,7 +83,7 @@ def logs_list() -> None:
     """
     config = _load_config()
 
-    click.echo("\nAvailable log files:\n")
+    click.echo("\n" + style_label("Available log files") + "\n")
 
     for log_type, (description, path_fn) in LOG_TYPES.items():
         log_path = path_fn(config)

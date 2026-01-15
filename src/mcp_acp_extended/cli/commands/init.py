@@ -43,6 +43,7 @@ from mcp_acp_extended.utils.validation import validate_sha256_hex
 from mcp_acp_extended.security.auth.token_storage import create_token_storage
 
 from ..prompts import prompt_auth_config, prompt_http_config, prompt_stdio_config, prompt_with_retry
+from ..styling import style_dim, style_error, style_header, style_success, style_warning
 
 # Recommended log directory shown in init prompts (user can customize)
 RECOMMENDED_LOG_DIR = "~/.mcp-acp-extended"
@@ -92,7 +93,7 @@ def _check_oidc_change_warning(
         storage = create_token_storage(old_oidc)
         if storage.exists():
             click.echo()
-            click.echo(click.style("Warning: OIDC settings changed", fg="yellow", bold=True))
+            click.echo(style_warning("OIDC settings changed"))
             click.echo("  Your stored authentication token was created with different settings.")
             click.echo("  You will need to run 'mcp-acp-extended auth login' to re-authenticate.")
             click.echo()
@@ -197,8 +198,8 @@ def _create_and_save_config(
     _create_policy_only(config, policy_path)
 
     # Display result
-    click.echo(f"\nConfiguration saved to {config_path}")
-    click.echo(f"Policy saved to {policy_path}")
+    click.echo("\n" + style_success(f"Configuration saved to {config_path}"))
+    click.echo(style_success(f"Policy saved to {policy_path}"))
     if transport == "auto":
         click.echo("Transport: auto-detect (prefers HTTP when reachable)")
     else:
@@ -229,6 +230,7 @@ def _run_interactive_init(
     click.echo(f"Config will be saved to: {get_config_path()}\n")
 
     # Logging settings
+    click.echo(style_header("Logging"))
     log_dir = log_dir or prompt_with_retry(f"Log directory (recommended: {RECOMMENDED_LOG_DIR})")
     click.echo("  DEBUG enables debug wire logs (client <-> proxy <-> backend)")
     log_level = click.prompt(
@@ -246,7 +248,9 @@ def _run_interactive_init(
         include_payloads = click.confirm("  Include payloads", default=True)
 
     # Backend settings
-    server_name = server_name or prompt_with_retry("\nBackend server name")
+    click.echo()
+    click.echo(style_header("Backend"))
+    server_name = server_name or prompt_with_retry("Server name")
 
     # Connection type selection
     click.echo("\nHow do you connect to this server?")
@@ -339,25 +343,27 @@ def _run_non_interactive_init(
     """
     # Validate required flags
     if not log_dir:
-        click.echo("Error: --log-dir is required", err=True)
+        click.echo(style_error("Error: --log-dir is required"), err=True)
         sys.exit(1)
     if not server_name:
-        click.echo("Error: --server-name is required", err=True)
+        click.echo(style_error("Error: --server-name is required"), err=True)
         sys.exit(1)
     if not connection_type:
-        click.echo("Error: --connection-type is required", err=True)
+        click.echo(style_error("Error: --connection-type is required"), err=True)
         sys.exit(1)
 
     # Validate auth flags
     if not oidc_issuer or not oidc_client_id or not oidc_audience:
-        click.echo("Error: --oidc-issuer, --oidc-client-id, and --oidc-audience are required", err=True)
+        click.echo(
+            style_error("Error: --oidc-issuer, --oidc-client-id, and --oidc-audience are required"), err=True
+        )
         sys.exit(1)
 
     # Validate attestation SHA-256 format if provided
     if attestation_sha256:
         is_valid, normalized = validate_sha256_hex(attestation_sha256)
         if not is_valid:
-            click.echo("Error: --attestation-sha256 must be a 64-character hex string", err=True)
+            click.echo(style_error("Error: --attestation-sha256 must be a 64-character hex string"), err=True)
             sys.exit(1)
         attestation_sha256 = normalized
 
@@ -367,7 +373,7 @@ def _run_non_interactive_init(
     # Validate transport-specific flags
     if connection_type.lower() in ("stdio", "both"):
         if not command or not args:
-            click.echo("Error: --command and --args required for stdio connection", err=True)
+            click.echo(style_error("Error: --command and --args required for stdio connection"), err=True)
             sys.exit(1)
         args_list = [arg.strip() for arg in args.split(",") if arg.strip()]
 
@@ -379,13 +385,13 @@ def _run_non_interactive_init(
                 expected_sha256=attestation_sha256,
                 require_signature=attestation_require_signature or False,
             )
-            click.echo("Binary attestation configured.")
+            click.echo(style_success("Binary attestation configured."))
 
         stdio_config = StdioTransportConfig(command=command, args=args_list, attestation=attestation_config)
 
     if connection_type.lower() in ("http", "both"):
         if not url:
-            click.echo("Error: --url required for http connection", err=True)
+            click.echo(style_error("Error: --url required for http connection"), err=True)
             sys.exit(1)
         http_config = HttpTransportConfig(url=url, timeout=timeout)
 
@@ -393,7 +399,7 @@ def _run_non_interactive_init(
         click.echo(f"Testing connection to {url}...")
         try:
             check_http_health(url, timeout=min(timeout, HEALTH_CHECK_TIMEOUT_SECONDS))
-            click.echo("Server is reachable.")
+            click.echo(style_success("Server is reachable."))
         except Exception:
             click.echo(f"Health check failed: could not reach {url}", err=True)
             click.echo("Config will be saved anyway. Server may be offline.", err=True)
@@ -411,11 +417,11 @@ def _run_non_interactive_init(
         click.echo("Validating mTLS certificates...")
         errors = validate_mtls_config(mtls_cert, mtls_key, mtls_ca)
         if errors:
-            click.echo("Error: mTLS certificate validation failed:", err=True)
+            click.echo(style_error("Error: mTLS certificate validation failed:"), err=True)
             for error in errors:
                 click.echo(f"  - {error}", err=True)
             sys.exit(1)
-        click.echo("mTLS certificates valid.")
+        click.echo(style_success("mTLS certificates valid."))
 
         mtls_config = MTLSConfig(
             client_cert_path=mtls_cert,
@@ -578,10 +584,10 @@ def init(
         try:
             existing_config = AppConfig.load_from_files(config_path)
             _create_policy_only(existing_config, policy_path)
-            click.echo(f"Policy created at {policy_path}")
+            click.echo(style_success(f"Policy created at {policy_path}"))
             return
         except ValueError as e:
-            click.echo(f"Error: Cannot load existing config: {e}", err=True)
+            click.echo(style_error(f"Error: Cannot load existing config: {e}"), err=True)
             click.echo("Fix the config or use --force to recreate both files.", err=True)
             sys.exit(1)
 
@@ -589,10 +595,10 @@ def init(
     # If only policy exists, proceed - user wants to recreate config
     if config_exists and not force:
         if non_interactive:
-            click.echo("Error: Config already exists. Use --force to overwrite.", err=True)
+            click.echo(style_error("Error: Config already exists. Use --force to overwrite."), err=True)
             sys.exit(1)
         if not click.confirm("Config already exists. Overwrite?", default=False):
-            click.echo("Aborted.")
+            click.echo(style_dim("Aborted."))
             sys.exit(0)
 
     # Load existing config to check for OIDC changes later
@@ -648,7 +654,7 @@ def init(
                 auth_config,
             ) = _run_interactive_init(log_dir, log_level, server_name)
     except click.Abort:
-        click.echo("Aborted.")
+        click.echo(style_dim("Aborted."))
         sys.exit(0)
 
     # Warn if OIDC settings changed and user has stored tokens
@@ -673,5 +679,5 @@ def init(
             auth_config,
         )
     except OSError as e:
-        click.echo(f"Error: Failed to save configuration: {e}", err=True)
+        click.echo(style_error(f"Error: Failed to save configuration: {e}"), err=True)
         sys.exit(1)

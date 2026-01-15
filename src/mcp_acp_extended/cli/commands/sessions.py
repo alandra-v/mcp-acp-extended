@@ -14,6 +14,8 @@ import click
 
 from mcp_acp_extended.cli.api_client import api_request
 
+from ..styling import style_dim, style_label
+
 
 @click.group()
 def sessions() -> None:
@@ -41,10 +43,10 @@ def sessions_list(as_json: bool) -> None:
         click.echo(json.dumps(data, indent=2))
     else:
         if not data:
-            click.echo("No active sessions.")
+            click.echo(style_dim("No active sessions."))
             return
 
-        click.echo(f"\nActive sessions: {len(data)}\n")
+        click.echo("\n" + style_label("Active sessions") + f" {len(data)}\n")
 
         for session in data:
             session_id = session.get("session_id", "?")

@@ -18,6 +18,7 @@ import platform
 
 import click
 
+from mcp_acp_extended.cli.styling import style_error, style_header, style_success
 from mcp_acp_extended.config import (
     AuthConfig,
     HttpTransportConfig,
@@ -67,7 +68,8 @@ def prompt_stdio_config() -> StdioTransportConfig:
     Returns:
         StdioTransportConfig with user-provided values.
     """
-    click.echo("\n[STDIO Configuration]")
+    click.echo()
+    click.echo(style_header("STDIO Configuration"))
     command = prompt_with_retry("Command to run")
     args_str = prompt_with_retry("Arguments (comma-separated)")
     args_list = [arg.strip() for arg in args_str.split(",") if arg.strip()]
@@ -84,7 +86,8 @@ def prompt_stdio_attestation_config() -> StdioAttestationConfig | None:
     Returns:
         StdioAttestationConfig if user configures attestation, None otherwise.
     """
-    click.echo("\n--- Binary Attestation (Optional) ---")
+    click.echo()
+    click.echo(style_header("Binary Attestation (Optional)"))
     click.echo("Attestation verifies the backend binary before spawning.")
     click.echo("Options:")
     click.echo("  - SLSA Provenance: Verify build attestation via GitHub CLI")
@@ -147,7 +150,8 @@ def prompt_http_config() -> HttpTransportConfig:
     Raises:
         click.Abort: If user aborts after connection failure.
     """
-    click.echo("\n[HTTP Configuration]")
+    click.echo()
+    click.echo(style_header("HTTP Configuration"))
 
     while True:
         url = prompt_with_retry("Server URL (e.g., https://host:port/mcp)")
@@ -162,7 +166,7 @@ def prompt_http_config() -> HttpTransportConfig:
         click.echo(f"\nTesting connection to {url}...")
         try:
             check_http_health(url, timeout=min(timeout, HEALTH_CHECK_TIMEOUT_SECONDS))
-            click.echo("Server is reachable!")
+            click.echo(style_success("Server is reachable!"))
             return HttpTransportConfig(url=url, timeout=timeout)
         except Exception as e:
             error_str = str(e).lower()
@@ -195,7 +199,8 @@ def prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
     Returns:
         AuthConfig with user-provided values.
     """
-    click.echo("\n--- Authentication ---")
+    click.echo()
+    click.echo(style_header("Authentication"))
     click.echo("Configure Auth0/OIDC for user authentication.\n")
 
     # OIDC settings
@@ -212,7 +217,8 @@ def prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
     # mTLS settings (only for HTTPS backends)
     mtls_config: MTLSConfig | None = None
     if http_config and http_config.url.startswith("https://"):
-        click.echo("\n--- mTLS (Mutual TLS) ---")
+        click.echo()
+        click.echo(style_header("mTLS (Mutual TLS)"))
         click.echo("HTTPS backend detected. mTLS allows the proxy to authenticate")
         click.echo("itself to the backend using a client certificate.\n")
         click.echo("You need 3 PEM files (obtain from your security team):")
@@ -234,7 +240,7 @@ def prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
                 errors = validate_mtls_config(client_cert, client_key, ca_bundle)
 
                 if not errors:
-                    click.echo(click.style("  Certificates valid!", fg="green"))
+                    click.echo("  " + style_success("Certificates valid!"))
                     mtls_config = MTLSConfig(
                         client_cert_path=client_cert,
                         client_key_path=client_key,
@@ -243,7 +249,7 @@ def prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
                     break
 
                 # Show errors
-                click.echo(click.style("\n  Certificate validation failed:", fg="red"))
+                click.echo("\n  " + style_error("Certificate validation failed:"))
                 for error in errors:
                     click.echo(f"    - {error}")
                 click.echo()

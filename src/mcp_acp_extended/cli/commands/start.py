@@ -12,6 +12,7 @@ __all__ = [
 import click
 
 from mcp_acp_extended import __version__
+from ..styling import style_error
 from mcp_acp_extended.config import AppConfig
 from mcp_acp_extended.utils.policy import get_policy_path, load_policy
 from mcp_acp_extended.utils.history_logging.policy_logger import (
@@ -142,7 +143,7 @@ def start(no_ui: bool) -> None:
                 detail=f"{e}\n\nCheck the mTLS section in:\n  {config_path}",
                 backoff=True,
             )
-            click.echo(f"\nError: mTLS certificate not found: {e}", err=True)
+            click.echo("\n" + style_error(f"Error: mTLS certificate not found: {e}"), err=True)
         else:
             show_startup_error_popup(
                 title="MCP ACP",
@@ -150,7 +151,7 @@ def start(no_ui: bool) -> None:
                 detail="Run in terminal:\n  mcp-acp-extended init\n\nThen restart your MCP client.",
                 backoff=True,
             )
-            click.echo("\nError: Configuration not found.", err=True)
+            click.echo("\n" + style_error("Error: Configuration not found."), err=True)
             click.echo("Run 'mcp-acp-extended init' to create a configuration.", err=True)
         sys.exit(1)
 
@@ -192,7 +193,7 @@ def start(no_ui: bool) -> None:
                 detail=f"{error_msg}",
                 backoff=True,
             )
-            click.echo(f"\nError: Invalid policy: {e}", err=True)
+            click.echo("\n" + style_error(f"Error: Invalid policy: {e}"), err=True)
         else:
             show_startup_error_popup(
                 title="MCP ACP",
@@ -200,7 +201,7 @@ def start(no_ui: bool) -> None:
                 detail=f"{error_msg}",
                 backoff=True,
             )
-            click.echo(f"\nError: Invalid configuration: {e}", err=True)
+            click.echo("\n" + style_error(f"Error: Invalid configuration: {e}"), err=True)
 
         # Check for backup if config file is corrupt
         if "Invalid JSON" in error_msg or "Could not read" in error_msg:
@@ -221,7 +222,7 @@ def start(no_ui: bool) -> None:
             detail=f"{e}\n\nCheck that the backend server is running and responsive.",
             backoff=True,
         )
-        click.echo(f"Error: Backend connection timed out: {e}", err=True)
+        click.echo(style_error(f"Error: Backend connection timed out: {e}"), err=True)
         sys.exit(1)
 
     except ConnectionError as e:
@@ -234,7 +235,7 @@ def start(no_ui: bool) -> None:
                 detail=f"{e}\n\nCheck your mTLS certificate configuration.",
                 backoff=True,
             )
-            click.echo(f"Error: SSL/TLS error: {e}", err=True)
+            click.echo(style_error(f"Error: SSL/TLS error: {e}"), err=True)
         else:
             show_startup_error_popup(
                 title="MCP ACP",
@@ -242,7 +243,7 @@ def start(no_ui: bool) -> None:
                 detail=f"{e}\n\nCheck that the backend server is running.",
                 backoff=True,
             )
-            click.echo(f"Error: Backend connection failed: {e}", err=True)
+            click.echo(style_error(f"Error: Backend connection failed: {e}"), err=True)
         sys.exit(1)
 
     except AuditFailure as e:
@@ -252,7 +253,7 @@ def start(no_ui: bool) -> None:
             detail=f"{e}\n\nThe proxy cannot start without a writable audit log.\nCheck file permissions in the log directory.",
             backoff=True,
         )
-        click.echo(f"Error: Audit log failure: {e}", err=True)
+        click.echo(style_error(f"Error: Audit log failure: {e}"), err=True)
         click.echo("The proxy cannot start without a writable audit log.", err=True)
         sys.exit(AuditFailure.exit_code)
 
@@ -261,7 +262,7 @@ def start(no_ui: bool) -> None:
         if "not configured" in error_msg:
             # Auth section missing from config - need to run init
             # Terminal output FIRST (so user sees it immediately)
-            click.echo("\nError: Authentication not configured.", err=True)
+            click.echo("\n" + style_error("Error: Authentication not configured."), err=True)
             click.echo("Run 'mcp-acp-extended init' to configure authentication.", err=True)
             # Popup AFTER (for MCP client users who can't see terminal)
             show_startup_error_popup(
@@ -272,7 +273,7 @@ def start(no_ui: bool) -> None:
             )
         elif "not authenticated" in error_msg or "no token" in error_msg or "token not found" in error_msg:
             # Token not found in keychain - need to login
-            click.echo("\nError: Not authenticated.", err=True)
+            click.echo("\n" + style_error("Error: Not authenticated."), err=True)
             click.echo("Run 'mcp-acp-extended auth login' to authenticate.", err=True)
             show_startup_error_popup(
                 title="MCP ACP",
@@ -282,7 +283,7 @@ def start(no_ui: bool) -> None:
             )
         elif "expired" in error_msg:
             # Token expired and refresh failed - need to re-login
-            click.echo("\nError: Auth session expired.", err=True)
+            click.echo("\n" + style_error("Error: Auth session expired."), err=True)
             click.echo("Run 'mcp-acp-extended auth login' to re-authenticate.", err=True)
             show_startup_error_popup(
                 title="MCP ACP",
@@ -292,7 +293,7 @@ def start(no_ui: bool) -> None:
             )
         else:
             # Generic auth error
-            click.echo("\nError: Authentication failed.", err=True)
+            click.echo("\n" + style_error("Error: Authentication failed."), err=True)
             click.echo(str(e), err=True)
             click.echo("\nRun 'mcp-acp-extended auth login' to re-authenticate.", err=True)
             show_startup_error_popup(
@@ -310,7 +311,7 @@ def start(no_ui: bool) -> None:
             detail=f"{e}\n\nEnsure FileVault is enabled and SIP is not disabled.",
             backoff=True,
         )
-        click.echo(f"\nError: Device health check failed", err=True)
+        click.echo("\n" + style_error("Error: Device health check failed"), err=True)
         click.echo(str(e), err=True)
         sys.exit(DeviceHealthError.exit_code)
 
@@ -321,5 +322,5 @@ def start(no_ui: bool) -> None:
             detail=f"{e}",
             backoff=True,
         )
-        click.echo(f"Error: Proxy startup failed: {e}", err=True)
+        click.echo(style_error(f"Error: Proxy startup failed: {e}"), err=True)
         sys.exit(1)

@@ -17,6 +17,8 @@ import click
 
 from mcp_acp_extended.config import AppConfig
 
+from ..styling import style_dim, style_success
+
 if TYPE_CHECKING:
     from mcp_acp_extended.config import OIDCConfig
 from mcp_acp_extended.cli.api_client import APIError, ProxyNotRunningError, api_request
@@ -173,7 +175,7 @@ def login(no_browser: bool) -> None:
         proxy_notified = _notify_proxy("/api/auth/notify-login")
 
         # Show success
-        click.echo(click.style("Authentication successful!", fg="green", bold=True))
+        click.echo(click.style(style_success("Authentication successful!"), bold=True))
         click.echo()
 
         # Show storage info
@@ -231,7 +233,7 @@ def logout(federated: bool) -> None:
     storage = create_token_storage(oidc_config)
 
     if not storage.exists():
-        click.echo("No stored credentials found.")
+        click.echo(style_dim("No stored credentials found."))
         # Still do federated logout if requested (browser session may exist)
         if federated and oidc_config:
             _do_federated_logout(oidc_config)
@@ -242,7 +244,7 @@ def logout(federated: bool) -> None:
         proxy_notified = _notify_proxy("/api/auth/notify-logout")
 
         storage.delete()
-        click.echo(click.style("Local credentials cleared.", fg="green"))
+        click.echo(style_success("Local credentials cleared."))
 
         # Show proxy sync status
         if proxy_notified:
@@ -277,7 +279,7 @@ def _do_federated_logout(oidc_config: OIDCConfig) -> None:
 
     try:
         webbrowser.open(logout_url)
-        click.echo(click.style("Browser opened for Auth0 logout.", fg="green"))
+        click.echo(style_success("Browser opened for Auth0 logout."))
     except (OSError, webbrowser.Error) as e:
         click.echo(f"Could not open browser automatically: {e}")
         click.echo(f"Open this URL manually: {logout_url}")

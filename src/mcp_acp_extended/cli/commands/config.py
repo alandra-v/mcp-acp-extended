@@ -26,6 +26,8 @@ from mcp_acp_extended.utils.config import (
 )
 from mcp_acp_extended.utils.history_logging import log_config_updated
 
+from ..styling import style_dim, style_error, style_header, style_success
+
 
 def _load_raw_config(config_path: Path) -> dict[str, object]:
     """Load raw JSON from config file without Pydantic defaults."""
@@ -110,7 +112,7 @@ def config_show(as_json: bool) -> None:
         # Display formatted configuration
         click.echo("\nmcp-acp-extended configuration:\n")
 
-        click.echo("Logging:")
+        click.echo(style_header("Logging"))
         click.echo(f"  log_dir: {loaded_config.logging.log_dir}")
         click.echo(f"  log_level: {loaded_config.logging.log_level}")
         click.echo(f"  include_payloads: {loaded_config.logging.include_payloads}")
@@ -123,7 +125,7 @@ def config_show(as_json: bool) -> None:
         click.echo(f"    config_history: {get_config_history_path(loaded_config)}")
         click.echo()
 
-        click.echo("Backend:")
+        click.echo(style_header("Backend"))
         click.echo(f"  server_name: {loaded_config.backend.server_name}")
         if loaded_config.backend.transport:
             click.echo(f"  transport: {loaded_config.backend.transport}")
@@ -145,12 +147,12 @@ def config_show(as_json: bool) -> None:
             click.echo("  http: (not configured)")
         click.echo()
 
-        click.echo("Proxy:")
+        click.echo(style_header("Proxy"))
         click.echo(f"  name: {loaded_config.proxy.name}")
         click.echo()
 
         # Auth section
-        click.echo("Authentication:")
+        click.echo(style_header("Authentication"))
         if loaded_config.auth is None:
             click.echo("  (not configured)")
         else:
@@ -173,10 +175,11 @@ def config_show(as_json: bool) -> None:
 
         # HITL section - mark values not in config file as defaults
         hitl_is_default = _is_default(raw_config, "hitl")
+        hitl_header = style_header("Human-in-the-Loop (HITL)")
         if hitl_is_default:
-            click.echo("Human-in-the-Loop (HITL):" + _default_marker())
+            click.echo(hitl_header + _default_marker())
         else:
-            click.echo("Human-in-the-Loop (HITL):")
+            click.echo(hitl_header)
 
         timeout_default = _is_default(raw_config, "hitl", "timeout_seconds")
         click.echo(
@@ -207,7 +210,7 @@ def config_show(as_json: bool) -> None:
         click.echo(f"Config file: {config_file_path}")
 
     except (FileNotFoundError, ValueError) as e:
-        click.echo(f"\nError: {e}", err=True)
+        click.echo("\n" + style_error(f"Error: {e}"), err=True)
         sys.exit(1)
 
 
@@ -248,7 +251,7 @@ def config_edit() -> None:
 
     # Check config exists
     if not config_path.exists():
-        click.echo(f"Error: Config file not found at {config_path}", err=True)
+        click.echo(style_error(f"Error: Config file not found at {config_path}"), err=True)
         click.echo("Run 'mcp-acp-extended init' to create configuration.", err=True)
         sys.exit(1)
 
@@ -257,7 +260,7 @@ def config_edit() -> None:
         original_config = AppConfig.load_from_files(config_path)
         original_dict = original_config.model_dump()
     except (FileNotFoundError, ValueError) as e:
-        click.echo(f"Error loading config: {e}", err=True)
+        click.echo(style_error(f"Error loading config: {e}"), err=True)
         sys.exit(1)
 
     # Get current content as formatted JSON
@@ -292,12 +295,12 @@ def config_edit() -> None:
 
         # User quit without saving
         if edited_content is None:
-            click.echo("Edit cancelled.")
+            click.echo(style_dim("Edit cancelled."))
             sys.exit(0)
 
         # Check if content changed
         if edited_content.strip() == current_content.strip():
-            click.echo("No changes made.")
+            click.echo(style_dim("No changes made."))
             sys.exit(0)
 
         # Try to parse and validate
@@ -306,13 +309,13 @@ def config_edit() -> None:
             new_config = AppConfig.model_validate(new_dict)
             break  # Validation passed, exit loop
         except json.JSONDecodeError as e:
-            click.echo(f"\nError: Invalid JSON: {e}", err=True)
+            click.echo("\n" + style_error(f"Error: Invalid JSON: {e}"), err=True)
         except ValueError as e:
-            click.echo(f"\nError: Invalid configuration: {e}", err=True)
+            click.echo("\n" + style_error(f"Error: Invalid configuration: {e}"), err=True)
 
         # Offer to re-edit
         if not click.confirm("Re-edit configuration?", default=True):
-            click.echo("Edit cancelled.")
+            click.echo(style_dim("Edit cancelled."))
             sys.exit(1)
 
         # Keep the edited (invalid) content for re-editing
@@ -333,7 +336,7 @@ def config_edit() -> None:
         backup_path.unlink()
 
     except OSError as e:
-        click.echo(f"\nError saving config: {e}", err=True)
+        click.echo("\n" + style_error(f"Error saving config: {e}"), err=True)
         click.echo(f"Original backed up at: {backup_path}", err=True)
         sys.exit(1)
 
@@ -347,9 +350,9 @@ def config_edit() -> None:
     )
 
     if new_version:
-        click.echo(f"\nConfiguration updated (version {new_version}).")
+        click.echo("\n" + style_success(f"Configuration updated (version {new_version})."))
     else:
-        click.echo("\nConfiguration saved (no changes detected).")
+        click.echo("\n" + style_success("Configuration saved (no changes detected)."))
     click.echo(f"Saved to: {config_path}")
 
 
@@ -380,10 +383,10 @@ def config_validate(path: Path | None) -> None:
 
     try:
         AppConfig.load_from_files(config_file_path)
-        click.echo(f"✓ Config valid: {config_file_path}")
+        click.echo(style_success(f"Config valid: {config_file_path}"))
     except json.JSONDecodeError as e:
-        click.echo(f"✗ Invalid JSON: {e}", err=True)
+        click.echo(style_error(f"Invalid JSON: {e}"), err=True)
         sys.exit(1)
     except (FileNotFoundError, ValueError) as e:
-        click.echo(f"✗ {e}", err=True)
+        click.echo(style_error(str(e)), err=True)
         sys.exit(1)

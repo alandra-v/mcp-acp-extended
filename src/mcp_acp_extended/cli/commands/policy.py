@@ -16,6 +16,8 @@ from pathlib import Path
 import click
 
 from mcp_acp_extended.cli.api_client import APIError, ProxyNotRunningError, api_request
+
+from ..styling import style_dim, style_error, style_label, style_success
 from mcp_acp_extended.constants import CLI_POLICY_RELOAD_TIMEOUT_SECONDS
 from mcp_acp_extended.utils.policy import get_policy_path, load_policy, save_policy
 
@@ -54,11 +56,11 @@ def policy_validate(path: Path | None) -> None:
     try:
         policy_config = load_policy(policy_path)
         rule_count = len(policy_config.rules)
-        click.echo(f"✓ Policy valid: {policy_path}")
+        click.echo(style_success(f"Policy valid: {policy_path}"))
         click.echo(f"  {rule_count} rule{'s' if rule_count != 1 else ''} defined")
         click.echo(f"  Default action: {policy_config.default_action}")
     except (FileNotFoundError, ValueError) as e:
-        click.echo(f"✗ {e}", err=True)
+        click.echo(style_error(str(e)), err=True)
         sys.exit(1)
 
 
@@ -92,7 +94,7 @@ def policy_reload() -> None:
         result = api_request("POST", "/api/control/reload-policy", timeout=CLI_POLICY_RELOAD_TIMEOUT_SECONDS)
 
         if not isinstance(result, dict):
-            click.echo("✗ Reload failed: Unexpected response", err=True)
+            click.echo(style_error("Reload failed: Unexpected response"), err=True)
             sys.exit(1)
 
         if result.get("status") == "success":
@@ -101,7 +103,7 @@ def policy_reload() -> None:
             approvals_cleared = result.get("approvals_cleared", 0)
             version = result.get("policy_version")
 
-            click.echo(f"✓ Policy reloaded: {old_count} → {new_count} rules")
+            click.echo(style_success(f"Policy reloaded: {old_count} → {new_count} rules"))
             if approvals_cleared > 0:
                 click.echo(
                     f"  {approvals_cleared} cached approval{'s' if approvals_cleared != 1 else ''} cleared"
@@ -110,16 +112,16 @@ def policy_reload() -> None:
                 click.echo(f"  Version: {version}")
         else:
             error = result.get("error", "Unknown error")
-            click.echo(f"✗ Reload failed: {error}", err=True)
+            click.echo(style_error(f"Reload failed: {error}"), err=True)
             sys.exit(1)
 
     except ProxyNotRunningError:
-        click.echo("✗ Error: Proxy not running", err=True)
+        click.echo(style_error("Error: Proxy not running"), err=True)
         click.echo("  Start the proxy with: mcp-acp-extended start", err=True)
         click.echo("  Or restart your MCP client (e.g., Claude Desktop)", err=True)
         sys.exit(1)
     except APIError as e:
-        click.echo(f"✗ Error: {e.message}", err=True)
+        click.echo(style_error(f"Error: {e.message}"), err=True)
         sys.exit(1)
 
 
@@ -135,7 +137,7 @@ def policy_show(as_json: bool) -> None:
     try:
         policy_config = load_policy(policy_path)
     except (FileNotFoundError, ValueError) as e:
-        click.echo(f"✗ {e}", err=True)
+        click.echo(style_error(str(e)), err=True)
         sys.exit(1)
 
     # Get file modification time
@@ -156,7 +158,7 @@ def policy_show(as_json: bool) -> None:
         click.echo(json.dumps(raw_policy, indent=2))
     else:
         # Human-readable output
-        click.echo(f"\nPolicy: {policy_path}")
+        click.echo("\n" + style_label("Policy") + f" {policy_path}")
         click.echo(f"Modified: {modified}")
         click.echo(f"Rules: {len(policy_config.rules)}")
         click.echo(f"Default action: {policy_config.default_action}")
@@ -200,7 +202,7 @@ def policy_edit() -> None:
 
     # Check policy exists
     if not policy_path.exists():
-        click.echo(f"Error: Policy file not found at {policy_path}", err=True)
+        click.echo(style_error(f"Error: Policy file not found at {policy_path}"), err=True)
         click.echo("Run 'mcp-acp-extended init' to create policy.", err=True)
         sys.exit(1)
 
@@ -209,7 +211,7 @@ def policy_edit() -> None:
         original_config = load_policy(policy_path)
         original_dict = original_config.model_dump(mode="json")
     except (FileNotFoundError, ValueError) as e:
-        click.echo(f"Error loading policy: {e}", err=True)
+        click.echo(style_error(f"Error loading policy: {e}"), err=True)
         sys.exit(1)
 
     # Get current content as formatted JSON
@@ -237,11 +239,11 @@ def policy_edit() -> None:
         edited_content = click.edit(current_content, extension=".json")
 
         if edited_content is None:
-            click.echo("Edit cancelled.")
+            click.echo(style_dim("Edit cancelled."))
             sys.exit(0)
 
         if edited_content.strip() == current_content.strip():
-            click.echo("No changes made.")
+            click.echo(style_dim("No changes made."))
             sys.exit(0)
 
         # Validate
@@ -252,12 +254,12 @@ def policy_edit() -> None:
             PolicyConfig.model_validate(new_dict)
             break
         except json.JSONDecodeError as e:
-            click.echo(f"\nError: Invalid JSON: {e}", err=True)
+            click.echo("\n" + style_error(f"Error: Invalid JSON: {e}"), err=True)
         except ValueError as e:
-            click.echo(f"\nError: Invalid policy: {e}", err=True)
+            click.echo("\n" + style_error(f"Error: Invalid policy: {e}"), err=True)
 
         if not click.confirm("Re-edit policy?", default=True):
-            click.echo("Edit cancelled.")
+            click.echo(style_dim("Edit cancelled."))
             sys.exit(1)
 
         current_content = edited_content
@@ -275,15 +277,15 @@ def policy_edit() -> None:
         backup_path.unlink()
 
     except OSError as e:
-        click.echo(f"\nError saving policy: {e}", err=True)
+        click.echo("\n" + style_error(f"Error saving policy: {e}"), err=True)
         click.echo(f"Original backed up at: {backup_path}", err=True)
         sys.exit(1)
 
     rule_count = len(json.loads(edited_content).get("rules", []))
-    click.echo(f"\n✓ Policy saved ({rule_count} rules)")
+    click.echo("\n" + style_success(f"Policy saved ({rule_count} rules)"))
     click.echo(f"  File: {policy_path}")
     click.echo()
-    click.echo(click.style("Note:", fg="yellow") + " If proxy is running, reload with:")
+    click.echo(click.style("Note:", fg="yellow", bold=True) + " If proxy is running, reload with:")
     click.echo("  mcp-acp-extended policy reload")
 
 
@@ -351,11 +353,11 @@ def policy_add() -> None:
     try:
         policy_config = load_policy(policy_path)
     except FileNotFoundError:
-        click.echo(f"Error: Policy file not found at {policy_path}", err=True)
+        click.echo(style_error(f"Error: Policy file not found at {policy_path}"), err=True)
         click.echo("Run 'mcp-acp-extended init' to create policy.", err=True)
         sys.exit(1)
     except ValueError as e:
-        click.echo(f"Error loading policy: {e}", err=True)
+        click.echo(style_error(f"Error loading policy: {e}"), err=True)
         sys.exit(1)
 
     # Show schema
@@ -379,11 +381,11 @@ def policy_add() -> None:
         edited_content = click.edit(current_content, extension=".json")
 
         if edited_content is None:
-            click.echo("Edit cancelled.")
+            click.echo(style_dim("Edit cancelled."))
             sys.exit(0)
 
         if edited_content.strip() == current_content.strip():
-            click.echo("No changes made.")
+            click.echo(style_dim("No changes made."))
             sys.exit(0)
 
         # Validate
@@ -396,12 +398,12 @@ def policy_add() -> None:
             rule = PolicyRule.model_validate(rule_dict)
             break
         except json.JSONDecodeError as e:
-            click.echo(f"\nError: Invalid JSON: {e}", err=True)
+            click.echo("\n" + style_error(f"Error: Invalid JSON: {e}"), err=True)
         except ValueError as e:
-            click.echo(f"\nError: Invalid rule: {e}", err=True)
+            click.echo("\n" + style_error(f"Error: Invalid rule: {e}"), err=True)
 
         if not click.confirm("Re-edit rule?", default=True):
-            click.echo("Cancelled.")
+            click.echo(style_dim("Cancelled."))
             sys.exit(1)
 
         current_content = edited_content
@@ -413,11 +415,11 @@ def policy_add() -> None:
     try:
         save_policy(policy_config, policy_path)
     except OSError as e:
-        click.echo(f"Error saving policy: {e}", err=True)
+        click.echo(style_error(f"Error saving policy: {e}"), err=True)
         sys.exit(1)
 
-    click.echo(f"\n✓ Rule added (now {len(policy_config.rules)} rules)")
+    click.echo("\n" + style_success(f"Rule added (now {len(policy_config.rules)} rules)"))
     click.echo(f"  File: {policy_path}")
     click.echo()
-    click.echo(click.style("Note:", fg="yellow") + " If proxy is running, reload with:")
+    click.echo(click.style("Note:", fg="yellow", bold=True) + " If proxy is running, reload with:")
     click.echo("  mcp-acp-extended policy reload")
