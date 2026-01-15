@@ -7,6 +7,19 @@ import { useIncidentsContext } from '@/context/IncidentsContext'
 import { useAppState } from '@/context/AppStateContext'
 import { cn } from '@/lib/utils'
 
+/** Count badge for nav items */
+function CountBadge({ count, variant = 'error' }: { count: number; variant?: 'error' | 'warning' }) {
+  const styles = variant === 'warning'
+    ? 'bg-warning text-base-950 shadow-[0_0_6px_var(--warning)]'
+    : 'bg-red-500 text-white shadow-[0_0_6px_rgba(239,68,68,0.5)]'
+
+  return (
+    <span className={`absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full text-[10px] font-semibold ${styles}`}>
+      {count}
+    </span>
+  )
+}
+
 export function Header() {
   const location = useLocation()
   const { hasUnread, criticalCount } = useIncidentsContext()
@@ -52,11 +65,7 @@ export function Header() {
         >
           <Clock className="w-4 h-4" />
           Pending
-          {pending.length > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-semibold text-white shadow-[0_0_6px_rgba(239,68,68,0.5)]">
-              {pending.length}
-            </span>
-          )}
+          {pending.length > 0 && <CountBadge count={pending.length} variant="warning" />}
         </button>
 
         {/* Incidents Link with Badge */}
@@ -71,11 +80,7 @@ export function Header() {
         >
           <AlertTriangle className="w-4 h-4" />
           Incidents
-          {hasUnread && criticalCount > 0 && (
-            <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] flex items-center justify-center rounded-full bg-red-500 text-[10px] font-semibold text-white shadow-[0_0_6px_rgba(239,68,68,0.5)]">
-              {criticalCount}
-            </span>
-          )}
+          {hasUnread && criticalCount > 0 && <CountBadge count={criticalCount} />}
         </Link>
 
         <AuthDropdown />
