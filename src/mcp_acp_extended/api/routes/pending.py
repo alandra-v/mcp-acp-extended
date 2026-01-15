@@ -77,6 +77,13 @@ async def pending_approvals_stream(state: ProxyStateDep) -> StreamingResponse:
             }
             yield f"data: {json.dumps(cached_snapshot)}\n\n"
 
+            # Send current stats
+            stats_event = {
+                "type": SSEEventType.STATS_UPDATED.value,
+                "stats": state.get_stats().to_dict(),
+            }
+            yield f"data: {json.dumps(stats_event)}\n\n"
+
             # Stream new events
             while True:
                 try:
