@@ -9,7 +9,7 @@
  * Note: HITL config is in AppConfig (Config section), not here.
  */
 
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Save, RotateCcw, AlertTriangle, Plus } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
@@ -87,6 +87,20 @@ export function PolicyJsonView({
   const [addJsonText, setAddJsonText] = useState('')
   const [addParseError, setAddParseError] = useState<string | null>(null)
 
+  // Refs for syncing line numbers scroll
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const lineNumbersRef = useRef<HTMLDivElement>(null)
+
+  // Line count for line numbers gutter
+  const lineCount = jsonText.split('\n').length
+
+  // Sync scroll between textarea and line numbers
+  const handleScroll = useCallback(() => {
+    if (textareaRef.current && lineNumbersRef.current) {
+      lineNumbersRef.current.scrollTop = textareaRef.current.scrollTop
+    }
+  }, [])
+
   // Reset when policy changes externally
   useEffect(() => {
     setJsonText(originalJson)
@@ -158,26 +172,48 @@ export function PolicyJsonView({
         </Button>
       </div>
 
-      {/* Editor */}
+      {/* Editor with line numbers */}
       <div className="relative">
-        <textarea
-          value={jsonText}
-          onChange={handleChange}
+        <div
           className={cn(
-            'w-full min-h-[400px] p-4 font-mono text-sm',
-            'bg-base-950 border rounded-lg resize-y',
-            'focus:outline-none focus:ring-2 focus:ring-primary/50',
+            'flex border rounded-lg overflow-hidden',
             parseError
-              ? 'border-destructive focus:ring-destructive/50'
-              : 'border-base-700'
+              ? 'border-destructive focus-within:ring-2 focus-within:ring-destructive/50'
+              : 'border-base-700 focus-within:ring-2 focus-within:ring-primary/50'
           )}
-          spellCheck={false}
-          disabled={mutating}
-        />
+        >
+          {/* Line numbers gutter */}
+          <div
+            ref={lineNumbersRef}
+            className="bg-base-900 text-base-500 font-mono text-sm py-4 px-3 select-none overflow-hidden text-right border-r border-base-700"
+            style={{ minHeight: '400px', maxHeight: '400px' }}
+          >
+            {Array.from({ length: lineCount }, (_, i) => (
+              <div key={i + 1} className="leading-[1.5]">
+                {i + 1}
+              </div>
+            ))}
+          </div>
+
+          {/* Textarea */}
+          <textarea
+            ref={textareaRef}
+            value={jsonText}
+            onChange={handleChange}
+            onScroll={handleScroll}
+            className={cn(
+              'flex-1 min-h-[400px] p-4 font-mono text-sm leading-[1.5]',
+              'bg-base-950 resize-y',
+              'focus:outline-none'
+            )}
+            spellCheck={false}
+            disabled={mutating}
+          />
+        </div>
 
         {/* Parse Error */}
         {parseError && (
-          <div className="absolute bottom-4 left-4 right-4 bg-destructive/10 border border-destructive/30 rounded-md p-3 flex items-start gap-2">
+          <div className="mt-2 bg-destructive/10 border border-destructive/30 rounded-md p-3 flex items-start gap-2">
             <AlertTriangle className="w-4 h-4 text-destructive flex-shrink-0 mt-0.5" />
             <div className="text-sm text-destructive">
               <span className="font-medium">Invalid JSON: </span>

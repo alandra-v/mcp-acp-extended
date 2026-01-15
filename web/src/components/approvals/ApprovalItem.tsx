@@ -124,7 +124,7 @@ export function ApprovalItem({
         <div className="flex items-center gap-3">
           {showProxyId && (
             <span className="text-xs text-base-500 bg-base-800 px-2 py-1 rounded">
-              {approval.proxy_id}
+              {approval.proxy_id.split(':')[1] || approval.proxy_id}
             </span>
           )}
           <span className="font-mono text-sm text-base-300">
