@@ -43,9 +43,17 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, Request, Response
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from .errors import (
+    APIError,
+    api_error_handler,
+    http_exception_handler,
+    validation_error_handler,
+)
 from .routes import (
     approvals,
     auth,
@@ -127,6 +135,11 @@ def create_api_app(token: str | None = None, is_uds: bool = False) -> FastAPI:
             allow_headers=["Content-Type", "Authorization"],
             max_age=3600,  # Cache preflight for 1 hour
         )
+
+    # Register exception handlers for structured error responses
+    app.add_exception_handler(APIError, api_error_handler)
+    app.add_exception_handler(RequestValidationError, validation_error_handler)
+    app.add_exception_handler(StarletteHTTPException, http_exception_handler)
 
     # Mount API routes
     app.include_router(proxies.router, prefix="/api/proxies", tags=["proxies"])

@@ -95,6 +95,13 @@ from mcp_acp_extended.api.schemas.incidents import (
     IncidentsSummary,
 )
 
+# Error schemas (for API documentation)
+from mcp_acp_extended.api.schemas.errors import (
+    ErrorDetail,
+    ErrorResponse,
+    ValidationErrorItem,
+)
+
 __all__ = [
     # Auth
     "AuthStatusResponse",
@@ -156,4 +163,8 @@ __all__ = [
     "LogsResponse",
     # Incidents
     "IncidentsSummary",
+    # Errors
+    "ErrorDetail",
+    "ErrorResponse",
+    "ValidationErrorItem",
 ]
