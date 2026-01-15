@@ -27,7 +27,6 @@ from __future__ import annotations
 
 __all__ = [
     "ConditionValue",
-    "HITLConfig",
     "PolicyConfig",
     "PolicyRule",
     "RuleConditions",
@@ -40,14 +39,6 @@ from typing import Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from mcp_acp_extended.constants import (
-    DEFAULT_APPROVAL_TTL_SECONDS,
-    DEFAULT_HITL_TIMEOUT_SECONDS,
-    MAX_APPROVAL_TTL_SECONDS,
-    MAX_HITL_TIMEOUT_SECONDS,
-    MIN_APPROVAL_TTL_SECONDS,
-    MIN_HITL_TIMEOUT_SECONDS,
-)
 from mcp_acp_extended.context.resource import SideEffect
 
 # Type alias for conditions that accept single value or list (OR logic)
@@ -198,43 +189,6 @@ class PolicyRule(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-class HITLConfig(BaseModel):
-    """Configuration for Human-in-the-Loop approval.
-
-    Attributes:
-        timeout_seconds: How long to wait for user response (default: 60s).
-            Must be between 5-300 seconds.
-        default_on_timeout: What to do if user doesn't respond (always "deny").
-        approval_ttl_seconds: How long cached approvals remain valid (default: 600s).
-            Must be between 300-900 seconds (5-15 minutes).
-        cache_side_effects: Side effects that are allowed to be cached.
-            If None (default), tools with ANY side effect are never cached.
-            Set to a list of SideEffects to allow caching for those effects.
-
-    Important:
-        The timeout should be shorter than your MCP client's request timeout.
-        If the client times out before the user responds, the request will fail
-        even if the user later approves. See constants.py for details.
-    """
-
-    timeout_seconds: int = Field(
-        default=DEFAULT_HITL_TIMEOUT_SECONDS,
-        ge=MIN_HITL_TIMEOUT_SECONDS,
-        le=MAX_HITL_TIMEOUT_SECONDS,
-    )
-    default_on_timeout: Literal["deny"] = "deny"
-
-    # Approval caching (reduces HITL fatigue)
-    approval_ttl_seconds: int = Field(
-        default=DEFAULT_APPROVAL_TTL_SECONDS,
-        ge=MIN_APPROVAL_TTL_SECONDS,
-        le=MAX_APPROVAL_TTL_SECONDS,
-    )
-    cache_side_effects: list[SideEffect] | None = None
-
-    model_config = ConfigDict(frozen=True)
-
-
 def _generate_rule_id(rule: PolicyRule) -> str:
     """Generate deterministic ID from rule content.
 
@@ -268,9 +222,9 @@ class PolicyConfig(BaseModel):
         version: Schema version for migrations
         default_action: What to do when no rule matches (always "deny")
         rules: List of rules; all matches combined via HITL > DENY > ALLOW
-        hitl: HITL configuration
 
     Note:
+        HITL configuration (timeout, caching) is in the config file, not policy.
         Rules without IDs get deterministic auto-generated IDs based on content hash.
         User-provided IDs must be unique within the policy.
     """
@@ -278,7 +232,6 @@ class PolicyConfig(BaseModel):
     version: str = "1"
     default_action: Literal["deny"] = "deny"
     rules: list[PolicyRule] = Field(default_factory=list)
-    hitl: HITLConfig = Field(default_factory=HITLConfig)
 
     model_config = ConfigDict(frozen=True)
 
@@ -329,5 +282,4 @@ def create_default_policy() -> PolicyConfig:
         version="1",
         default_action="deny",
         rules=[],
-        hitl=HITLConfig(),
     )
