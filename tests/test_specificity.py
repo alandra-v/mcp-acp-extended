@@ -62,7 +62,7 @@ class TestCountPathDepth:
         assert _count_path_depth("") == 0
 
     def test_counts_segments_before_wildcard(self):
-        assert _count_path_depth("<workspace>/**") == 3
+        assert _count_path_depth("/<home>/<user>/<projects>/**") == 3
 
     def test_counts_single_segment(self):
         assert _count_path_depth("/Users/**") == 1
@@ -123,7 +123,7 @@ class TestCalculateSpecificity:
             effect="allow",
             conditions=RuleConditions(
                 tool_name="read*",
-                path_pattern="<workspace>/**",
+                path_pattern="/<home>/<user>/<projects>/**",
             ),
         )
         # 2 conditions (200) + 3 depth = 203
