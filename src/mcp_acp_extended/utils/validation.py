@@ -7,6 +7,8 @@ from __future__ import annotations
 
 __all__ = [
     "SHA256_HEX_LENGTH",
+    "is_valid_http_url",
+    "is_valid_oidc_issuer",
     "validate_sha256_hex",
 ]
 
@@ -45,3 +47,29 @@ def validate_sha256_hex(value: str) -> tuple[bool, str | None]:
         return False, None
 
     return True, normalized
+
+
+def is_valid_http_url(url: str) -> bool:
+    """Check if URL has valid HTTP or HTTPS scheme.
+
+    Args:
+        url: URL string to validate.
+
+    Returns:
+        True if URL starts with http:// or https://.
+    """
+    return url.startswith("http://") or url.startswith("https://")
+
+
+def is_valid_oidc_issuer(url: str) -> bool:
+    """Check if OIDC issuer URL has valid HTTPS scheme.
+
+    OIDC issuers must use HTTPS per the OpenID Connect specification.
+
+    Args:
+        url: URL string to validate.
+
+    Returns:
+        True if URL starts with https://.
+    """
+    return url.startswith("https://")

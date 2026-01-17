@@ -29,7 +29,11 @@ from mcp_acp_extended.config import (
 )
 from mcp_acp_extended.constants import DEFAULT_HTTP_TIMEOUT_SECONDS, HEALTH_CHECK_TIMEOUT_SECONDS
 from mcp_acp_extended.utils.transport import check_http_health, validate_mtls_config
-from mcp_acp_extended.utils.validation import validate_sha256_hex
+from mcp_acp_extended.utils.validation import (
+    is_valid_http_url,
+    is_valid_oidc_issuer,
+    validate_sha256_hex,
+)
 
 
 def prompt_with_retry(prompt_text: str) -> str:
@@ -155,6 +159,14 @@ def prompt_http_config() -> HttpTransportConfig:
 
     while True:
         url = prompt_with_retry("Server URL (e.g., https://host:port/mcp)")
+
+        # Validate URL format before proceeding
+        if not is_valid_http_url(url):
+            click.echo(style_error(f"\nInvalid URL: {url}"))
+            click.echo("  URL must start with http:// or https://")
+            click.echo("  For STDIO transport (local command), run init again and select STDIO.\n")
+            continue
+
         timeout_str = prompt_optional("Connection timeout (seconds)", str(DEFAULT_HTTP_TIMEOUT_SECONDS))
         try:
             timeout = int(timeout_str)
@@ -203,8 +215,14 @@ def prompt_auth_config(http_config: HttpTransportConfig | None) -> AuthConfig:
     click.echo(style_header("Authentication"))
     click.echo("Configure Auth0/OIDC for user authentication.\n")
 
-    # OIDC settings
-    issuer = prompt_with_retry("OIDC issuer URL (e.g., https://your-tenant.auth0.com)")
+    # OIDC settings - validate issuer URL format
+    while True:
+        issuer = prompt_with_retry("OIDC issuer URL (e.g., https://your-tenant.auth0.com)")
+        if is_valid_oidc_issuer(issuer):
+            break
+        click.echo(style_error(f"\nInvalid issuer URL: {issuer}"))
+        click.echo("  OIDC issuer must start with https://\n")
+
     client_id = prompt_with_retry("Auth0 client ID")
     audience = prompt_with_retry("API audience (e.g., https://your-api.example.com)")
 

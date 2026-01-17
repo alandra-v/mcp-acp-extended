@@ -39,7 +39,7 @@ from mcp_acp_extended.utils.config import (
 )
 from mcp_acp_extended.utils.history_logging import log_config_created
 from mcp_acp_extended.utils.transport import check_http_health, validate_mtls_config
-from mcp_acp_extended.utils.validation import validate_sha256_hex
+from mcp_acp_extended.utils.validation import is_valid_oidc_issuer, validate_sha256_hex
 from mcp_acp_extended.security.auth.token_storage import create_token_storage
 
 from ..prompts import prompt_auth_config, prompt_http_config, prompt_stdio_config, prompt_with_retry
@@ -357,6 +357,11 @@ def _run_non_interactive_init(
         click.echo(
             style_error("Error: --oidc-issuer, --oidc-client-id, and --oidc-audience are required"), err=True
         )
+        sys.exit(1)
+
+    # Validate OIDC issuer URL format (must be HTTPS per OpenID Connect spec)
+    if not is_valid_oidc_issuer(oidc_issuer):
+        click.echo(style_error("Error: --oidc-issuer must start with https://"), err=True)
         sys.exit(1)
 
     # Validate attestation SHA-256 format if provided
