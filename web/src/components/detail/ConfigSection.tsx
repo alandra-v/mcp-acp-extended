@@ -511,6 +511,9 @@ export function ConfigSection({ loaded = true }: ConfigSectionProps) {
 
         {/* HITL Settings */}
         <FormSection title="Human-in-the-Loop (HITL)">
+          <p className="text-sm text-muted-foreground -mt-2 mb-4">
+            Requests matching HITL rules require manual approval before proceeding.
+          </p>
           <FormRow label="Timeout" hint="Seconds to wait for user approval (5-300)">
             <Input
               type="number"

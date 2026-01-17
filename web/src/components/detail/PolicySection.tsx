@@ -100,8 +100,8 @@ export function PolicySection({ loaded }: PolicySectionProps): JSX.Element {
             className={cn(
               'px-5 py-2.5 text-sm font-medium transition-colors rounded-t-lg border-t border-l border-r',
               activeTab === 'visual'
-                ? 'bg-base-900 text-foreground border-base-700 relative z-10'
-                : 'bg-base-950 text-muted-foreground border-transparent hover:text-foreground hover:bg-base-900/50'
+                ? 'bg-[oklch(0.20_0.014_228)] text-foreground border-base-700 relative z-10'
+                : 'bg-base-950 text-muted-foreground border-transparent border-b border-b-base-700 hover:text-foreground hover:bg-base-900/50'
             )}
           >
             Visual Editor
@@ -116,8 +116,8 @@ export function PolicySection({ loaded }: PolicySectionProps): JSX.Element {
             className={cn(
               'px-5 py-2.5 text-sm font-medium transition-colors rounded-t-lg border-t border-l border-r -ml-px',
               activeTab === 'json'
-                ? 'bg-base-900 text-foreground border-base-700 relative z-10'
-                : 'bg-base-950 text-muted-foreground border-transparent hover:text-foreground hover:bg-base-900/50'
+                ? 'bg-[oklch(0.20_0.014_228)] text-foreground border-base-700 relative z-10'
+                : 'bg-base-950 text-muted-foreground border-transparent border-b border-b-base-700 hover:text-foreground hover:bg-base-900/50'
             )}
           >
             JSON
@@ -146,7 +146,7 @@ export function PolicySection({ loaded }: PolicySectionProps): JSX.Element {
           id="policy-tabpanel"
           role="tabpanel"
           aria-label={activeTab === 'visual' ? 'Visual Editor' : 'JSON'}
-          className="bg-base-900 border border-t-0 border-base-700 rounded-b-lg p-4 min-h-[400px]"
+          className="card-gradient border border-t-0 border-base-700 rounded-b-lg p-4 min-h-[400px]"
         >
           {/* Auto-reload note at top */}
           <div className="flex items-center gap-2 mb-4 pb-3 border-b border-base-800 text-xs text-muted-foreground">
