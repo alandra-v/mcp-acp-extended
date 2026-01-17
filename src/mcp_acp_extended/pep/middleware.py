@@ -31,7 +31,8 @@ from fastmcp.server.middleware.middleware import CallNext, MiddlewareContext
 from mcp.types import ListToolsResult
 
 from mcp_acp_extended.context import ActionCategory, DecisionContext, build_decision_context
-from mcp_acp_extended.pdp import Decision, MatchedRule, PolicyEngine
+from mcp_acp_extended.pdp import Decision, MatchedRule, PolicyEngine, PolicyEngineProtocol
+from mcp_acp_extended.pep.protected_paths import ProtectedPathChecker
 from mcp_acp_extended.exceptions import (
     AuthenticationError,
     PermissionDeniedError,
@@ -79,6 +80,7 @@ class PolicyEnforcementMiddleware(Middleware):
         shutdown_callback: Callable[[str], None],
         policy_version: str | None = None,
         rate_tracker: SessionRateTracker | None = None,
+        engine: PolicyEngineProtocol | None = None,
     ) -> None:
         """Initialize enforcement middleware.
 
@@ -92,9 +94,14 @@ class PolicyEnforcementMiddleware(Middleware):
             shutdown_callback: Called for critical security failures (audit, session binding).
             policy_version: Policy version for audit logging.
             rate_tracker: Optional rate tracker for detecting runaway loops.
+            engine: Optional custom policy engine. If None, uses built-in PolicyEngine.
+                External engines (Casbin, OPA) can be injected here.
         """
         self._shutdown_callback = shutdown_callback
-        self._engine = PolicyEngine(policy, protected_dirs=protected_dirs)
+        # Protected path checker - built-in security separate from policy
+        self._path_checker = ProtectedPathChecker(protected_dirs)
+        # Use injected engine or create default
+        self._engine: PolicyEngineProtocol = engine or PolicyEngine(policy, protected_dirs=protected_dirs)
         self._identity_provider = identity_provider
         self._backend_id = backend_id
         self._logger = logger
@@ -311,9 +318,9 @@ class PolicyEnforcementMiddleware(Middleware):
             Tuple of (matched_rules, final_rule). Matched rules include
             id, effect, description, and specificity for decision trace logging.
         """
-        # Check for built-in protected path (checked first in engine)
+        # Check for built-in protected path (separate from policy engine)
         path = decision_context.resource.resource.path if decision_context.resource.resource else None
-        if self._engine.is_protected_path(path):
+        if self._path_checker.is_protected(path):
             return [], "built_in_protected_path"
 
         # Check for discovery bypass
@@ -850,6 +857,7 @@ def create_enforcement_middleware(
     shutdown_callback: Callable[[str], None],
     policy_version: str | None = None,
     rate_tracker: SessionRateTracker | None = None,
+    engine: PolicyEngineProtocol | None = None,
 ) -> PolicyEnforcementMiddleware:
     """Create policy enforcement middleware.
 
@@ -867,6 +875,8 @@ def create_enforcement_middleware(
         shutdown_callback: Called if audit log integrity check fails.
         policy_version: Policy version for audit logging (e.g., "v1").
         rate_tracker: Optional rate tracker for detecting runaway loops.
+        engine: Optional custom policy engine. If None, uses built-in PolicyEngine.
+            External engines (Casbin, OPA) can be injected here.
 
     Returns:
         Configured PolicyEnforcementMiddleware.
@@ -883,4 +893,5 @@ def create_enforcement_middleware(
         shutdown_callback=shutdown_callback,
         policy_version=policy_version,
         rate_tracker=rate_tracker,
+        engine=engine,
     )

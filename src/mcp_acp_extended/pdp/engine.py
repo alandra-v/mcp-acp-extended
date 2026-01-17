@@ -189,6 +189,17 @@ class PolicyEngine:
         """
         self.policy = new_policy
 
+    @property
+    def rule_count(self) -> int:
+        """Get the number of policy rules.
+
+        Used by reloader for hot reload statistics.
+
+        Returns:
+            Number of rules in the current policy.
+        """
+        return len(self.policy.rules)
+
     def is_protected_path(self, path: str | None) -> bool:
         """Check if path is under a protected directory.
 

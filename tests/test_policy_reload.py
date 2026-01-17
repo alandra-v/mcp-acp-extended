@@ -70,6 +70,7 @@ def mock_middleware(sample_policy):
     middleware = MagicMock()
     middleware._engine = MagicMock()
     middleware._engine.policy = sample_policy
+    middleware._engine.rule_count = len(sample_policy.rules)
     middleware.reload_policy.return_value = {
         "old_rules_count": 1,
         "new_rules_count": 2,

@@ -115,7 +115,7 @@ class PolicyReloader:
     @property
     def current_rules_count(self) -> int:
         """Get current number of policy rules."""
-        return len(self._middleware._engine.policy.rules)
+        return self._middleware._engine.rule_count
 
     @property
     def last_reload_at(self) -> str | None:

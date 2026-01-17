@@ -27,6 +27,7 @@ from mcp_acp_extended.pdp.policy import (
     RuleConditions,
     create_default_policy,
 )
+from mcp_acp_extended.pdp.protocol import PolicyEngineProtocol
 
 # NOTE: Policy I/O functions (load_policy, save_policy, etc.) are in utils.policy
 # to avoid circular imports. Import them directly:
@@ -37,6 +38,7 @@ __all__ = [
     "Decision",
     # Engine
     "PolicyEngine",
+    "PolicyEngineProtocol",
     "MatchedRule",
     # Policy models
     "PolicyConfig",
