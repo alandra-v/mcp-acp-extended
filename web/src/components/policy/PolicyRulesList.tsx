@@ -7,7 +7,7 @@
  * - AlertDialog for delete confirmation
  */
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useMemo } from 'react'
 import { ChevronRight, Pencil, Trash2, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -23,6 +23,15 @@ import {
 } from '@/components/ui/alert-dialog'
 import { cn } from '@/lib/utils'
 import type { PolicyRuleResponse, PolicyRuleConditions } from '@/types/api'
+
+type EffectFilter = 'all' | 'allow' | 'deny' | 'hitl'
+
+const EFFECT_FILTER_OPTIONS: { value: EffectFilter; label: string }[] = [
+  { value: 'all', label: 'All' },
+  { value: 'allow', label: 'Allow' },
+  { value: 'deny', label: 'Deny' },
+  { value: 'hitl', label: 'HITL' },
+]
 
 interface PolicyRulesListProps {
   /** Rules to display */
@@ -82,6 +91,17 @@ export function PolicyRulesList({
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false)
   const [ruleToDelete, setRuleToDelete] = useState<PolicyRuleResponse | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [effectFilter, setEffectFilter] = useState<EffectFilter>('all')
+
+  // Filter rules by effect
+  const filteredRules = useMemo(() => {
+    if (effectFilter === 'all') return rules
+    return rules.filter((r) => r.effect === effectFilter)
+  }, [rules, effectFilter])
+
+  const handleFilterChange = useCallback((filter: EffectFilter) => {
+    setEffectFilter(filter)
+  }, [])
 
   const handleToggle = useCallback((ruleId: string) => {
     setExpandedId((prev) => (prev === ruleId ? null : ruleId))
@@ -127,12 +147,46 @@ export function PolicyRulesList({
 
   return (
     <>
+      {/* Effect Filter */}
+      {rules.length > 1 && (
+        <div className="flex items-center justify-end mb-3">
+          <div
+            role="tablist"
+            aria-label="Filter rules by effect"
+            className="flex items-center gap-1 bg-base-900 rounded-lg p-1"
+          >
+            {EFFECT_FILTER_OPTIONS.map((option) => (
+              <button
+                key={option.value}
+                role="tab"
+                aria-selected={effectFilter === option.value}
+                onClick={() => handleFilterChange(option.value)}
+                className={cn(
+                  'px-3 py-1 text-xs font-medium rounded-md transition-colors',
+                  effectFilter === option.value
+                    ? 'bg-base-700 text-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Filtered empty state */}
+      {filteredRules.length === 0 && effectFilter !== 'all' ? (
+        <div className="text-center py-8 text-muted-foreground border border-dashed border-base-700 rounded-lg">
+          <p>No {effectFilter} rules</p>
+        </div>
+      ) : (
       <div className="border border-base-800 rounded-lg overflow-hidden">
-        {rules.map((rule, index) => {
+        {filteredRules.map((rule, index) => {
           const isExpanded = expandedId === (rule.id || `rule-${index}`)
           const conditions = getNonEmptyConditions(rule.conditions)
           const hasConditions = conditions.length > 0
-          const isLast = index === rules.length - 1
+          const isLast = index === filteredRules.length - 1
           const ruleKey = rule.id || `rule-${index}`
 
           return (
@@ -218,17 +272,18 @@ export function PolicyRulesList({
               {/* Expanded Conditions */}
               {isExpanded && hasConditions && (
                 <div className="px-4 pb-3 pl-11">
-                  <div className="bg-base-900 rounded-md p-3 space-y-1.5">
+                  <div className="text-xs text-muted-foreground font-medium mb-1.5">Conditions</div>
+                  <div className="space-y-1.5">
                     {conditions.map(([key, value]) => (
-                      <div key={key} className="flex items-start gap-2 text-sm">
-                        <span className="text-muted-foreground font-mono text-xs min-w-[120px]">
-                          {key}:
-                        </span>
-                        <span className="font-mono text-xs break-all">
-                          {formatConditionValue(value)}
-                        </span>
-                      </div>
-                    ))}
+                    <div key={key} className="flex items-start gap-2 text-sm">
+                      <span className="text-muted-foreground font-mono text-xs min-w-[120px]">
+                        {key}:
+                      </span>
+                      <span className="font-mono text-xs break-all">
+                        {formatConditionValue(value)}
+                      </span>
+                    </div>
+                  ))}
                   </div>
                 </div>
               )}
@@ -236,8 +291,20 @@ export function PolicyRulesList({
               {/* Expanded but no conditions */}
               {isExpanded && !hasConditions && (
                 <div className="px-4 pb-3 pl-11">
-                  <div className="bg-base-900 rounded-md p-3 text-sm text-muted-foreground">
-                    No conditions (matches all requests)
+                  <span className="text-sm text-muted-foreground">No conditions (matches all requests)</span>
+                </div>
+              )}
+
+              {/* HITL cache_side_effects */}
+              {isExpanded && rule.effect === 'hitl' && rule.cache_side_effects && rule.cache_side_effects.length > 0 && (
+                <div className="px-4 pb-3 pl-11">
+                  <div className="flex items-start gap-2 text-sm">
+                    <span className="text-yellow-400 font-mono text-xs min-w-[120px]">
+                      cache_side_effects:
+                    </span>
+                    <span className="font-mono text-xs break-all">
+                      {rule.cache_side_effects.join(', ')}
+                    </span>
                   </div>
                 </div>
               )}
@@ -245,6 +312,7 @@ export function PolicyRulesList({
           )
         })}
       </div>
+      )}
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>

@@ -343,8 +343,29 @@ export type PolicyResourceType = 'tool' | 'resource' | 'prompt' | 'server'
 /** Operations that can be matched */
 export type PolicyOperation = 'read' | 'write' | 'delete' | 'execute' | 'create' | 'update' | 'list' | 'invoke'
 
-/** Side effects that can trigger HITL */
-export type PolicySideEffect = 'network' | 'filesystem' | 'subprocess' | 'database' | 'credential' | 'memory'
+/** Side effects that can be used in policy conditions and cache settings */
+export type PolicySideEffect =
+  | 'fs_read'
+  | 'fs_write'
+  | 'db_read'
+  | 'db_write'
+  | 'network_egress'
+  | 'network_ingress'
+  | 'code_exec'
+  | 'process_spawn'
+  | 'sudo_elevate'
+  | 'secrets_read'
+  | 'env_read'
+  | 'keychain_read'
+  | 'clipboard_read'
+  | 'clipboard_write'
+  | 'browser_open'
+  | 'screen_capture'
+  | 'audio_capture'
+  | 'camera_capture'
+  | 'cloud_api'
+  | 'container_exec'
+  | 'email_send'
 
 /** Conditions for matching a policy rule */
 export interface PolicyRuleConditions {
@@ -362,12 +383,13 @@ export interface PolicyRuleConditions {
   side_effects?: PolicySideEffect[]
 }
 
-/** HITL configuration */
+/** HITL configuration
+ * Note: cache_side_effects has moved to per-rule policy configuration.
+ */
 export interface HITLConfig {
   timeout_seconds: number
   default_on_timeout: 'deny'
   approval_ttl_seconds: number
-  cache_side_effects?: PolicySideEffect[] | null
 }
 
 /** Policy rule from API response */
@@ -376,6 +398,8 @@ export interface PolicyRuleResponse {
   effect: PolicyEffect
   conditions: PolicyRuleConditions
   description: string | null
+  /** Side effects that allow approval caching (HITL rules only) */
+  cache_side_effects?: PolicySideEffect[] | null
 }
 
 /** Policy rule for create/update requests */
@@ -384,6 +408,8 @@ export interface PolicyRuleCreate {
   description?: string
   effect: PolicyEffect
   conditions: PolicyRuleConditions
+  /** Side effects that allow approval caching (HITL rules only) */
+  cache_side_effects?: PolicySideEffect[] | null
 }
 
 /** Full policy response from GET /api/policy

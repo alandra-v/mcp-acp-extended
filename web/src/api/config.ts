@@ -51,11 +51,11 @@ export interface ProxyConfig {
   name: string
 }
 
+/** HITL configuration (cache_side_effects moved to per-rule policy) */
 export interface HITLConfig {
   timeout_seconds: number
   default_on_timeout: string
   approval_ttl_seconds: number
-  cache_side_effects: string[] | null
 }
 
 export interface ConfigResponse {
@@ -140,10 +140,10 @@ export interface ProxyConfigUpdate {
   name?: string
 }
 
+/** HITL update (cache_side_effects moved to per-rule policy) */
 export interface HITLConfigUpdate {
   timeout_seconds?: number
   approval_ttl_seconds?: number
-  cache_side_effects?: string[]
 }
 
 export interface ConfigUpdateRequest {

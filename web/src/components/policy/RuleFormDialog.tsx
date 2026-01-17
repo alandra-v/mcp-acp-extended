@@ -33,6 +33,7 @@ import type {
   PolicyEffect,
   PolicyRuleConditions,
   PolicyOperation,
+  PolicySideEffect,
 } from '@/types/api'
 
 interface RuleFormDialogProps {
@@ -63,6 +64,14 @@ const OPERATION_OPTIONS: readonly PolicyOperation[] = [
   'delete',
 ]
 
+/** All cacheable side effects - sent to backend when caching is enabled */
+const ALL_CACHEABLE_SIDE_EFFECTS: PolicySideEffect[] = [
+  'fs_read', 'fs_write', 'db_read', 'db_write', 'network_egress', 'network_ingress',
+  'process_spawn', 'sudo_elevate', 'secrets_read', 'env_read', 'clipboard_read',
+  'clipboard_write', 'browser_open', 'email_send', 'cloud_api', 'container_exec',
+  'keychain_read', 'screen_capture', 'audio_capture', 'camera_capture',
+]
+
 /** Convert rule response to form state */
 function ruleToFormState(rule: PolicyRuleResponse | null): PolicyRuleCreate {
   if (!rule) {
@@ -76,7 +85,13 @@ function ruleToFormState(rule: PolicyRuleResponse | null): PolicyRuleCreate {
     description: rule.description || undefined,
     effect: rule.effect,
     conditions: { ...rule.conditions },
+    cache_side_effects: rule.cache_side_effects || undefined,
   }
+}
+
+/** Check if HITL options are configured */
+function hasHitlOptions(rule: PolicyRuleCreate): boolean {
+  return !!(rule.cache_side_effects && rule.cache_side_effects.length > 0)
 }
 
 /** Check if move/copy fields have values */
@@ -126,7 +141,14 @@ export function RuleFormDialog({
     field: K,
     value: PolicyRuleCreate[K]
   ) => {
-    setFormState((prev) => ({ ...prev, [field]: value }))
+    setFormState((prev) => {
+      const newState = { ...prev, [field]: value }
+      // Clear cache_side_effects when effect changes away from 'hitl'
+      if (field === 'effect' && value !== 'hitl' && prev.cache_side_effects) {
+        newState.cache_side_effects = undefined
+      }
+      return newState
+    })
   }, [])
 
   // Update condition field
@@ -183,6 +205,12 @@ export function RuleFormDialog({
       : [...current, op]
     updateCondition('operations', newOps.length > 0 ? newOps : undefined)
   }, [formState.conditions.operations, updateCondition])
+
+  // Toggle approval caching (sends all cacheable effects or undefined)
+  const handleCacheToggle = useCallback(() => {
+    const isCurrentlyEnabled = formState.cache_side_effects && formState.cache_side_effects.length > 0
+    updateField('cache_side_effects', isCurrentlyEnabled ? undefined : ALL_CACHEABLE_SIDE_EFFECTS)
+  }, [formState.cache_side_effects, updateField])
 
   // Format array to comma-separated string
   const formatArrayField = useCallback((value: string | string[] | undefined): string => {
@@ -464,6 +492,39 @@ export function RuleFormDialog({
               </div>
             )}
           </div>
+
+          {/* HITL Options - Only shown when effect is 'hitl' */}
+          {formState.effect === 'hitl' && (
+            <div className="pt-4 border-t border-base-800">
+              <label className="flex items-center gap-3 cursor-pointer">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={hasHitlOptions(formState)}
+                  onClick={handleCacheToggle}
+                  className={cn(
+                    'relative w-10 h-5 rounded-full transition-colors',
+                    hasHitlOptions(formState)
+                      ? 'bg-yellow-500'
+                      : 'bg-base-700'
+                  )}
+                >
+                  <span
+                    className={cn(
+                      'absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white transition-transform',
+                      hasHitlOptions(formState) && 'translate-x-5'
+                    )}
+                  />
+                </button>
+                <div>
+                  <span className="text-sm font-medium">Allow approval caching</span>
+                  <p className="text-xs text-muted-foreground">
+                    When enabled, you can cache your approval for repeated tool calls
+                  </p>
+                </div>
+              </label>
+            </div>
+          )}
         </div>
 
         <DialogFooter>
