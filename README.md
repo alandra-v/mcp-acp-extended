@@ -92,13 +92,38 @@ Policies define what operations are allowed, denied, or require human approval (
 |-----------|-------------|
 | `tool_name` | Glob pattern matching tool names (`read_*`, `bash`) |
 | `path_pattern` | Glob pattern for file paths (`/project/**`, `*.py`) |
+| `source_path` | Glob pattern for source path in move/copy operations |
+| `dest_path` | Glob pattern for destination path in move/copy operations |
 | `operations` | Inferred operation type: `read`, `write`, `delete` |
 | `extension` | File extension (`.py`, `.json`) |
+| `scheme` | URI scheme (`file`, `db`, `s3`) |
+| `backend_id` | Server ID pattern (glob) for multi-backend scenarios |
+| `resource_type` | MCP resource type: `tool`, `resource`, `prompt`, `server` |
+| `mcp_method` | MCP method pattern (`tools/call`, `resources/*`) |
 | `subject_id` | User identity from OIDC token |
+| `side_effects` | Tool must have any of these side effects |
+
+**HITL rules** support an additional `cache_side_effects` attribute—see [HITL Configuration](docs/policies.md#hitl-configuration).
 
 **Rule combining**: HITL > DENY > ALLOW (most restrictive wins). No rules match → deny.
 
 See [Policies](docs/policies.md).
+
+---
+
+## Web UI
+
+The proxy includes a web UI at `http://localhost:8765` when running.
+
+**Features**:
+- HITL approval queue (approve, deny, allow-once)
+- Policy editor (view and modify rules)
+- Log viewer
+- Cached approvals management
+
+On macOS, HITL uses native dialogs by default. The web UI is the primary HITL interface on Linux and Windows.
+
+See [Web UI](docs/web-ui.md).
 
 ---
 
@@ -167,8 +192,6 @@ Device health checks must be disabled. Set in `src/mcp_acp_extended/constants.py
 SKIP_DEVICE_HEALTH_CHECK: bool = True  # Required for Linux/Windows
 ```
 
-### Tested Configurations
-
 ---
 
 ## Limitations
@@ -210,6 +233,11 @@ See [Roadmap](docs/roadmap.md) for planned features beyond stage 3.
 - [Architecture](docs/architecture.md) - System design
 - [Logging](docs/logging.md) - Log formats
 - [Auth](docs/auth.md) - OIDC setup
+- [Backend Auth](docs/backend_auth.md) - mTLS and backend verification
+- [Web UI](docs/web-ui.md) - Web interface guide
+- [API Reference](docs/api_reference.md) - HTTP API endpoints
+- [Decision Context](docs/decision_context.md) - Policy evaluation context
+
 ---
 
 ## License
