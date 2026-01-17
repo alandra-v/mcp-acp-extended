@@ -37,15 +37,23 @@ class PolicyRuleResponse(BaseModel):
     effect: str
     conditions: dict[str, Any]
     description: str | None
+    cache_side_effects: list[str] | None = None
 
 
 class PolicyRuleCreate(BaseModel):
-    """Request body for creating/updating a rule."""
+    """Request body for creating/updating a rule.
+
+    Attributes:
+        cache_side_effects: (HITL only) Side effects that allow approval caching.
+            If None, tools with ANY side effect are never cached.
+            CODE_EXEC is never cached regardless of this setting.
+    """
 
     id: str | None = None
     description: str | None = None
     effect: Literal["allow", "deny", "hitl"]
     conditions: dict[str, Any]
+    cache_side_effects: list[str] | None = None
 
 
 class PolicyRuleMutationResponse(BaseModel):

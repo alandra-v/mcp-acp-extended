@@ -1,6 +1,8 @@
 """Approvals command group for mcp-acp-extended CLI.
 
-Manage cached HITL approvals. Requires running proxy (uses API).
+Manage cached Human-in-the-Loop (HITL) approvals.
+HITL rules require manual user approval before requests proceed.
+Requires running proxy (uses API).
 """
 
 from __future__ import annotations
@@ -21,7 +23,8 @@ from ..styling import style_dim, style_error, style_label, style_success
 def approvals() -> None:
     """Approval cache management.
 
-    View and clear cached HITL approvals.
+    View and clear cached Human-in-the-Loop (HITL) approvals.
+    HITL rules require manual approval before requests proceed.
     Requires the proxy to be running.
     """
     pass

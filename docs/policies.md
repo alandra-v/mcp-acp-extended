@@ -443,33 +443,36 @@ Auto-deny in 60s
 
 ### HITL Configuration
 
-HITL settings are configured in `config.json` (not `policy.json`). Changes require proxy restart.
+HITL timeout and TTL settings are in `config.json`. Caching behavior is configured per-rule in `policy.json`.
+
+**Config settings** (`config.json`):
 
 | Field | Required | Default | Constraints | Description |
 |-------|----------|---------|-------------|-------------|
 | `timeout_seconds` | No | `60` | 5-300 | How long to wait for user response |
 | `default_on_timeout` | No | `"deny"` | (fixed) | Always deny on timeout (Zero Trust, cannot be changed) |
 | `approval_ttl_seconds` | No | `600` | 300-900 | How long cached approvals remain valid (5-15 min) |
-| `cache_side_effects` | No | `null` | see below | Which side effects can be cached |
 
-**`cache_side_effects` values:**
+**Per-rule caching** (`policy.json`):
+
+Each HITL rule can specify `cache_side_effects` to control which side effects allow caching:
+
+```json
+{
+  "id": "hitl-read-files",
+  "effect": "hitl",
+  "conditions": { "tool_name": "read*" },
+  "cache_side_effects": ["fs_read"]
+}
+```
 
 | Value | Behavior |
 |-------|----------|
-| `null` (default) | Only cache tools with NO side effects (unknown tools are also not cached) |
-| `["fs_write", ...]` | Also cache tools with these specific side effects |
-| (any value) | Tools with `code_exec` are **never cached** (unsafe - same key matches different commands) |
+| `null` or omitted | Only cache tools with NO side effects |
+| `["fs_read", "fs_write", ...]` | Cache tools with these specific side effects |
+| (any value) | Tools with `code_exec` are **never cached** (security) |
 
-Example (in `config.json`):
-```json
-{
-  "hitl": {
-    "timeout_seconds": 60,
-    "approval_ttl_seconds": 600,
-    "cache_side_effects": ["fs_write"]
-  }
-}
-```
+**Note**: `cache_side_effects` is only valid on rules with `effect: "hitl"`. It will be rejected on allow/deny rules.
 
 **Note**: MCP clients have their own request timeouts. Ensure client timeout > HITL timeout to allow user response time.
 

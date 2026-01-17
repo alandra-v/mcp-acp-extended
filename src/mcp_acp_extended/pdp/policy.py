@@ -179,14 +179,29 @@ class PolicyRule(BaseModel):
         description: Optional human-readable description for documentation
         effect: What happens when rule matches
         conditions: Matching criteria (AND logic)
+        cache_side_effects: (HITL only) Side effects that allow approval caching.
+            If None (default), tools with ANY side effect are never cached.
+            Set to a list of SideEffects to allow caching for those effects.
+            CODE_EXEC is never cached regardless of this setting (security).
     """
 
     id: str | None = None
     description: str | None = None
     effect: Literal["allow", "deny", "hitl"]
     conditions: RuleConditions = Field(default_factory=RuleConditions)
+    cache_side_effects: list[SideEffect] | None = None
 
     model_config = ConfigDict(frozen=True)
+
+    @model_validator(mode="after")
+    def validate_cache_side_effects(self) -> Self:
+        """Validate cache_side_effects is only set for HITL rules."""
+        if self.cache_side_effects is not None and self.effect != "hitl":
+            raise ValueError(
+                "cache_side_effects can only be set when effect='hitl'. "
+                f"Got effect='{self.effect}' with cache_side_effects={self.cache_side_effects}"
+            )
+        return self
 
 
 def _generate_rule_id(rule: PolicyRule) -> str:

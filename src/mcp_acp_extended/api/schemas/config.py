@@ -111,12 +111,14 @@ class ProxyConfigResponse(BaseModel):
 
 
 class HITLConfigResponse(BaseModel):
-    """HITL (Human-in-the-Loop) configuration."""
+    """HITL (Human-in-the-Loop) configuration.
+
+    Note: cache_side_effects has moved to per-rule policy configuration.
+    """
 
     timeout_seconds: int
     default_on_timeout: str
     approval_ttl_seconds: int
-    cache_side_effects: list[str] | None
 
 
 class ConfigResponse(BaseModel):
@@ -202,7 +204,10 @@ class AuthConfigUpdate(BaseModel):
 
 
 class HITLConfigUpdate(BaseModel):
-    """Updatable HITL fields."""
+    """Updatable HITL fields.
+
+    Note: cache_side_effects has moved to per-rule policy configuration.
+    """
 
     timeout_seconds: int | None = Field(
         default=None,
@@ -214,7 +219,6 @@ class HITLConfigUpdate(BaseModel):
         ge=MIN_APPROVAL_TTL_SECONDS,
         le=MAX_APPROVAL_TTL_SECONDS,
     )
-    cache_side_effects: list[str] | None = None
 
 
 class ConfigUpdateRequest(BaseModel):

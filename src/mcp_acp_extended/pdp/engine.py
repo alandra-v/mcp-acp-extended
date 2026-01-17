@@ -69,6 +69,7 @@ from mcp_acp_extended.pdp.matcher import (
     match_path_pattern,
     match_tool_name,
 )
+from mcp_acp_extended.context.resource import SideEffect
 from mcp_acp_extended.pdp.policy import PolicyConfig, PolicyRule
 
 # Wildcard characters used in glob patterns
@@ -136,12 +137,14 @@ class MatchedRule:
         effect: The rule's effect ("allow", "deny", "hitl").
         specificity: Specificity score for tie-breaking within same effect level.
             Higher scores indicate more specific rules.
+        cache_side_effects: (HITL only) Side effects that allow approval caching.
     """
 
     id: str
     description: str | None
     effect: Literal["allow", "deny", "hitl"]
     specificity: int = 0
+    cache_side_effects: list["SideEffect"] | None = None
 
 
 class PolicyEngine:
@@ -313,6 +316,7 @@ class PolicyEngine:
                         description=rule.description,
                         effect=rule.effect,
                         specificity=self._calculate_specificity(rule),
+                        cache_side_effects=rule.cache_side_effects,
                     )
                 )
 

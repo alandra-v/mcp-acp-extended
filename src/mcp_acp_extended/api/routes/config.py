@@ -161,14 +161,11 @@ def _build_config_response(config: AppConfig) -> ConfigResponse:
             mtls=mtls_response,
         )
 
-    # Build HITL response
+    # Build HITL response (cache_side_effects moved to per-rule policy config)
     hitl_response = HITLConfigResponse(
         timeout_seconds=config.hitl.timeout_seconds,
         default_on_timeout=config.hitl.default_on_timeout,
         approval_ttl_seconds=config.hitl.approval_ttl_seconds,
-        cache_side_effects=(
-            [e.value for e in config.hitl.cache_side_effects] if config.hitl.cache_side_effects else None
-        ),
     )
 
     return ConfigResponse(

@@ -243,14 +243,15 @@ class HITLConfig(BaseModel):
         default_on_timeout: What to do if user doesn't respond (always "deny").
         approval_ttl_seconds: How long cached approvals remain valid (default: 600s).
             Must be between 300-900 seconds (5-15 minutes).
-        cache_side_effects: Side effects that are allowed to be cached.
-            If None (default), tools with ANY side effect are never cached.
-            Set to a list of SideEffects to allow caching for those effects.
 
     Important:
         The timeout should be shorter than your MCP client's request timeout.
         If the client times out before the user responds, the request will fail
         even if the user later approves. See constants.py for details.
+
+    Note:
+        cache_side_effects has moved to per-rule policy configuration.
+        Set it on individual HITL rules to control which side effects can be cached.
     """
 
     timeout_seconds: int = Field(
@@ -265,7 +266,6 @@ class HITLConfig(BaseModel):
         ge=MIN_APPROVAL_TTL_SECONDS,
         le=MAX_APPROVAL_TTL_SECONDS,
     )
-    cache_side_effects: list[SideEffect] | None = None
 
 
 class AppConfig(BaseModel):

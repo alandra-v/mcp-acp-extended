@@ -1130,11 +1130,13 @@ class TestApprovalCaching:
 
     @pytest.fixture
     def mock_hitl_config_with_caching(self) -> HITLConfig:
-        """Create HITLConfig with caching settings."""
+        """Create HITLConfig with caching settings.
+
+        Note: cache_side_effects has moved to per-rule policy configuration.
+        """
         return HITLConfig(
             timeout_seconds=30,
             approval_ttl_seconds=600,
-            cache_side_effects=None,  # Default: never cache side effects
         )
 
     @pytest.fixture
@@ -1465,15 +1467,15 @@ class TestApprovalCaching:
         mock_identity_provider: MagicMock,
         mock_logger: MagicMock,
     ) -> None:
-        """When cache_side_effects is configured, those effects can be cached."""
+        """When cache_side_effects is configured on a rule, those effects can be cached."""
         from mcp_acp_extended.context.resource import SideEffect
+        from mcp_acp_extended.pdp.engine import MatchedRule
 
-        # Create policy and HITLConfig allowing FS_READ caching
+        # Create policy and HITLConfig (cache_side_effects now per-rule, not in config)
         mock_policy = MagicMock()
         hitl_config = HITLConfig(
             timeout_seconds=30,
             approval_ttl_seconds=600,
-            cache_side_effects=[SideEffect.FS_READ],
         )
 
         # Create middleware
@@ -1501,7 +1503,7 @@ class TestApprovalCaching:
             "arguments": {"path": "/test/file.txt"},
         }
 
-        # Mock tool with FS_READ side effect (allowed to cache)
+        # Mock tool with FS_READ side effect (allowed to cache via rule)
         mock_tool = MagicMock()
         mock_tool.name = "read_file"
         mock_tool.side_effects = frozenset({SideEffect.FS_READ})
@@ -1520,13 +1522,22 @@ class TestApprovalCaching:
         mock_decision_context.environment.request_id = "req123"
         mock_decision_context.environment.session_id = "sess456"
 
+        # Create a MatchedRule with cache_side_effects allowing FS_READ
+        matched_rule = MatchedRule(
+            id="hitl-rule-1",
+            description="Allow read_file with HITL",
+            effect="hitl",
+            specificity=100,
+            cache_side_effects=[SideEffect.FS_READ],
+        )
+
         assert middleware.approval_store.count == 0
 
         with patch.object(
             middleware, "_build_context", new_callable=AsyncMock, return_value=mock_decision_context
         ):
             with patch.object(middleware._engine, "evaluate", return_value=Decision.HITL):
-                with patch.object(middleware._engine, "get_matching_rules", return_value=[]):
+                with patch.object(middleware._engine, "get_matching_rules", return_value=[matched_rule]):
                     with patch.object(
                         middleware._hitl_handler,
                         "request_approval",
@@ -1541,7 +1552,7 @@ class TestApprovalCaching:
                                 # Act
                                 await middleware.on_message(mock_context, call_next)
 
-        # Assert - approval WAS cached (FS_READ is allowed)
+        # Assert - approval WAS cached (FS_READ is allowed via rule's cache_side_effects)
         assert middleware.approval_store.count == 1
 
     @pytest.mark.asyncio

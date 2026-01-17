@@ -600,10 +600,18 @@ class PolicyEnforcementMiddleware(Middleware):
         subject_id = decision_context.subject.id
 
         # Determine if this tool's approval can be cached (for dialog buttons)
+        # cache_side_effects is now per-rule, not global config
+        # Find the winning rule from matched_rules to get its cache_side_effects
         tool_side_effects = tool.side_effects if tool else None
+        rule_cache_effects = None
+        if final_rule and matched_rules:
+            for matched in matched_rules:
+                if matched.id == final_rule:
+                    rule_cache_effects = matched.cache_side_effects
+                    break
         will_cache = ApprovalStore.should_cache(
             tool_side_effects=tool_side_effects,
-            allowed_effects=self._hitl_config.cache_side_effects,
+            allowed_effects=rule_cache_effects,
         )
 
         # Check approval cache first (reduces HITL dialog fatigue)

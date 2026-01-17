@@ -64,7 +64,7 @@ def mock_config():
     config.hitl.timeout_seconds = 60
     config.hitl.default_on_timeout = "deny"
     config.hitl.approval_ttl_seconds = 600
-    config.hitl.cache_side_effects = None
+    # Note: cache_side_effects has moved to per-rule policy configuration
 
     return config
 
@@ -90,7 +90,7 @@ def mock_config_no_auth():
     config.hitl.timeout_seconds = 60
     config.hitl.default_on_timeout = "deny"
     config.hitl.approval_ttl_seconds = 600
-    config.hitl.cache_side_effects = None
+    # Note: cache_side_effects has moved to per-rule policy configuration
 
     return config
 
@@ -220,7 +220,7 @@ class TestUpdateConfig:
         new_config.hitl.timeout_seconds = 60
         new_config.hitl.default_on_timeout = "deny"
         new_config.hitl.approval_ttl_seconds = 600
-        new_config.hitl.cache_side_effects = None
+        # Note: cache_side_effects has moved to per-rule policy configuration
         new_config.save_to_file = MagicMock()
 
         config_path = tmp_path / "config.json"
@@ -290,7 +290,7 @@ class TestUpdateConfig:
         mock_config.hitl.timeout_seconds = 60
         mock_config.hitl.default_on_timeout = "deny"
         mock_config.hitl.approval_ttl_seconds = 600
-        mock_config.hitl.cache_side_effects = None
+        # Note: cache_side_effects has moved to per-rule policy configuration
 
         with patch("mcp_acp_extended.config.AppConfig.load_from_files", return_value=mock_config):
             with patch("mcp_acp_extended.config.AppConfig.model_validate", return_value=mock_config):

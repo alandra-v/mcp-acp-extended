@@ -31,6 +31,7 @@ from mcp_acp_extended.api.schemas import (
     PolicyRuleMutationResponse,
     PolicyRuleResponse,
 )
+from mcp_acp_extended.context.resource import SideEffect
 from mcp_acp_extended.pdp.policy import PolicyConfig, PolicyRule, RuleConditions
 from mcp_acp_extended.pep.reloader import PolicyReloader
 from mcp_acp_extended.utils.policy import get_policy_path, load_policy
@@ -159,12 +160,14 @@ async def update_full_policy(
     new_rules: list[PolicyRule] = []
     for rule_data in policy_data.rules:
         conditions = _validate_conditions(rule_data.conditions)
+        cache_effects = _parse_cache_side_effects(rule_data.cache_side_effects)
         new_rules.append(
             PolicyRule(
                 id=rule_data.id,
                 description=rule_data.description,
                 effect=rule_data.effect,
                 conditions=conditions,
+                cache_side_effects=cache_effects,
             )
         )
 
@@ -205,15 +208,7 @@ async def get_policy_rules() -> list[PolicyRuleResponse]:
     """Get just the policy rules (simplified view)."""
     policy = _load_policy_or_raise()
 
-    return [
-        PolicyRuleResponse(
-            id=rule.id,
-            effect=rule.effect,
-            conditions=rule.conditions.model_dump(),
-            description=rule.description,
-        )
-        for rule in policy.rules
-    ]
+    return [_rule_to_response(rule) for rule in policy.rules]
 
 
 async def _save_and_reload(reloader: PolicyReloader, policy: PolicyConfig) -> str | None:
@@ -255,6 +250,36 @@ async def _save_and_reload(reloader: PolicyReloader, policy: PolicyConfig) -> st
     return result.policy_version
 
 
+def _parse_cache_side_effects(values: list[str] | None) -> list[SideEffect] | None:
+    """Parse string side effect values to SideEffect enum.
+
+    Args:
+        values: List of side effect string values, or None.
+
+    Returns:
+        List of SideEffect enum values, or None. Empty lists are normalized to None.
+
+    Raises:
+        APIError: 400 if any value is invalid.
+    """
+    if values is None or len(values) == 0:
+        return None
+
+    result = []
+    for v in values:
+        try:
+            result.append(SideEffect(v))
+        except ValueError:
+            valid_values = [e.value for e in SideEffect]
+            raise APIError(
+                status_code=400,
+                code=ErrorCode.POLICY_INVALID,
+                message=f"Invalid side effect: '{v}'",
+                details={"valid_values": valid_values},
+            )
+    return result
+
+
 def _rule_to_response(rule: PolicyRule) -> PolicyRuleResponse:
     """Convert PolicyRule to API response."""
     return PolicyRuleResponse(
@@ -262,6 +287,7 @@ def _rule_to_response(rule: PolicyRule) -> PolicyRuleResponse:
         effect=rule.effect,
         conditions=rule.conditions.model_dump(),
         description=rule.description,
+        cache_side_effects=([e.value for e in rule.cache_side_effects] if rule.cache_side_effects else None),
     )
 
 
@@ -288,8 +314,9 @@ async def add_policy_rule(
                     details={"rule_id": rule_data.id},
                 )
 
-    # Validate conditions
+    # Validate conditions and cache_side_effects
     conditions = _validate_conditions(rule_data.conditions)
+    cache_effects = _parse_cache_side_effects(rule_data.cache_side_effects)
 
     # Create new rule
     new_rule = PolicyRule(
@@ -297,6 +324,7 @@ async def add_policy_rule(
         description=rule_data.description,
         effect=rule_data.effect,
         conditions=conditions,
+        cache_side_effects=cache_effects,
     )
 
     # Append to rules and rebuild policy (will auto-generate ID if not provided)
@@ -328,8 +356,9 @@ async def update_policy_rule(
     """
     policy = _load_policy_or_raise()
 
-    # Validate conditions
+    # Validate conditions and cache_side_effects
     conditions = _validate_conditions(rule_data.conditions)
+    cache_effects = _parse_cache_side_effects(rule_data.cache_side_effects)
 
     # Find and replace rule
     new_rules = []
@@ -343,6 +372,7 @@ async def update_policy_rule(
                     description=rule_data.description,
                     effect=rule_data.effect,
                     conditions=conditions,
+                    cache_side_effects=cache_effects,
                 )
             )
             found = True

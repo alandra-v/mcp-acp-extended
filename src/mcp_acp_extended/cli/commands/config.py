@@ -198,13 +198,7 @@ def config_show(as_json: bool) -> None:
             f"  approval_ttl_seconds: {loaded_config.hitl.approval_ttl_seconds}"
             + (_default_marker() if ttl_default else "")
         )
-
-        cache_default = _is_default(raw_config, "hitl", "cache_side_effects")
-        if loaded_config.hitl.cache_side_effects:
-            effects = [e.value for e in loaded_config.hitl.cache_side_effects]
-            click.echo(f"  cache_side_effects: {effects}" + (_default_marker() if cache_default else ""))
-        else:
-            click.echo("  cache_side_effects: (none)" + (_default_marker() if cache_default else ""))
+        click.echo("  cache_side_effects: (per-rule in policy)")
         click.echo()
 
         click.echo(f"Config file: {config_file_path}")

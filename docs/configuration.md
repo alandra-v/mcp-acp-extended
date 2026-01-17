@@ -149,8 +149,7 @@ Configuration is stored in an OS-specific application directory:
   },
   "hitl": {
     "timeout_seconds": 60,
-    "approval_ttl_seconds": 600,
-    "cache_side_effects": null
+    "approval_ttl_seconds": 600
   }
 }
 ```
@@ -216,9 +215,8 @@ Human-in-the-Loop settings are configured in `mcp_acp_extended_config.json` (not
 | `hitl.timeout_seconds` | User response timeout (default: 60, min: 5, max: 300) |
 | `hitl.default_on_timeout` | Action on timeout (always "deny", cannot be changed) |
 | `hitl.approval_ttl_seconds` | Cached approval lifetime (default: 600, min: 300, max: 900) |
-| `hitl.cache_side_effects` | Side effects allowed to be cached (default: null = none) |
 
-See [Policies](policies.md#hitl-configuration) for full HITL documentation.
+**Note**: `cache_side_effects` is configured per-rule in policy.json, not in config. See [Policies](policies.md#hitl-configuration) for details.
 
 ### policy.json
 
