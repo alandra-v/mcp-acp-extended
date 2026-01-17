@@ -27,12 +27,12 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { cn } from '@/lib/utils'
+import { getPolicySchema } from '@/api/policy'
 import type {
   PolicyRuleResponse,
   PolicyRuleCreate,
   PolicyEffect,
   PolicyRuleConditions,
-  PolicyOperation,
   PolicySideEffect,
 } from '@/types/api'
 
@@ -58,11 +58,9 @@ const EFFECT_OPTIONS: { value: PolicyEffect; label: string; description: string 
 ]
 
 const RESOURCE_TYPE_OPTIONS = ['tool', 'resource', 'prompt', 'server'] as const
-const OPERATION_OPTIONS: readonly PolicyOperation[] = [
-  'read',
-  'write',
-  'delete',
-]
+
+/** Fallback operations if schema fetch fails */
+const FALLBACK_OPERATIONS = ['read', 'write', 'delete']
 
 /** All cacheable side effects - sent to backend when caching is enabled */
 const ALL_CACHEABLE_SIDE_EFFECTS: PolicySideEffect[] = [
@@ -122,8 +120,23 @@ export function RuleFormDialog({
   const [formState, setFormState] = useState<PolicyRuleCreate>(ruleToFormState(rule))
   const [showMoveCopy, setShowMoveCopy] = useState(false)
   const [showAdvanced, setShowAdvanced] = useState(false)
+  const [operations, setOperations] = useState<string[]>([])
 
   const isEditing = rule !== null
+
+  // Fetch schema on mount
+  useEffect(() => {
+    const controller = new AbortController()
+    getPolicySchema({ signal: controller.signal })
+      .then((schema) => setOperations(schema.operations))
+      .catch((err: unknown) => {
+        // Ignore abort errors (component unmount)
+        if (err instanceof Error && err.name === 'AbortError') return
+        // Use fallback if schema fetch fails
+        setOperations(FALLBACK_OPERATIONS)
+      })
+    return () => controller.abort()
+  }, [])
 
   // Reset state when dialog opens/rule changes
   useEffect(() => {
@@ -196,7 +209,7 @@ export function RuleFormDialog({
 
   // Toggle operation selection
   const handleOperationToggle = useCallback((e: React.MouseEvent<HTMLButtonElement>) => {
-    const op = e.currentTarget.dataset.operation as PolicyOperation
+    const op = e.currentTarget.dataset.operation
     if (!op) return
     const current = formState.conditions.operations || []
     const isSelected = current.includes(op)
@@ -404,7 +417,7 @@ export function RuleFormDialog({
                 <div className="grid grid-cols-[140px_1fr] gap-2 items-start">
                   <span className="text-sm pt-2" id="operations-label">operations</span>
                   <div className="flex flex-wrap gap-2" role="group" aria-labelledby="operations-label">
-                    {OPERATION_OPTIONS.map((op) => {
+                    {operations.map((op) => {
                       const isSelected = formState.conditions.operations?.includes(op)
                       return (
                         <button

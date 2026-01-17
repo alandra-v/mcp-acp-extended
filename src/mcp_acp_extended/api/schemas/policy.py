@@ -8,6 +8,7 @@ __all__ = [
     "PolicyRuleCreate",
     "PolicyRuleMutationResponse",
     "PolicyRuleResponse",
+    "PolicySchemaResponse",
 ]
 
 from typing import Any, Literal
@@ -74,3 +75,12 @@ class PolicyFullUpdate(BaseModel):
     version: str = "1"
     default_action: Literal["deny"] = "deny"
     rules: list[PolicyRuleCreate]
+
+
+class PolicySchemaResponse(BaseModel):
+    """Schema information for policy configuration.
+
+    Provides valid values for policy rule fields.
+    """
+
+    operations: list[str]

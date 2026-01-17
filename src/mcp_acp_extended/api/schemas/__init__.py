@@ -49,6 +49,7 @@ from mcp_acp_extended.api.schemas.policy import (
     PolicyRuleCreate,
     PolicyRuleMutationResponse,
     PolicyRuleResponse,
+    PolicySchemaResponse,
 )
 
 # Approvals schemas
@@ -140,6 +141,7 @@ __all__ = [
     "PolicyRuleCreate",
     "PolicyRuleMutationResponse",
     "PolicyRuleResponse",
+    "PolicySchemaResponse",
     # Approvals
     "ApprovalCacheResponse",
     "CachedApprovalResponse",

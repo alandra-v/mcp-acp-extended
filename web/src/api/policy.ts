@@ -14,6 +14,7 @@ import type {
   PolicyRuleCreate,
   PolicyRuleMutationResponse,
   PolicyFullUpdate,
+  PolicySchemaResponse,
 } from '@/types/api'
 
 /**
@@ -36,6 +37,18 @@ export function getPolicy(options?: RequestOptions): Promise<PolicyResponse> {
  */
 export function getPolicyRules(options?: RequestOptions): Promise<PolicyRuleResponse[]> {
   return apiGet<PolicyRuleResponse[]>('/policy/rules', options)
+}
+
+/**
+ * Get policy schema information.
+ *
+ * Returns valid values for policy fields (operations, etc.)
+ *
+ * @param options - Request options with optional abort signal
+ * @returns Schema with valid operations
+ */
+export function getPolicySchema(options?: RequestOptions): Promise<PolicySchemaResponse> {
+  return apiGet<PolicySchemaResponse>('/policy/schema', options)
 }
 
 /**

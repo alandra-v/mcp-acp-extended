@@ -379,7 +379,7 @@ export interface PolicyRuleConditions {
   resource_type?: PolicyResourceType
   mcp_method?: string | string[]
   subject_id?: string | string[]
-  operations?: PolicyOperation[]
+  operations?: string[]
   side_effects?: PolicySideEffect[]
 }
 
@@ -429,6 +429,11 @@ export interface PolicyRuleMutationResponse {
   rule: PolicyRuleResponse
   policy_version: string | null
   rules_count: number
+}
+
+/** Policy schema with valid field values */
+export interface PolicySchemaResponse {
+  operations: string[]
 }
 
 /** Full policy update request for PUT /api/policy

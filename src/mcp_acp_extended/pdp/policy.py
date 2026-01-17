@@ -30,12 +30,19 @@ __all__ = [
     "PolicyConfig",
     "PolicyRule",
     "RuleConditions",
+    "VALID_OPERATIONS",
     "create_default_policy",
 ]
 
 import hashlib
 import json
-from typing import Literal, Self
+from typing import Literal, Self, get_args
+
+# Operations type for policy rules - single source of truth
+OperationType = Literal["read", "write", "delete"]
+
+# Exported constant for use in API schema and validation
+VALID_OPERATIONS: tuple[str, ...] = get_args(OperationType)
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -82,7 +89,7 @@ class RuleConditions(BaseModel):
     # Original conditions (now support lists with OR logic)
     tool_name: ConditionValue = None
     path_pattern: ConditionValue = None
-    operations: list[Literal["read", "write", "delete"]] | None = None
+    operations: list[OperationType] | None = None
 
     # Source/destination path conditions (for move/copy operations)
     source_path: ConditionValue = None

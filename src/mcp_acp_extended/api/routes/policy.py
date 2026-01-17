@@ -30,9 +30,10 @@ from mcp_acp_extended.api.schemas import (
     PolicyRuleCreate,
     PolicyRuleMutationResponse,
     PolicyRuleResponse,
+    PolicySchemaResponse,
 )
 from mcp_acp_extended.context.resource import SideEffect
-from mcp_acp_extended.pdp.policy import PolicyConfig, PolicyRule, RuleConditions
+from mcp_acp_extended.pdp.policy import VALID_OPERATIONS, PolicyConfig, PolicyRule, RuleConditions
 from mcp_acp_extended.pep.reloader import PolicyReloader
 from mcp_acp_extended.utils.policy import get_policy_path, load_policy
 
@@ -111,6 +112,16 @@ def _rebuild_policy(policy: PolicyConfig, new_rules: list[PolicyRule]) -> Policy
             message=f"Invalid policy: {e.error_count()} validation error(s)",
             validation_errors=validation_errors,
         )
+
+
+@router.get("/schema")
+async def get_policy_schema() -> PolicySchemaResponse:
+    """Get policy schema information.
+
+    Returns valid values for policy rule fields like operations.
+    Used by frontend to avoid hardcoding these values.
+    """
+    return PolicySchemaResponse(operations=list(VALID_OPERATIONS))
 
 
 @router.get("")
