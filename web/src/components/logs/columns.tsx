@@ -61,6 +61,9 @@ function StatusBadge({ status }: { status: string | undefined }) {
   const isError = normalized === 'error' || normalized === 'failed' || normalized === 'failure'
   const isPending = normalized === 'pending' || normalized === 'waiting'
 
+  // Normalize display text for consistency
+  const displayText = isSuccess ? 'success' : isError ? 'failure' : status
+
   return (
     <span
       className={cn(
@@ -71,7 +74,7 @@ function StatusBadge({ status }: { status: string | undefined }) {
         !isSuccess && !isError && !isPending && 'bg-base-700 text-base-400'
       )}
     >
-      {status}
+      {displayText}
     </span>
   )
 }
