@@ -1,8 +1,8 @@
 /**
  * Incidents context for badge state management.
  *
- * Tracks whether there are unread incidents by comparing the latest
- * critical timestamp (shutdowns + emergency) against a localStorage timestamp.
+ * Shows unread count badge when there are new incidents since last viewed.
+ * Resets when user views the incidents page.
  */
 
 import {
@@ -11,20 +11,22 @@ import {
   useState,
   useEffect,
   useCallback,
+  useRef,
   type ReactNode,
 } from 'react'
 import { getIncidentsSummary, type IncidentsSummary } from '@/api/incidents'
 
-const LAST_SEEN_KEY = 'mcp-acp-incidents-last-seen'
+const LAST_SEEN_TOTAL_KEY = 'mcp-acp-incidents-last-seen-total'
+const LAST_SEEN_TIMESTAMP_KEY = 'mcp-acp-incidents-last-seen-timestamp'
 
 interface IncidentsContextValue {
-  /** Whether there are unread incidents (shutdowns or emergency) */
-  hasUnread: boolean
-  /** Total count of all incidents (shutdowns + emergency + bootstrap) */
-  totalCount: number
+  /** Count of unread incidents */
+  unreadCount: number
+  /** Timestamp when incidents were last marked as read (for glow on new items) */
+  lastSeenTimestamp: string | null
   /** Summary data from API */
   summary: IncidentsSummary | null
-  /** Mark all incidents as read (update localStorage) */
+  /** Mark all incidents as read */
   markAsRead: () => void
   /** Refresh summary from API */
   refresh: () => Promise<void>
@@ -36,47 +38,67 @@ interface IncidentsProviderProps {
   children: ReactNode
 }
 
+/** Calculate total incident count from summary. */
+function getTotalCount(summary: IncidentsSummary | null): number {
+  if (!summary) return 0
+  return summary.shutdowns_count + summary.emergency_count + summary.bootstrap_count
+}
+
 export function IncidentsProvider({ children }: IncidentsProviderProps) {
   const [summary, setSummary] = useState<IncidentsSummary | null>(null)
-  const [lastSeen, setLastSeen] = useState<string | null>(() => {
-    return localStorage.getItem(LAST_SEEN_KEY)
+  const [lastSeenTotal, setLastSeenTotal] = useState<number>(() => {
+    const stored = localStorage.getItem(LAST_SEEN_TOTAL_KEY)
+    return stored ? parseInt(stored, 10) || 0 : 0
+  })
+  const [lastSeenTimestamp, setLastSeenTimestamp] = useState<string | null>(() => {
+    return localStorage.getItem(LAST_SEEN_TIMESTAMP_KEY)
   })
 
+  // Track active fetch for cleanup
+  const abortControllerRef = useRef<AbortController | null>(null)
+
   const fetchSummary = useCallback(async () => {
+    // Cancel any in-flight request
+    abortControllerRef.current?.abort()
+    const controller = new AbortController()
+    abortControllerRef.current = controller
+
     try {
-      const data = await getIncidentsSummary()
+      const data = await getIncidentsSummary({ signal: controller.signal })
       setSummary(data)
-    } catch {
-      // Silent fail - badge just won't show
+    } catch (error) {
+      // Ignore abort errors (expected on cleanup)
+      // Other errors (network, server) are logged by fetchWithRetry in client.ts
+      if (error instanceof DOMException && error.name === 'AbortError') {
+        return
+      }
     }
   }, [])
 
-  // Fetch on mount
   useEffect(() => {
     fetchSummary()
+    return () => {
+      abortControllerRef.current?.abort()
+    }
   }, [fetchSummary])
 
-  // Calculate hasUnread: latest_critical_timestamp > lastSeen
-  const hasUnread = Boolean(
-    summary?.latest_critical_timestamp &&
-      (!lastSeen || summary.latest_critical_timestamp > lastSeen)
-  )
-
-  const totalCount =
-    (summary?.shutdowns_count ?? 0) +
-    (summary?.emergency_count ?? 0) +
-    (summary?.bootstrap_count ?? 0)
+  const totalCount = getTotalCount(summary)
+  const unreadCount = Math.max(0, totalCount - lastSeenTotal)
 
   const markAsRead = useCallback(() => {
-    if (summary?.latest_critical_timestamp) {
-      localStorage.setItem(LAST_SEEN_KEY, summary.latest_critical_timestamp)
-      setLastSeen(summary.latest_critical_timestamp)
+    const total = getTotalCount(summary)
+    if (total > 0) {
+      const now = new Date().toISOString()
+      localStorage.setItem(LAST_SEEN_TOTAL_KEY, String(total))
+      localStorage.setItem(LAST_SEEN_TIMESTAMP_KEY, now)
+      setLastSeenTotal(total)
+      setLastSeenTimestamp(now)
     }
   }, [summary])
 
   const value: IncidentsContextValue = {
-    hasUnread,
-    totalCount,
+    unreadCount,
+    lastSeenTimestamp,
     summary,
     markAsRead,
     refresh: fetchSummary,

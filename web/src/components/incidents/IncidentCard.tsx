@@ -13,27 +13,35 @@ interface IncidentCardProps {
   incident: IncidentEntry
   /** Whether this is the last item (hides the timeline connector) */
   isLast?: boolean
+  /** Whether this incident is new (unread) - shows glow effect */
+  isNew?: boolean
 }
 
 const INCIDENT_CONFIG = {
   shutdown: {
     label: 'SHUTDOWN',
     dotClass: 'bg-red-500',
+    dotGlow: 'shadow-[0_0_8px_rgba(239,68,68,0.7)]',
     badgeClass: 'bg-red-500/15 text-red-400 border-red-500/25',
+    badgeGlow: 'shadow-[0_0_8px_rgba(239,68,68,0.5)]',
   },
   bootstrap: {
     label: 'STARTUP ERROR',
     dotClass: 'bg-amber-500',
+    dotGlow: 'shadow-[0_0_8px_rgba(245,158,11,0.7)]',
     badgeClass: 'bg-amber-500/15 text-amber-400 border-amber-500/25',
+    badgeGlow: 'shadow-[0_0_8px_rgba(245,158,11,0.5)]',
   },
   emergency: {
     label: 'AUDIT FAILURE',
     dotClass: 'bg-purple-500',
+    dotGlow: 'shadow-[0_0_8px_rgba(168,85,247,0.7)]',
     badgeClass: 'bg-purple-500/15 text-purple-400 border-purple-500/25',
+    badgeGlow: 'shadow-[0_0_8px_rgba(168,85,247,0.5)]',
   },
 }
 
-export function IncidentCard({ incident, isLast = false }: IncidentCardProps) {
+export function IncidentCard({ incident, isLast = false, isNew = false }: IncidentCardProps) {
   const [expanded, setExpanded] = useState(false)
   const config = INCIDENT_CONFIG[incident.incident_type]
 
@@ -50,7 +58,8 @@ export function IncidentCard({ incident, isLast = false }: IncidentCardProps) {
         <div
           className={cn(
             'w-3 h-3 rounded-full shrink-0 mt-1.5 ring-4 ring-background',
-            config.dotClass
+            config.dotClass,
+            isNew && config.dotGlow
           )}
         />
         {/* Connector line */}
@@ -66,7 +75,8 @@ export function IncidentCard({ incident, isLast = false }: IncidentCardProps) {
           <span
             className={cn(
               'inline-flex items-center px-2 py-0.5 rounded text-[11px] font-semibold border uppercase tracking-wide',
-              config.badgeClass
+              config.badgeClass,
+              isNew && config.badgeGlow
             )}
           >
             {config.label}
@@ -180,6 +190,19 @@ function formatEventType(event: string): string {
     config_validation_failed: 'Configuration Validation Failed',
     policy_validation_failed: 'Policy Validation Failed',
     emergency_audit: 'Emergency Audit Entry',
+    // Startup errors
+    config_not_found: 'Configuration Not Found',
+    mtls_cert_not_found: 'mTLS Certificate Not Found',
+    backend_timeout: 'Backend Connection Timeout',
+    backend_connection_failed: 'Backend Connection Failed',
+    ssl_error: 'SSL/TLS Error',
+    audit_failure: 'Audit Log Failure',
+    auth_not_configured: 'Authentication Not Configured',
+    not_authenticated: 'Not Authenticated',
+    auth_expired: 'Authentication Expired',
+    auth_failed: 'Authentication Failed',
+    device_health_failed: 'Device Health Check Failed',
+    startup_failed: 'Startup Failed',
   }
   return mapping[event] || event.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
 }
